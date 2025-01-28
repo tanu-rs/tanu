@@ -1,0 +1,28 @@
+[package]
+name = "tanu-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ansi-to-tui = "6"
+async-trait = { workspace = true }
+crossterm = { version = "0.28", features = ["event-stream"] }
+dotenv = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+ratatui = "0.28"
+serde_json = "1"
+strum = { version = "0.26", features = ["derive"] }
+syntect = "5"
+tanu-core = { path = "../tanu-core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+tui-big-text = "0.6.0"
+tui-logger = { version = "0.13", features = ["tracing-support"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

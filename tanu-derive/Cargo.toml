@@ -1,0 +1,16 @@
+[package]
+name = "tanu-derive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eyre = { workspace = true }
+itertools = { workspace = true }
+once_cell = { workspace = true }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+walkdir = "2.5"
+
+[lib]
+proc-macro = true

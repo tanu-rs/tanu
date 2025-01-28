@@ -1,0 +1,23 @@
+[package]
+name = "tanu-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+console = { version = "0.15" }
+eyre = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+once_cell = { workspace = true }
+pretty_assertions = "1"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { workspace = true }
+serde_json  = "1"
+tanu-derive.path = "../tanu-derive"
+thiserror = "1"
+tokio = { workspace = true }
+toml = "0.8"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

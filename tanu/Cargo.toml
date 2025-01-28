@@ -1,0 +1,30 @@
+[package]
+name = "tanu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+color-eyre = "0.6"
+console = { version = "0.15" }
+dotenv = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+pretty_assertions = "1"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { workspace = true }
+tanu-core.path = "../tanu-core"
+tanu-derive.path = "../tanu-derive"
+tanu-tui.path = "../tanu-tui"
+thiserror = "1"
+tokio = { workspace = true }
+toml = "0.8"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
