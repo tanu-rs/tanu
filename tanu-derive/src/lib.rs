@@ -54,7 +54,6 @@ struct TestModule {
 }
 
 /// Represents arguments in the test attribute #[test(a, b; c)].
-#[derive(Debug)]
 struct Input {
     /// Test arguments specified in the test attribute.
     args: Punctuated<Expr, Token![,]>,

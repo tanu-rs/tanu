@@ -2,6 +2,13 @@
 name = "tanu-derive"
 version = "0.1.0"
 edition = "2021"
+description = "Offering #[tanu::test] and #[tanu::main] macros"
+readme = "README.md"
+homepage = "https://github.com/tanu-rs/tanu"
+repository = "https://github.com/tanu-rs/tanu"
+license = "Apache-2.0"
+keywords = ["webapi", "test", "http"]
+categories = ["Development tools"]
 
 [dependencies]
 eyre = { workspace = true }
