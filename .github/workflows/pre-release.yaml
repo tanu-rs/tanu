@@ -1,0 +1,25 @@
+name: test publishing to crates.io
+
+on:
+  release:
+    types: [prereleased]
+
+env:
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  dryrun:
+    name: pre-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: test publishing tanu-derive to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --dry-run --no-verify --package tanu-derive
+      - name: test publishing tanu-core to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --dry-run --no-verify --package tanu-core
+      - name: test publishing tanu-tui to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --dry-run --no-verify --package tanu-tui
+      - name: test publishing tanu to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --dry-run --no-verify --package tanu

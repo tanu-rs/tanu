@@ -23,7 +23,7 @@ ratatui = "0.28"
 serde_json = "1"
 strum = { version = "0.26", features = ["derive"] }
 syntect = "5"
-tanu-core = { version = "0.1", path = "../tanu-core" }
+tanu-core = { version = "=0.1.0", path = "../tanu-core" }
 tokio = { workspace = true }
 tui-big-text = "0.6.0"
 tui-logger = { version = "0.13", features = ["tracing-support"] }
