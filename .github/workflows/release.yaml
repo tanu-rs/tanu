@@ -1,0 +1,25 @@
+name: publish to crates.io
+
+on:
+  release:
+    types: [released]
+
+env:
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: publish tanu-derive to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --package tanu-derive
+      - name: publish tanu-core to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --package tanu-core
+      - name: publish tanu-tui to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --package tanu-tui
+      - name: publish tanu to crates.io
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN --package tanu
