@@ -8,7 +8,7 @@ homepage = "https://github.com/tanu-rs/tanu"
 repository = "https://github.com/tanu-rs/tanu"
 license = "Apache-2.0"
 keywords = ["webapi", "test", "http"]
-categories = ["Development tools"]
+categories = ["development-tools"]
 
 [dependencies]
 eyre = { workspace = true }
