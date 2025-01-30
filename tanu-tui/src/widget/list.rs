@@ -35,7 +35,7 @@ impl<'a> TestListWidget<'a> {
     }
 }
 
-impl<'a> StatefulWidget for TestListWidget<'a> {
+impl StatefulWidget for TestListWidget<'_> {
     type State = TestListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
