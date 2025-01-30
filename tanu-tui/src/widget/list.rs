@@ -7,9 +7,9 @@ use tanu_core::{self, Filter, TestIgnoreFilter, TestMetadata};
 
 use crate::SELECTED_STYLE;
 
-const EXPANDED: &'static str = "▸";
+const EXPANDED: &str = "▸";
 
-const UNEXPANDED: &'static str = "▾";
+const UNEXPANDED: &str = "▾";
 
 pub struct TestListWidget<'a> {
     list_widget: List<'a>,
@@ -35,7 +35,7 @@ impl<'a> TestListWidget<'a> {
     }
 }
 
-impl<'a> StatefulWidget for TestListWidget<'a> {
+impl StatefulWidget for TestListWidget<'_> {
     type State = TestListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
@@ -120,7 +120,7 @@ impl TestListState {
         projects: &[tanu_core::ProjectConfig],
         test_cases: &[TestMetadata],
     ) -> TestListState {
-        let test_ignore_filter = TestIgnoreFilter::new();
+        let test_ignore_filter = TestIgnoreFilter::default();
         let grouped_by_module = test_cases
             .iter()
             .cloned()
@@ -139,7 +139,7 @@ impl TestListState {
                         expanded: true,
                         tests: tests
                             .into_iter()
-                            .filter(|metadata| test_ignore_filter.filter(&proj, &metadata))
+                            .filter(|metadata| test_ignore_filter.filter(proj, metadata))
                             .collect(),
                     })
                     .filter(|module|
@@ -280,24 +280,30 @@ mod test {
             },
         ];
         let mut state = TestListState::new(projects.as_slice(), &test_cases);
-
-        state.expand();
-
         assert!(state.projects[0].expanded);
-        assert!(!state.projects[1].expanded);
-        assert!(!state.projects[0].modules[0].expanded);
-        assert!(!state.projects[0].modules[1].expanded);
-        assert!(!state.projects[1].modules[0].expanded);
-        assert!(!state.projects[1].modules[1].expanded);
+        assert!(state.projects[1].expanded);
+        assert!(state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[1].expanded);
+        assert!(state.projects[1].modules[0].expanded);
+        assert!(state.projects[1].modules[1].expanded);
 
         state.expand();
 
         assert!(!state.projects[0].expanded);
-        assert!(!state.projects[1].expanded);
-        assert!(!state.projects[0].modules[0].expanded);
-        assert!(!state.projects[0].modules[1].expanded);
-        assert!(!state.projects[1].modules[0].expanded);
-        assert!(!state.projects[1].modules[1].expanded);
+        assert!(state.projects[1].expanded);
+        assert!(state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[1].expanded);
+        assert!(state.projects[1].modules[0].expanded);
+        assert!(state.projects[1].modules[1].expanded);
+
+        state.expand();
+
+        assert!(state.projects[0].expanded);
+        assert!(state.projects[1].expanded);
+        assert!(state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[1].expanded);
+        assert!(state.projects[1].modules[0].expanded);
+        assert!(state.projects[1].modules[1].expanded);
     }
 
     #[test]

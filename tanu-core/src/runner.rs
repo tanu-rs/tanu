@@ -61,7 +61,7 @@ pub type TestName = String;
 #[derive(Debug, Clone)]
 pub enum Message {
     Start(ProjectName, TestName),
-    HttpLog(ProjectName, TestName, http::Log),
+    HttpLog(ProjectName, TestName, Box<http::Log>),
     End(ProjectName, TestName, Test),
 }
 
@@ -99,6 +99,7 @@ pub struct Options {
     pub terminate_channel: bool,
 }
 
+#[derive(Default)]
 pub struct Runner {
     options: Options,
     test_cases: Vec<(TestMetadata, TestCaseFactory)>,
@@ -115,7 +116,7 @@ pub struct ProjectFilter<'a> {
     project_names: &'a [String],
 }
 
-impl<'a> Filter for ProjectFilter<'a> {
+impl Filter for ProjectFilter<'_> {
     fn filter(&self, project: &ProjectConfig, _metadata: &TestMetadata) -> bool {
         if self.project_names.is_empty() {
             return true;
@@ -132,7 +133,7 @@ pub struct ModuleFilter<'a> {
     module_names: &'a [String],
 }
 
-impl<'a> Filter for ModuleFilter<'a> {
+impl Filter for ModuleFilter<'_> {
     fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
         if self.module_names.is_empty() {
             return true;
@@ -149,7 +150,7 @@ pub struct TestNameFilter<'a> {
     test_names: &'a [String],
 }
 
-impl<'a> Filter for TestNameFilter<'a> {
+impl Filter for TestNameFilter<'_> {
     fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
         if self.test_names.is_empty() {
             return true;
@@ -166,8 +167,8 @@ pub struct TestIgnoreFilter {
     test_ignores: HashMap<String, Vec<String>>,
 }
 
-impl TestIgnoreFilter {
-    pub fn new() -> TestIgnoreFilter {
+impl Default for TestIgnoreFilter {
+    fn default() -> TestIgnoreFilter {
         TestIgnoreFilter {
             test_ignores: get_tanu_config()
                 .projects
@@ -192,11 +193,7 @@ impl Filter for TestIgnoreFilter {
 
 impl Runner {
     pub fn new() -> Runner {
-        Runner {
-            options: Default::default(),
-            test_cases: Default::default(),
-            reporters: Default::default(),
-        }
+        Runner::default()
     }
 
     pub fn capture_http(&mut self) {
@@ -242,7 +239,7 @@ impl Runner {
         let project_filter = ProjectFilter { project_names };
         let module_filter = ModuleFilter { module_names };
         let test_name_filter = TestNameFilter { test_names };
-        let test_ignore_filter = TestIgnoreFilter::new();
+        let test_ignore_filter = TestIgnoreFilter::default();
 
         let handles: FuturesUnordered<_> = self
                 .test_cases
@@ -274,7 +271,7 @@ impl Runner {
                     test_ignore_filter.filter(project, metadata)
                 })
                 .map(|(project, metadata, fut)| {
-                    let handle = tokio::spawn(async move {
+                    tokio::spawn(async move {
                         config::PROJECT
                             .scope(project, async {
                                 http::CHANNEL
@@ -324,7 +321,7 @@ impl Runner {
                                                 publish(Message::HttpLog(
                                                     project.name.clone(),
                                                     test_name.clone(),
-                                                    log,
+                                                    Box::new(log),
                                                 ))?;
                                             }
 
@@ -341,9 +338,7 @@ impl Runner {
                                     .await
                             })
                             .await
-                    });
-
-                    handle
+                    })
                 })
                 .collect();
 

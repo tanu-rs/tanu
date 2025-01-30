@@ -61,7 +61,7 @@ impl Config {
     /// with tanu_PROJECT_ZZZ_XXX and maps them to the corresponding configuration variable as
     /// "xxx" for project "ZZZ". This configuration is isolated within the project.
     fn load_env(&mut self) {
-        static PREFIX: &'static str = "TANU";
+        static PREFIX: &str = "TANU";
 
         let global_prefix = format!("{PREFIX}_");
         let project_prefixes: Vec<_> = self
@@ -71,7 +71,7 @@ impl Config {
             .collect();
         let global_vars: HashMap<_, _> = std::env::vars()
             .filter_map(|(k, v)| {
-                let is_project_var = project_prefixes.iter().any(|pp| k.find(pp).is_some());
+                let is_project_var = project_prefixes.iter().any(|pp| k.contains(pp));
                 if is_project_var {
                     return None;
                 }

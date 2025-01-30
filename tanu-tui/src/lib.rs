@@ -29,7 +29,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tui_big_text::{BigText, PixelSize};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, TuiWidgetState};
 
-pub const WHITESPACE: &'static str = "\u{00A0}";
+pub const WHITESPACE: &str = "\u{00A0}";
 
 const SELECTED_STYLE: Style = Style::new()
     .bg(tailwind::SLATE.c800)
@@ -45,7 +45,7 @@ use crate::widget::{
 pub struct TestResult {
     pub project_name: String,
     pub name: String,
-    pub logs: Vec<tanu_core::http::Log>,
+    pub logs: Vec<Box<tanu_core::http::Log>>,
     pub test: Option<tanu_core::runner::Test>,
 }
 
@@ -439,7 +439,7 @@ impl Runtime {
         while !self.should_exit {
             tokio::select! {
                 _ = draw_interval.tick() => {
-                    terminal.draw(|mut frame| view(&mut model, &mut frame))?;
+                    terminal.draw(|frame| view(&mut model, frame))?;
                 },
                 _ = cmds_interval.tick() => {
                     let Some(cmd) = cmds.pop_front() else {
