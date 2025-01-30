@@ -42,8 +42,9 @@ impl Reporter for NullReporter {
     }
 }
 
+#[allow(clippy::vec_box)]
 pub struct ListReporter {
-    buffer: HashMap<(String, String), Vec<http::Log>>,
+    buffer: HashMap<(String, String), Vec<Box<http::Log>>>,
     capture_http: bool,
 }
 
@@ -113,7 +114,7 @@ impl Reporter for ListReporter {
                                 ),
                             )?;
                         }
-                        write(&term, &format!("    < body: {}", log.response.body))?;
+                        write(&term, format!("    < body: {}", log.response.body))?;
                     }
 
                     let Test { result, metadata } = test;

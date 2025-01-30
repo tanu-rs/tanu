@@ -301,7 +301,7 @@ impl InfoWidget {
                 .lines()
                 .map(|line| {
                     let ranges: Vec<(Style, &str)> =
-                        highlighter.highlight_line(&line, &syntax_set).unwrap();
+                        highlighter.highlight_line(line, &syntax_set).unwrap();
                     as_24_bit_terminal_escaped(&ranges[..], true)
                 })
                 .join("\n")
@@ -383,13 +383,13 @@ mod test {
     fn next_tab() -> eyre::Result<()> {
         let mut state = InfoState::new();
         state.next_tab();
-        assert_eq!(Tab::Headers, state.selected_tab);
-        state.next_tab();
         assert_eq!(Tab::Payload, state.selected_tab);
         state.next_tab();
         assert_eq!(Tab::Error, state.selected_tab);
         state.next_tab();
         assert_eq!(Tab::Call, state.selected_tab);
+        state.next_tab();
+        assert_eq!(Tab::Headers, state.selected_tab);
 
         Ok(())
     }

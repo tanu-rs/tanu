@@ -89,7 +89,7 @@ impl Response {
 }
 
 /// tanu's http client that is compatible to `reqwest::Client`.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Client {
     pub(crate) inner: reqwest::Client,
 }
@@ -97,9 +97,7 @@ pub struct Client {
 impl Client {
     /// Construct tanu's HTTP client.
     pub fn new() -> Client {
-        Client {
-            inner: reqwest::Client::new(),
-        }
+        Client::default()
     }
 
     pub fn get(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {

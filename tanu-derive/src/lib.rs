@@ -36,8 +36,8 @@ impl TestCase {
     /// Create a test case where `func`
     fn from_func_name(input: &Input, org_func_name: &str) -> TestCase {
         TestCase {
-            func_name: generate_test_name_with_parameters(org_func_name, &input),
-            test_name: generate_test_name_with_parameters(org_func_name, &input),
+            func_name: generate_test_name_with_parameters(org_func_name, input),
+            test_name: generate_test_name_with_parameters(org_func_name, input),
         }
     }
 }
@@ -177,9 +177,7 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
         .into_iter()
         .filter_map(|entry| {
             let path = entry.ok()?.into_path();
-            let Some(ext) = path.extension() else {
-                return None;
-            };
+            let ext = path.extension()?;
             if ext.eq_ignore_ascii_case("rs") {
                 Some(path)
             } else {
@@ -212,63 +210,60 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
 fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
     let mut test_modules = Vec::new();
     for item in input.items {
-        match item {
-            Item::Fn(item_fn) => {
-                //println!("fn = {item_fn:#?}");
-                //println!(
-                //    "extract_module_and_test {item_fn:#?} span = {:?}",
-                //    item_fn.span()
-                //);
-                let mut is_test = false;
-                let mut test_cases = Vec::new();
-                for attr in item_fn.attrs {
-                    if attr.path().is_ident("test") {
-                        is_test = true;
+        if let Item::Fn(item_fn) = item {
+            //println!("fn = {item_fn:#?}");
+            //println!(
+            //    "extract_module_and_test {item_fn:#?} span = {:?}",
+            //    item_fn.span()
+            //);
+            let mut is_test = false;
+            let mut test_cases = Vec::new();
+            for attr in item_fn.attrs {
+                if attr.path().is_ident("test") {
+                    is_test = true;
 
-                        //println!("attr = {attr:#?}");
-                        match &attr.meta {
-                            // There is no arguments in test attribute which is #[test]
-                            Meta::Path(_path) => {
-                                let test_case = TestCase {
-                                    func_name: format!("tanu_{}", item_fn.sig.ident),
-                                    test_name: format!("tanu_{}", item_fn.sig.ident),
-                                };
+                    //println!("attr = {attr:#?}");
+                    match &attr.meta {
+                        // There is no arguments in test attribute which is #[test]
+                        Meta::Path(_path) => {
+                            let test_case = TestCase {
+                                func_name: format!("tanu_{}", item_fn.sig.ident),
+                                test_name: format!("tanu_{}", item_fn.sig.ident),
+                            };
+                            //println!(
+                            //    "registering name = {} func_name = {}",
+                            //    test_case.test_name, test_case.func_name
+                            //);
+                            test_cases.push(test_case);
+                        }
+                        // There is arguments to parse from test attribute which is like #[test(xxx, ...)]
+                        Meta::List(_list) => match attr.parse_args_with(Input::parse) {
+                            Ok(test_case_token) => {
+                                let test_case = TestCase::from_func_name(
+                                    &test_case_token,
+                                    &item_fn.sig.ident.to_string(),
+                                );
                                 //println!(
                                 //    "registering name = {} func_name = {}",
                                 //    test_case.test_name, test_case.func_name
                                 //);
                                 test_cases.push(test_case);
                             }
-                            // There is arguments to parse from test attribute which is like #[test(xxx, ...)]
-                            Meta::List(_list) => match attr.parse_args_with(Input::parse) {
-                                Ok(test_case_token) => {
-                                    let test_case = TestCase::from_func_name(
-                                        &test_case_token,
-                                        &item_fn.sig.ident.to_string(),
-                                    );
-                                    //println!(
-                                    //    "registering name = {} func_name = {}",
-                                    //    test_case.test_name, test_case.func_name
-                                    //);
-                                    test_cases.push(test_case);
-                                }
-                                Err(e) => {
-                                    eprintln!("failed to parse attributes in #[test]: {e:#}");
-                                }
-                            },
-                            _ => {}
-                        }
+                            Err(e) => {
+                                eprintln!("failed to parse attributes in #[test]: {e:#}");
+                            }
+                        },
+                        _ => {}
                     }
                 }
-                if is_test {
-                    test_modules.push(TestModule {
-                        module: module.to_owned(),
-                        func_name: item_fn.sig.ident.to_string(),
-                        test_cases,
-                    });
-                }
             }
-            _ => {}
+            if is_test {
+                test_modules.push(TestModule {
+                    module: module.to_owned(),
+                    func_name: item_fn.sig.ident.to_string(),
+                    test_cases,
+                });
+            }
         }
     }
 
@@ -305,7 +300,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
             //println!("extracting test case {}", f.func_name);
             let test_module = test_modules.get(&f.func_name).expect("module not found");
             (
-                Ident::new(&test_module, Span::call_site()),
+                Ident::new(test_module, Span::call_site()),
                 f.test_name.clone(),
                 Ident::new(&f.func_name, Span::call_site()),
             )

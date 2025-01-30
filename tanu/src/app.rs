@@ -6,11 +6,12 @@ use itertools::Itertools;
 use crate::{get_tanu_config, ListReporter};
 
 /// tanu CLI.
+#[derive(Default)]
 pub struct App {}
 
 impl App {
     pub fn new() -> App {
-        App {}
+        App::default()
     }
 
     /// Parse command-line args and run tanu CLI sub command.
