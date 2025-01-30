@@ -116,7 +116,7 @@ pub struct ProjectFilter<'a> {
     project_names: &'a [String],
 }
 
-impl<'a> Filter for ProjectFilter<'a> {
+impl Filter for ProjectFilter<'_> {
     fn filter(&self, project: &ProjectConfig, _metadata: &TestMetadata) -> bool {
         if self.project_names.is_empty() {
             return true;
@@ -133,7 +133,7 @@ pub struct ModuleFilter<'a> {
     module_names: &'a [String],
 }
 
-impl<'a> Filter for ModuleFilter<'a> {
+impl Filter for ModuleFilter<'_> {
     fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
         if self.module_names.is_empty() {
             return true;
@@ -150,7 +150,7 @@ pub struct TestNameFilter<'a> {
     test_names: &'a [String],
 }
 
-impl<'a> Filter for TestNameFilter<'a> {
+impl Filter for TestNameFilter<'_> {
     fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
         if self.test_names.is_empty() {
             return true;
