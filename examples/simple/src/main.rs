@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use tanu::{assert_eq, http::Client};
+use tanu::{assert_eq, eyre, http::Client};
 
 #[derive(Debug, Deserialize)]
 struct Payload {
