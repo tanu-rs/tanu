@@ -19,5 +19,8 @@ quote = "1"
 syn = { version = "2", features = ["full"] }
 walkdir = "2.5"
 
+[dev-dependencies]
+test-case = { workspace = true }
+
 [lib]
 proc-macro = true
