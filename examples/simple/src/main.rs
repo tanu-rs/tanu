@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use tanu::{assert_eq, http::Client, test};
+use tanu::{assert_eq, http::Client};
 
 #[derive(Debug, Deserialize)]
 struct Payload {
@@ -10,7 +10,7 @@ struct Payload {
     url: url::Url,
 }
 
-#[test]
+#[tanu::test]
 async fn get() -> eyre::Result<()> {
     let http = Client::new();
     let res = http.get("https://httpbin.org/get").send().await?;

@@ -134,7 +134,6 @@ fn generate_test_name_with_parameters(org_func_name: &str, input: &Input) -> Str
 /// Without this attribute, tanu can not discover test cases.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
-    //println!("args = {args:?} span = {:?}", Span::call_site());
     let input_args = parse_macro_input!(args as Input);
     let input_fn = parse_macro_input!(input as ItemFn);
 
@@ -173,6 +172,8 @@ fn find_crate_root() -> eyre::Result<PathBuf> {
 
 fn discover_tests() -> eyre::Result<Vec<TestModule>> {
     let root = find_crate_root()?;
+
+    // Look up all rust source files.
     let source_paths: Vec<_> = WalkDir::new(root)
         .into_iter()
         .filter_map(|entry| {
@@ -207,22 +208,31 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
     Ok(test_modules)
 }
 
+/// Test the function has #[tanu::test] attribute.
+fn has_test_attribute(path: &syn::Path) -> bool {
+    // The function has #[test].
+    let has_test = path.is_ident("test");
+    // The function has #[tanu::test].
+    let has_tanu_test = match (path.segments.first(), path.segments.last()) {
+        (Some(first), Some(last)) => {
+            path.segments.len() == 2 && first.ident == "tanu" && last.ident == "test"
+        }
+        _ => false,
+    };
+
+    has_test || has_tanu_test
+}
+
 fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
     let mut test_modules = Vec::new();
     for item in input.items {
         if let Item::Fn(item_fn) = item {
-            //println!("fn = {item_fn:#?}");
-            //println!(
-            //    "extract_module_and_test {item_fn:#?} span = {:?}",
-            //    item_fn.span()
-            //);
             let mut is_test = false;
             let mut test_cases = Vec::new();
             for attr in item_fn.attrs {
-                if attr.path().is_ident("test") {
+                if has_test_attribute(attr.path()) {
                     is_test = true;
 
-                    //println!("attr = {attr:#?}");
                     match &attr.meta {
                         // There is no arguments in test attribute which is #[test]
                         Meta::Path(_path) => {
@@ -230,10 +240,6 @@ fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
                                 func_name: format!("tanu_{}", item_fn.sig.ident),
                                 test_name: format!("tanu_{}", item_fn.sig.ident),
                             };
-                            //println!(
-                            //    "registering name = {} func_name = {}",
-                            //    test_case.test_name, test_case.func_name
-                            //);
                             test_cases.push(test_case);
                         }
                         // There is arguments to parse from test attribute which is like #[test(xxx, ...)]
@@ -243,10 +249,6 @@ fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
                                     &test_case_token,
                                     &item_fn.sig.ident.to_string(),
                                 );
-                                //println!(
-                                //    "registering name = {} func_name = {}",
-                                //    test_case.test_name, test_case.func_name
-                                //);
                                 test_cases.push(test_case);
                             }
                             Err(e) => {
@@ -297,7 +299,6 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
         .expect("failed to accuire test case lock")
         .iter()
         .map(|f| {
-            //println!("extracting test case {}", f.func_name);
             let test_module = test_modules.get(&f.func_name).expect("module not found");
             (
                 Ident::new(test_module, Span::call_site()),
@@ -306,7 +307,6 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
             )
         })
         .multiunzip();
-    //println!("{test_cases:?}");
 
     let output = quote! {
         fn run() -> tanu::Runner {
@@ -321,4 +321,18 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     output.into()
+}
+
+#[cfg(test)]
+mod test {
+    use test_case::test_case;
+
+    #[test_case("test" => true; "test")]
+    #[test_case("tanu::test" => true; "tanu_test")]
+    #[test_case("tanu::foo::test" => false; "not_tanu_test")]
+    #[test_case("foo::test" => false; "also_not_tanu_test")]
+    fn has_test_attribute(s: &str) -> bool {
+        let path: syn::Path = syn::parse_str(s).expect("Failed to parse path");
+        super::has_test_attribute(&path)
+    }
 }
