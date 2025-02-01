@@ -14,7 +14,7 @@ use std::{
 };
 use syn::{
     parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprLit, File, Ident, Item,
-    ItemFn, Lit, LitStr, Meta, Token,
+    ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Token, Type,
 };
 use walkdir::WalkDir;
 
@@ -130,6 +130,49 @@ fn generate_test_name_with_parameters(org_func_name: &str, input: &Input) -> Str
     generated
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum ErrorCrate {
+    Eyre,
+    AnythingElse,
+}
+
+/// Inspects the current function's signature to determine which error crate is being used.
+///
+/// This function analyzes the return type of the function to detect whether it is using
+/// `eyre::Result` or another error result type. It then enables conditional handling based
+/// on the error crate in use (e.g., wrapping non-`eyre::Result` types in an `eyre::Result`).
+///
+/// **Limitation:**
+/// Due to the inherent limitations of proc macros, this function can only detect error types
+/// when `eyre` is referenced using its fully qualified path (for example, `eyre::Result`).
+///
+/// For further details and discussion on this limitation, see:
+/// https://users.rust-lang.org/t/in-a-proc-macro-attribute-procedural-macro-how-to-get-the-full-typepath-of-some-type/107713/2
+fn insepct_error_crate(sig: &Signature) -> ErrorCrate {
+    match &sig.output {
+        ReturnType::Default => panic!("return type needs to be other than ()"),
+        ReturnType::Type(_, ty) => {
+            let Type::Path(type_path) = ty.as_ref() else {
+                panic!("failed to get return type path");
+            };
+
+            let path = &type_path.path;
+            match (path.segments.first(), path.segments.last()) {
+                (Some(first), Some(last)) => {
+                    if first.ident == "eyre" && last.ident == "Result" {
+                        ErrorCrate::Eyre
+                    } else {
+                        ErrorCrate::AnythingElse
+                    }
+                }
+                _ => {
+                    panic!("unexpected return type: {path:?}");
+                }
+            }
+        }
+    }
+}
+
 /// #[test] attribute registers the test function in tanu runner.
 /// Without this attribute, tanu can not discover test cases.
 #[proc_macro_attribute]
@@ -153,12 +196,30 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let func_name = Ident::new(&test_case.func_name, Span::call_site());
     let args = input_args.args.to_token_stream();
-    let output = quote! {
-        #input_fn
 
-        pub(crate) async fn #func_name() -> tanu::eyre::Result<()> {
-            // TODO don't wrap in eyre if the error type is already eyre::Report.
-            #func_name_inner(#args).await.map_err(|e| tanu::eyre::eyre!(Box::new(e)))
+    // tanu internally relies on the `eyre` and `color-eyre` crates for error handling.
+    // since `tanu::Runner` expects test functions to return an `eyre::Result`, the macro
+    // generates two types of code.
+    //
+    // - If a test function explicitly returns `eyre::Result`, the macro will generate
+    //   a function that also returns `eyre::Result` without modification.
+    //
+    // - If the test function returns another result type (e.g., `anyhow::Result`),
+    //   the macro will automatically wrap the return value in an `eyre::Result`.
+    let error_crate = insepct_error_crate(&input_fn.sig);
+    let output = if error_crate == ErrorCrate::Eyre {
+        quote! {
+            #input_fn
+            pub(crate) async fn #func_name() -> tanu::eyre::Result<()> {
+                #func_name_inner(#args).await
+            }
+        }
+    } else {
+        quote! {
+            #input_fn
+            pub(crate) async fn #func_name() -> tanu::eyre::Result<()> {
+                #func_name_inner(#args).await.map_err(|e| tanu::eyre::eyre!(Box::new(e)))
+            }
         }
     };
 
@@ -325,6 +386,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod test {
+    use super::ErrorCrate;
     use test_case::test_case;
 
     #[test_case("test" => true; "test")]
@@ -334,5 +396,14 @@ mod test {
     fn has_test_attribute(s: &str) -> bool {
         let path: syn::Path = syn::parse_str(s).expect("Failed to parse path");
         super::has_test_attribute(&path)
+    }
+
+    #[test_case("fn foo() -> eyre::Result" => ErrorCrate::Eyre; "eyre")]
+    #[test_case("fn foo() -> anyhow::Result" => ErrorCrate::AnythingElse; "anyhow")]
+    #[test_case("fn foo() -> miette::Result" => ErrorCrate::AnythingElse; "miette")]
+    #[test_case("fn foo() -> Result" => ErrorCrate::AnythingElse; "std_result")]
+    fn insepct_error_crate(s: &str) -> ErrorCrate {
+        let sig: syn::Signature = syn::parse_str(s).expect("failed to parse function signature");
+        super::insepct_error_crate(&sig)
     }
 }
