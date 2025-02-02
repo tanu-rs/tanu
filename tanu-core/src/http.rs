@@ -196,4 +196,14 @@ impl RequestBuilder {
         self.inner = Some(inner.headers(headers));
         self
     }
+
+    pub fn basic_auth<U, P>(mut self, username: U, password: Option<P>) -> RequestBuilder
+    where
+        U: std::fmt::Display,
+        P: std::fmt::Display,
+    {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.basic_auth(username, password));
+        self
+    }
 }
