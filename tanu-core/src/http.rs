@@ -206,4 +206,13 @@ impl RequestBuilder {
         self.inner = Some(inner.basic_auth(username, password));
         self
     }
+
+    pub fn bearer_auth<T>(mut self, token: T) -> RequestBuilder
+    where
+        T: std::fmt::Display,
+    {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.bearer_auth(token));
+        self
+    }
 }
