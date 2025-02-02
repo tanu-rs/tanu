@@ -19,7 +19,7 @@ futures = { workspace = true }
 http = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json  = "1"
 tanu-derive = { version = "=0.1.0", path = "../tanu-derive" }

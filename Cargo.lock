@@ -1921,6 +1921,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tanu-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "tanu",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "tanu-tui"
 version = "0.1.0"
 dependencies = [
