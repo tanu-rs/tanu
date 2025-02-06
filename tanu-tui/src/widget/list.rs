@@ -89,7 +89,7 @@ impl Module {
     fn to_list(&self) -> Vec<String> {
         if self.expanded {
             let mut list = vec![self.list_name()];
-            list.extend(self.tests.iter().map(|test| format!("      {}", test.name)));
+            list.extend(self.tests.iter().map(|test| format!("     {}", test.name)));
             list
         } else {
             vec![self.list_name()]

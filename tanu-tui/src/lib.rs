@@ -40,7 +40,7 @@ use crate::widget::{
     list::{TestCaseSelector, TestListState, TestListWidget},
 };
 
-/// Represents result of a one test case.
+/// Represents result of a test case.
 #[derive(Default, Clone)]
 pub struct TestResult {
     pub project_name: String,
@@ -48,6 +48,8 @@ pub struct TestResult {
     pub logs: Vec<Box<tanu_core::http::Log>>,
     pub test: Option<tanu_core::runner::Test>,
 }
+
+impl TestResult {}
 
 #[derive(
     Debug, Clone, Copy, Default, Eq, PartialEq, strum::FromRepr, strum::EnumString, strum::Display,

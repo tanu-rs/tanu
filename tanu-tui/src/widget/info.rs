@@ -92,34 +92,65 @@ impl InfoWidget {
         InfoWidget { test_results }
     }
 
-    fn render_call(self, _area: Rect, _buf: &mut Buffer, _state: &mut InfoState) {}
+    fn get_selected_test_result(&self, state: &InfoState) -> Option<&TestResult> {
+        let selector = state.selected_test.as_ref()?;
+        let test_name = selector.test.as_ref()?;
+        self.test_results.iter().find(|test_result| {
+            let Some(test) = test_result.test.as_ref() else {
+                return false;
+            };
+            test.metadata.full_name() == *test_name
+        })
+    }
+
+    fn render_call(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
+        let Some(test_result) = self.get_selected_test_result(state) else {
+            return;
+        };
+
+        let colors = TableColors::new();
+        let mut rows = vec![
+            Row::new(vec![
+                "Project Name".into(),
+                test_result.project_name.clone(),
+            ])
+            .height(1),
+            Row::new(vec!["Test Name".into(), test_result.name.clone()]).height(1),
+        ];
+        if let [log, ..] = test_result.logs.as_slice() {
+            rows.push(Row::new(vec!["Request URL".into(), log.request.url.to_string()]).height(1));
+            rows.push(Row::new(vec!["Method".into(), log.request.method.to_string()]).height(1));
+            rows.push(Row::new(vec!["Status".into(), log.response.status.to_string()]).height(1));
+        }
+
+        let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
+        let table = Table::new(rows, widths)
+            .style(Style::new().fg(colors.row_fg))
+            .highlight_style(Style::default().fg(colors.selected_style_fg))
+            .block(
+                Block::new()
+                    .borders(Borders::ALL)
+                    .title("Request")
+                    .padding(Padding::uniform(1)),
+            )
+            .style(Style::default().fg(tailwind::WHITE));
+
+        ratatui::widgets::StatefulWidget::render(table, area, buf, &mut state.headers_res_state);
+    }
 
     fn render_headers(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let colors = TableColors::new();
-
-        let Some(selector) = state.selected_test.as_ref() else {
-            return;
-        };
-        let Some(test_name) = selector.test.as_ref() else {
+        let Some(test_result) = self.get_selected_test_result(state) else {
             return;
         };
 
-        trace!("rendering headers id = {test_name:?}");
+        trace!("rendering headers for {}", test_result.name);
 
         let [layout_req, layout_res] =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .margin(0)
                 .areas(area);
 
-        let Some(test_result) = self.test_results.iter().find(|test_result| {
-            let Some(test) = test_result.test.as_ref() else {
-                return false;
-            };
-            test.metadata.full_name() == *test_name
-        }) else {
-            return;
-        };
-
+        let colors = TableColors::new();
         {
             if let [log, ..] = test_result.logs.as_slice() {
                 let rows = log
@@ -255,19 +286,7 @@ impl InfoWidget {
     }
 
     fn render_payload(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some(selector) = state.selected_test.as_ref() else {
-            return;
-        };
-        let Some(test_name) = selector.test.as_ref() else {
-            return;
-        };
-
-        let Some(test_result) = self.test_results.iter().find(|test_result| {
-            let Some(test) = test_result.test.as_ref() else {
-                return false;
-            };
-            test.metadata.full_name() == *test_name
-        }) else {
+        let Some(test_result) = self.get_selected_test_result(state) else {
             return;
         };
 
@@ -314,19 +333,7 @@ impl InfoWidget {
     }
 
     fn render_error(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some(selector) = state.selected_test.as_ref() else {
-            return;
-        };
-        let Some(test_name) = selector.test.as_ref() else {
-            return;
-        };
-
-        let Some(test_result) = self.test_results.iter().find(|test_result| {
-            let Some(test) = test_result.test.as_ref() else {
-                return false;
-            };
-            test.metadata.full_name() == *test_name
-        }) else {
+        let Some(test_result) = self.get_selected_test_result(state) else {
             return;
         };
 

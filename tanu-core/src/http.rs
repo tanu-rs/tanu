@@ -47,6 +47,7 @@ pub struct LogRequest {
 pub struct LogResponse {
     pub headers: reqwest::header::HeaderMap,
     pub body: String,
+    pub status: reqwest::StatusCode,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,7 @@ impl RequestBuilder {
                 let log_response = LogResponse {
                     headers: res.headers.clone(),
                     body: res.text.clone(),
+                    status: res.status(),
                 };
 
                 let ch = CHANNEL.get();
