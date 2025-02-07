@@ -36,8 +36,8 @@ impl TestCase {
     /// Create a test case where `func`
     fn from_func_name(input: &Input, org_func_name: &str) -> TestCase {
         TestCase {
-            func_name: generate_test_name_with_parameters(org_func_name, input),
-            test_name: generate_test_name_with_parameters(org_func_name, input),
+            func_name: generate_test_name_with_parameters(org_func_name, input, Some("tanu")),
+            test_name: generate_test_name_with_parameters(org_func_name, input, None),
         }
     }
 }
@@ -86,11 +86,19 @@ impl Parse for Input {
 /// Generates a unique function name for a test case.
 /// - If a test name argument is provided (e.g., `#[test(a; xxx)]`), use it as the function name.
 /// - Otherwise, generate a function name by concatenating the test parameters with `_`.
-fn generate_test_name_with_parameters(org_func_name: &str, input: &Input) -> String {
+fn generate_test_name_with_parameters(
+    org_func_name: &str,
+    input: &Input,
+    prefix: Option<&str>,
+) -> String {
     let func_name = org_func_name.to_string();
 
     if input.args.is_empty() {
-        return format!("tanu_{func_name}");
+        if let Some(prefix) = prefix {
+            return format!("{prefix}_{func_name}");
+        } else {
+            return func_name.to_string();
+        }
     }
 
     let generated = match &input.name {
@@ -114,7 +122,12 @@ fn generate_test_name_with_parameters(org_func_name: &str, input: &Input) -> Str
                 })
                 .collect::<Vec<_>>()
                 .join("_");
-            format!("tanu_{func_name}_{args}")
+
+            if let Some(prefix) = prefix {
+                return format!("{prefix}_{func_name}_{args}");
+            } else {
+                return format!("{func_name}_{args}");
+            }
         }
     };
 
