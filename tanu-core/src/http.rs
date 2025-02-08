@@ -5,6 +5,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::{
     ops::Deref,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
 use tracing::*;
@@ -48,6 +49,7 @@ pub struct LogResponse {
     pub headers: reqwest::header::HeaderMap,
     pub body: String,
     pub status: reqwest::StatusCode,
+    pub duration_req: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -140,15 +142,19 @@ impl RequestBuilder {
             headers: req.headers().clone(),
         };
 
+        let time_req = Instant::now();
         let res = self.client.execute(req).await;
 
         match res {
             Ok(res) => {
                 let res = Response::from(res).await;
+                let duration_req = time_req.elapsed();
+
                 let log_response = LogResponse {
                     headers: res.headers.clone(),
                     body: res.text.clone(),
                     status: res.status(),
+                    duration_req,
                 };
 
                 let ch = CHANNEL.get();
