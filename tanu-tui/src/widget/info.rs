@@ -121,6 +121,13 @@ impl InfoWidget {
             rows.push(Row::new(vec!["Request URL".into(), log.request.url.to_string()]).height(1));
             rows.push(Row::new(vec!["Method".into(), log.request.method.to_string()]).height(1));
             rows.push(Row::new(vec!["Status".into(), log.response.status.to_string()]).height(1));
+            rows.push(
+                Row::new(vec![
+                    "Request Duration".into(),
+                    format!("{:?}", log.response.duration_req),
+                ])
+                .height(1),
+            );
         }
 
         let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
