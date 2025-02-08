@@ -557,6 +557,12 @@ impl Runtime {
                 KeyCode::Char('k') | KeyCode::Up => Some(Message::ListSelectPrev),
                 KeyCode::Char('g') | KeyCode::Home => Some(Message::ListSelectFirst),
                 KeyCode::Char('G') | KeyCode::End => Some(Message::ListSelectLast),
+                KeyCode::Char('h') | KeyCode::Left => {
+                    Some(Message::ConsoleTabSelect(TabMovement::Prev))
+                }
+                KeyCode::Char('l') | KeyCode::Right => {
+                    Some(Message::ConsoleTabSelect(TabMovement::Next))
+                }
                 KeyCode::Enter => Some(Message::ListExpand),
                 KeyCode::Char('1') => Some(Message::ExecuteAll),
                 KeyCode::Char('2') => Some(Message::ExecuteOne),
