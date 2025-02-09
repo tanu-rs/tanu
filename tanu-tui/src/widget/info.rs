@@ -4,7 +4,7 @@ use itertools::Itertools;
 use ratatui::{
     prelude::*,
     style::Style,
-    widgets::{Block, Borders, Padding, Paragraph, Row, Table, TableState},
+    widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
 };
 use style::palette::tailwind;
 use tracing::*;
@@ -87,6 +87,18 @@ impl StatefulWidget for InfoWidget {
     }
 }
 
+/// Wrap the strings so that they can be displayed nicely in the table.
+fn wrap_row(field: impl AsRef<str>, value: impl AsRef<str>, width: u16) -> Row<'static> {
+    let opt = textwrap::Options::new(width as usize)
+        .break_words(true)
+        .word_splitter(textwrap::WordSplitter::NoHyphenation);
+    let wrapped_field = textwrap::fill(field.as_ref(), &opt);
+    let wrapped_value = textwrap::fill(value.as_ref(), &opt);
+
+    let height = wrapped_value.matches('\n').count() + 1;
+    Row::new(vec![Cell::new(wrapped_field), Cell::new(wrapped_value)]).height(height as u16)
+}
+
 impl InfoWidget {
     pub fn new(test_results: Vec<TestResult>) -> InfoWidget {
         InfoWidget { test_results }
@@ -104,33 +116,37 @@ impl InfoWidget {
     }
 
     fn render_call(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
+        const FIELD_PERCENTAGE: u16 = 30;
+        const VALUE_PERCENTAGE: u16 = 70;
+        let value_width = area.width * VALUE_PERCENTAGE / 100 - 3;
         let Some(test_result) = self.get_selected_test_result(state) else {
             return;
         };
 
         let colors = TableColors::new();
         let mut rows = vec![
-            Row::new(vec![
-                "Project Name".into(),
-                test_result.project_name.clone(),
-            ])
-            .height(1),
-            Row::new(vec!["Test Name".into(), test_result.name.clone()]).height(1),
+            wrap_row("Project Name", &test_result.project_name, value_width),
+            wrap_row("Test Name", &test_result.name, value_width),
         ];
         if let [log, ..] = test_result.logs.as_slice() {
-            rows.push(Row::new(vec!["Request URL".into(), log.request.url.to_string()]).height(1));
-            rows.push(Row::new(vec!["Method".into(), log.request.method.to_string()]).height(1));
-            rows.push(Row::new(vec!["Status".into(), log.response.status.to_string()]).height(1));
-            rows.push(
-                Row::new(vec![
-                    "Request Duration".into(),
-                    format!("{:?}", log.response.duration_req),
-                ])
-                .height(1),
-            );
+            rows.push(wrap_row("Request URL", &log.request.url, value_width));
+            rows.push(wrap_row("Method", &log.request.method, value_width));
+            rows.push(wrap_row(
+                "Status",
+                log.response.status.as_str(),
+                value_width,
+            ));
+            rows.push(wrap_row(
+                "Request Duration",
+                format!("{:?}", log.response.duration_req),
+                value_width,
+            ));
         }
 
-        let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
+        let widths = [
+            Constraint::Percentage(FIELD_PERCENTAGE),
+            Constraint::Percentage(VALUE_PERCENTAGE),
+        ];
         let table = Table::new(rows, widths)
             .style(Style::new().fg(colors.row_fg))
             .highlight_style(Style::default().fg(colors.selected_style_fg))
