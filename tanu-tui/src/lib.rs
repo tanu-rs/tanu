@@ -336,7 +336,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .lines(vec!["tanu".into()])
         .build();
 
-    let test_case_list = TestListWidget::new(
+    let test_list = TestListWidget::new(
         matches!(model.current_pane, Pane::List),
         &model.test_cases_list.projects,
     );
@@ -365,7 +365,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     if model.maximizing {
         match model.current_pane {
             Pane::List => frame.render_stateful_widget(
-                test_case_list,
+                test_list,
                 layout_main,
                 &mut model.test_cases_list,
             ),
@@ -374,7 +374,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     } else {
         frame.render_widget(logo, layout_logo);
-        frame.render_stateful_widget(test_case_list, layout_list, &mut model.test_cases_list);
+        frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
         frame.render_widget(logger, layout_logger);
         frame.render_widget(info_block, layout_right);
         frame.render_widget(tabs, layout_tabs);

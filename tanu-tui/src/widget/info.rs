@@ -1,4 +1,8 @@
-//! Widgets to show requests/response details.
+//! The widget is composed of 4 tabs:
+//! - Call: shows the request details
+//! - Headers: shows the request and response headers
+//! - Payload: shows the request and response payload
+//! - Error: shows the error message if the test failed
 use ansi_to_tui::IntoText;
 use itertools::Itertools;
 use ratatui::{
