@@ -44,12 +44,11 @@ use crate::widget::{
 #[derive(Default, Clone)]
 pub struct TestResult {
     pub project_name: String,
+    pub module_name: String,
     pub name: String,
     pub logs: Vec<Box<tanu_core::http::Log>>,
     pub test: Option<tanu_core::runner::Test>,
 }
-
-impl TestResult {}
 
 #[derive(
     Debug, Clone, Copy, Default, Eq, PartialEq, strum::FromRepr, strum::EnumString, strum::Display,
@@ -339,6 +338,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let test_list = TestListWidget::new(
         matches!(model.current_pane, Pane::List),
         &model.test_cases_list.projects,
+        &model.test_results,
     );
 
     let logger = TuiLoggerSmartWidget::default()
@@ -364,11 +364,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
     if model.maximizing {
         match model.current_pane {
-            Pane::List => frame.render_stateful_widget(
-                test_list,
-                layout_main,
-                &mut model.test_cases_list,
-            ),
+            Pane::List => {
+                frame.render_stateful_widget(test_list, layout_main, &mut model.test_cases_list)
+            }
             Pane::Console => frame.render_stateful_widget(info, layout_main, &mut model.info_state),
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
@@ -456,21 +454,22 @@ impl Runtime {
                 }
                 Ok(msg) = runner_rx.recv() => {
                     match msg {
-                        tanu_core::runner::Message::Start(project_name, test_name) => {
+                        tanu_core::runner::Message::Start(project_name, module_name, test_name) => {
                             test_results_buffer.insert((project_name.clone(), test_name.clone()), TestResult {
                                 project_name,
+                                module_name,
                                 name: test_name,
                                 ..Default::default()
                             });
                         },
-                        tanu_core::runner::Message::HttpLog(project_name, name, log) => {
+                        tanu_core::runner::Message::HttpLog(project_name, _module_name, name, log) => {
                             if let Some(test_result) =  test_results_buffer.get_mut(&(project_name, name)) {
                                 test_result.logs.push(log);
                             } else {
                                 // TODO error
                             }
                         },
-                        tanu_core::runner::Message::End(project_name, name, test) => {
+                        tanu_core::runner::Message::End(project_name, _module_name, name, test) => {
                             if let Some(mut test_result) = test_results_buffer.remove(&(project_name,name)) {
                                 test_result.test = Some(test);
                                 model.test_results.push(test_result);

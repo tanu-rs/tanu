@@ -56,13 +56,15 @@ pub enum Error {
 
 pub type ProjectName = String;
 
+pub type ModuleName = String;
+
 pub type TestName = String;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Start(ProjectName, TestName),
-    HttpLog(ProjectName, TestName, Box<http::Log>),
-    End(ProjectName, TestName, Test),
+    Start(ProjectName, ModuleName, TestName),
+    HttpLog(ProjectName, ModuleName, TestName, Box<http::Log>),
+    End(ProjectName, ModuleName, TestName, Test),
 }
 
 #[derive(Debug, Clone)]
@@ -286,7 +288,7 @@ impl Runner {
                                             let res = fut.await;
 
                                             let project = get_config();
-                                            publish(Message::Start(project.name.clone(), test_name.to_string()))?;
+                                            publish(Message::Start(project.name.clone(), metadata.module.clone(), test_name.to_string()))?;
 
                                             let result = match res {
                                                 Ok(Ok(_)) => {
@@ -320,6 +322,7 @@ impl Runner {
                                             while let Ok(log) = http_rx.try_recv() {
                                                 publish(Message::HttpLog(
                                                     project.name.clone(),
+                                                    metadata.module.clone(),
                                                     test_name.clone(),
                                                     Box::new(log),
                                                 ))?;
@@ -328,6 +331,7 @@ impl Runner {
                                             let project = get_config();
                                             publish(Message::End(
                                                 project.name,
+                                                metadata.module.clone(),
                                                 test_name.clone(),
                                                 Test { metadata, result },
                                             ))?;
