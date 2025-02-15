@@ -97,15 +97,20 @@ impl Module {
     }
 }
 
-/// Used by `TestListState::select_test_case`. When test case is found from the list,
-/// this object is provided, allowing the caller to get project, module and test name.
+/// Represents the currently selected item in the `TestListWidget`.
+///
+/// This struct is used to track which test case, module, or project is currently
+/// selected in the UI. It contains hierarchical information about the selection:
+/// - A project is always selected
+/// - A module may be selected if viewing inside a project
+/// - A test case may be selected if viewing inside a module
 #[derive(Debug, Default)]
 pub struct TestCaseSelector {
-    /// selected project.
+    /// The name of the selected project.
     pub project: String,
-    /// selected module.
+    /// The name of the selected module, if any.
     pub module: Option<String>,
-    /// selected test case.
+    /// The full name of the selected test case, if any.
     pub test: Option<String>,
 }
 
