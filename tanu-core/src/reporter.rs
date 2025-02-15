@@ -66,10 +66,10 @@ impl Reporter for ListReporter {
         loop {
             trace!("ListReporter polling");
             match rx.recv().await {
-                Ok(runner::Message::Start(project_name, test_name)) => {
+                Ok(runner::Message::Start(project_name, _module_name, test_name)) => {
                     self.buffer.insert((project_name, test_name), Vec::new());
                 }
-                Ok(runner::Message::HttpLog(project_name, test_name, log)) => {
+                Ok(runner::Message::HttpLog(project_name, _module_name, test_name, log)) => {
                     if self.capture_http {
                         self.buffer
                             .get_mut(&(project_name, test_name.clone()))
@@ -79,7 +79,7 @@ impl Reporter for ListReporter {
                             .push(log);
                     }
                 }
-                Ok(runner::Message::End(project_name, test_name, test)) => {
+                Ok(runner::Message::End(project_name, _module_name, test_name, test)) => {
                     let http_logs = self
                         .buffer
                         .remove(&(project_name.clone(), test_name.clone()))

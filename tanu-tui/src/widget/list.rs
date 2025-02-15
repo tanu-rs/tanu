@@ -3,9 +3,10 @@ use ratatui::{
     prelude::*,
     widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
 };
+use std::collections::HashMap;
 use tanu_core::{self, Filter, TestIgnoreFilter, TestMetadata};
 
-use crate::SELECTED_STYLE;
+use crate::{TestResult, SELECTED_STYLE};
 
 const EXPANDED: &str = "▸";
 
@@ -16,20 +17,31 @@ pub struct TestListWidget<'a> {
 }
 
 impl<'a> TestListWidget<'a> {
-    pub fn new(is_focused: bool, projects: &[Project]) -> TestListWidget<'a> {
-        let list_widget = List::new(projects.iter().flat_map(|p| p.to_list()))
-            .block(
-                Block::bordered()
-                    .title("Tests (t)".bold())
-                    .border_type(if is_focused {
-                        BorderType::Thick
-                    } else {
-                        BorderType::Plain
-                    }),
-            )
-            .highlight_style(SELECTED_STYLE)
-            .highlight_symbol(">")
-            .highlight_spacing(HighlightSpacing::Always);
+    pub fn new(
+        is_focused: bool,
+        projects: &[Project],
+        test_results: &[TestResult],
+    ) -> TestListWidget<'a> {
+        let grouped_by_project = test_results
+            .iter()
+            .into_group_map_by(|result| result.project_name.clone());
+        let list_widget = List::new(
+            projects
+                .iter()
+                .flat_map(|p| p.to_lines_recursively(&grouped_by_project)),
+        )
+        .block(
+            Block::bordered()
+                .title("Tests (t)".bold())
+                .border_type(if is_focused {
+                    BorderType::Thick
+                } else {
+                    BorderType::Plain
+                }),
+        )
+        .highlight_style(SELECTED_STYLE)
+        .highlight_symbol(">")
+        .highlight_spacing(HighlightSpacing::Always);
 
         TestListWidget { list_widget }
     }
@@ -53,20 +65,73 @@ pub struct Project {
     pub modules: Vec<Module>,
 }
 
+/// Helper function to create a symbol for test result.
+fn symbol_test_result(maybe_ok: Option<bool>) -> Span<'static> {
+    let (symbol, color) = match maybe_ok {
+        Some(ok) => {
+            if ok {
+                ("✓", Some(Color::Green))
+            } else {
+                ("✘", Some(Color::Red))
+            }
+        }
+        None => ("○", None),
+    };
+    let style = if let Some(color) = color {
+        Style::default().fg(color).bold()
+    } else {
+        Style::default().bold()
+    };
+    Span::styled(symbol, style)
+}
+
 impl Project {
-    fn list_name(&self) -> String {
+    fn to_line_summary(&self, ok: Option<bool>) -> Line<'static> {
         let icon = if self.expanded { EXPANDED } else { UNEXPANDED };
-        format!("{icon} {}", self.name)
+        let icon = Span::raw(format!("{icon} "));
+        let symbol = symbol_test_result(ok);
+        let name = Span::raw(format!(" {}", self.name));
+        Line::from(vec![icon, symbol, name])
     }
 
-    fn to_list(&self) -> Vec<String> {
-        if self.expanded {
-            let mut list = vec![self.list_name()];
-            list.extend(self.modules.iter().flat_map(|module| module.to_list()));
-            list
+    fn to_lines_recursively(
+        &self,
+        grouped_by_project: &HashMap<String, Vec<&TestResult>>,
+    ) -> Vec<Line<'static>> {
+        let test_results = grouped_by_project.get(&self.name);
+
+        let test_length: usize = self.modules.iter().map(|module| module.tests.len()).sum();
+        let test_results_length = test_results
+            .map(|test_results| test_results.len())
+            .unwrap_or(0);
+
+        // If all of the tests are finished, check if all of the tests are successful to determine
+        // test result symbol,
+        let maybe_ok = if test_length == test_results_length {
+            Some(test_results.into_iter().flatten().all(|res| {
+                res.test
+                    .as_ref()
+                    .map(|test| test.result.is_ok())
+                    .unwrap_or(false)
+            }))
         } else {
-            vec![self.list_name()]
+            None
+        };
+
+        let mut lines = vec![self.to_line_summary(maybe_ok)];
+        if self.expanded {
+            let grouped_by_module = test_results
+                .into_iter()
+                .flatten()
+                .copied()
+                .into_group_map_by(|test| test.module_name.clone());
+            lines.extend(
+                self.modules
+                    .iter()
+                    .flat_map(|module| module.to_lines_recursively(&grouped_by_module)),
+            );
         }
+        lines
     }
 }
 
@@ -81,19 +146,56 @@ pub struct Module {
 }
 
 impl Module {
-    fn list_name(&self) -> String {
+    fn to_line_summary(&self, maybe_ok: Option<bool>) -> Line<'static> {
         let icon = if self.expanded { EXPANDED } else { UNEXPANDED };
-        format!("  {icon} {}", self.name)
+        let icon = Span::raw(format!("  {icon} "));
+        let symbol = symbol_test_result(maybe_ok);
+        let name = Span::raw(format!(" {}", self.name));
+        Line::from(vec![icon, symbol, name])
     }
 
-    fn to_list(&self) -> Vec<String> {
-        if self.expanded {
-            let mut list = vec![self.list_name()];
-            list.extend(self.tests.iter().map(|test| format!("     {}", test.name)));
-            list
+    fn to_lines_recursively(
+        &self,
+        grouped_by_module: &HashMap<String, Vec<&TestResult>>,
+    ) -> Vec<Line<'static>> {
+        let test_results = grouped_by_module.get(&self.name);
+
+        let test_length: usize = self.tests.len();
+        let test_results_length = test_results
+            .map(|test_results| test_results.len())
+            .unwrap_or(0);
+
+        // If all of the tests are finished, check if all of the tests are successful to determine
+        // test result symbol,
+        let maybe_ok = if test_length == test_results_length {
+            Some(test_results.into_iter().flatten().all(|res| {
+                res.test
+                    .as_ref()
+                    .map(|test| test.result.is_ok())
+                    .unwrap_or(false)
+            }))
         } else {
-            vec![self.list_name()]
+            None
+        };
+
+        let mut lines = vec![self.to_line_summary(maybe_ok)];
+        if self.expanded {
+            let test_map: HashMap<String, &TestResult> = test_results
+                .into_iter()
+                .flatten()
+                .map(|test| (test.name.clone(), *test))
+                .collect();
+            lines.extend(self.tests.iter().map(|test| {
+                let ok = test_map
+                    .get(&test.name)
+                    .and_then(|test| test.test.as_ref().map(|test| test.result.is_ok()));
+                let indent = Span::raw("     ");
+                let symbol = symbol_test_result(ok);
+                let name = Span::raw(format!(" {}", test.name));
+                Line::from(vec![indent, symbol, name])
+            }));
         }
+        lines
     }
 }
 
@@ -323,5 +425,21 @@ mod test {
         assert_eq!(Some(3), state.list_state.selected());
         state.expand();
         assert_eq!(Some(3), state.list_state.selected());
+    }
+
+    #[test]
+    fn symbol_test_result() {
+        assert_eq!(
+            super::symbol_test_result(Some(true)),
+            Span::styled("✓", Style::default().fg(Color::Green).bold())
+        );
+        assert_eq!(
+            super::symbol_test_result(Some(false)),
+            Span::styled("✘", Style::default().fg(Color::Red).bold())
+        );
+        assert_eq!(
+            super::symbol_test_result(None),
+            Span::styled("○", Style::default().bold())
+        );
     }
 }
