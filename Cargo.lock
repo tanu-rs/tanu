@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "tanu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "tanu-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "tanu-derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eyre",
  "itertools",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "tanu-integration-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "tanu-tui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ansi-to-tui",
  "async-trait",
