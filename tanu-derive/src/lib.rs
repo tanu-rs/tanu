@@ -179,7 +179,7 @@ fn insepct_error_crate(sig: &Signature) -> ErrorCrate {
                     }
                 }
                 _ => {
-                    panic!("unexpected return type: {path:?}");
+                    panic!("unexpected return type");
                 }
             }
         }
