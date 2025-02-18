@@ -294,11 +294,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             ),
             Span::styled(format!("{WHITESPACE}{label}"), Style::default()),
         ])])
-        .style(
-            Style::default()
-                .fg(tailwind::WHITE)
-                .add_modifier(Modifier::BOLD),
-        )
+        .style(Style::default().add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::NONE));
         frame.render_widget(menu_item, layout_menu_items[n]);
     }
@@ -317,12 +313,11 @@ fn view(model: &mut Model, frame: &mut Frame) {
             .iter()
             .map(|tab| {
                 let text = tab.to_string();
-                Line::from(format!("  {text}  ").fg(tailwind::ZINC.c50).bold())
+                Line::from(format!("  {text}  ").bold())
             }),
     )
     .select(model.info_state.selected_tab as usize)
-    .style(Style::default().white())
-    .highlight_style((tailwind::BLACK, tailwind::WHITE))
+    .highlight_style(Style::default().reversed())
     .block(Block::default().borders(Borders::BOTTOM))
     .padding("", "")
     .divider("|");
@@ -350,16 +345,16 @@ fn view(model: &mut Model, frame: &mut Frame) {
             BorderType::Plain
         })
         .style_error(Style::default().fg(tailwind::RED.c900))
-        .style_debug(Style::default().fg(tailwind::GREEN.c700))
-        .style_warn(Style::default().fg(tailwind::YELLOW.c900))
-        .style_trace(Style::default().fg(tailwind::VIOLET.c900))
-        .style_info(Style::default().fg(tailwind::TEAL.c900))
-        .output_separator(':')
-        .output_timestamp(Some("%H:%M:%S".to_string()))
-        .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
-        .output_target(true)
-        .output_file(true)
-        .output_line(true)
+        .style_warn(Style::default().fg(tailwind::AMBER.c900))
+        .style_info(Style::default())
+        .style_debug(Style::default().dim())
+        .style_trace(Style::default().dim())
+        .output_separator('|')
+        .output_timestamp(None)
+        .output_level(Some(TuiLoggerLevelOutput::Long))
+        .output_target(false)
+        .output_file(false)
+        .output_line(false)
         .state(&model.logger_state);
 
     if model.maximizing {

@@ -160,7 +160,7 @@ impl InfoWidget {
                     .title("Request")
                     .padding(Padding::uniform(1)),
             )
-            .style(Style::default().fg(tailwind::WHITE));
+            .style(Style::default());
 
         ratatui::widgets::StatefulWidget::render(table, area, buf, &mut state.headers_res_state);
     }
@@ -234,7 +234,7 @@ impl InfoWidget {
                             .title("Request")
                             .padding(Padding::uniform(1)),
                     )
-                    .style(Style::default().fg(tailwind::WHITE));
+                    .style(Style::default());
 
                 ratatui::widgets::StatefulWidget::render(
                     table,
@@ -300,7 +300,7 @@ impl InfoWidget {
                             .title("Response")
                             .padding(Padding::uniform(1)),
                     )
-                    .style(Style::default().fg(tailwind::WHITE));
+                    .style(Style::default());
 
                 ratatui::widgets::StatefulWidget::render(
                     table,
