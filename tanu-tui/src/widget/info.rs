@@ -153,7 +153,7 @@ impl InfoWidget {
         ];
         let table = Table::new(rows, widths)
             .style(Style::new().fg(colors.row_fg))
-            .highlight_style(Style::default().fg(colors.selected_style_fg))
+            .row_highlight_style(Style::default().fg(colors.selected_style_fg))
             .block(
                 Block::new()
                     .borders(Borders::ALL)
@@ -219,7 +219,7 @@ impl InfoWidget {
                 let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
                 let table = Table::new(rows, widths)
                     .style(Style::new().fg(colors.row_fg))
-                    .highlight_style(Style::default().fg(colors.selected_style_fg))
+                    .row_highlight_style(Style::default().fg(colors.selected_style_fg))
                     .header(
                         Row::new(vec![" Header ", " Value "]).style(
                             Style::default()
@@ -285,7 +285,7 @@ impl InfoWidget {
                 let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
                 let table = Table::new(rows, widths)
                     .style(Style::new().fg(colors.row_fg))
-                    .highlight_style(Style::default().fg(colors.selected_style_fg))
+                    .row_highlight_style(Style::default().fg(colors.selected_style_fg))
                     .header(
                         Row::new(vec![" Header ", " Value "]).style(
                             Style::default()
