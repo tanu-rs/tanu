@@ -7,7 +7,7 @@ use ansi_to_tui::IntoText;
 use itertools::Itertools;
 use ratatui::{
     prelude::*,
-    style::Style,
+    style::{Color, Style},
     widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
 };
 use style::palette::tailwind;
@@ -328,33 +328,37 @@ impl InfoWidget {
 
         let json: serde_json::Value = serde_json::from_str(body).unwrap();
         let json_str = serde_json::to_string_pretty(&json).unwrap();
-        let highlighted_json = {
+        let (theme_bg, highlighted_json) = {
             use syntect::{
                 easy::HighlightLines,
-                highlighting::{Style, ThemeSet},
+                highlighting::{Color, Style, ThemeSet},
                 parsing::SyntaxSet,
                 util::as_24_bit_terminal_escaped,
             };
 
             let syntax_set = SyntaxSet::load_defaults_newlines();
-            let theme_set = ThemeSet::load_defaults();
+            let mut theme_set = ThemeSet::load_defaults();
             let syntax = syntax_set
                 .find_syntax_by_extension("json")
                 .expect("JSON syntax not found");
-            let theme = &theme_set.themes["base16-mocha.dark"];
+            let theme = theme_set.themes.get_mut("base16-mocha.dark").unwrap();
+            let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
             let mut highlighter = HighlightLines::new(syntax, theme);
-            json_str
-                .lines()
-                .map(|line| {
-                    let ranges: Vec<(Style, &str)> =
-                        highlighter.highlight_line(line, &syntax_set).unwrap();
-                    as_24_bit_terminal_escaped(&ranges[..], true)
-                })
-                .join("\n")
+            (
+                theme_bg,
+                json_str
+                    .lines()
+                    .map(|line| {
+                        let ranges: Vec<(Style, &str)> =
+                            highlighter.highlight_line(line, &syntax_set).unwrap();
+                        as_24_bit_terminal_escaped(&ranges[..], true)
+                    })
+                    .join("\n"),
+            )
         };
         let paragraph = Paragraph::new(highlighted_json.into_text().unwrap())
-            .block(Block::bordered())
-            .style(Style::new());
+            .block(Block::bordered().padding(Padding::uniform(1)))
+            .bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b));
 
         paragraph.render(area, buf);
     }
