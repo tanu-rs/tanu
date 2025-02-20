@@ -9,22 +9,27 @@ use crate::{
     runner::{self, Test},
 };
 
+/// Reporter trait. The trait is based on the "template method" pattern.
+/// You can implement on_xxx methods to hook into the test runner. This way is enough for most usecases.
+/// If you need more control, you can override the "run" method.
 #[async_trait::async_trait]
 pub trait Reporter {
-    async fn run(&mut self) -> eyre::Result<()>;
-}
-
-pub struct NullReporter;
-
-#[async_trait::async_trait]
-impl Reporter for NullReporter {
     async fn run(&mut self) -> eyre::Result<()> {
         let mut rx = runner::subscribe()?;
 
         loop {
-            trace!("NullReporter polling");
             match rx.recv().await {
-                Ok(_test) => {}
+                Ok(runner::Message::Start(project_name, module_name, test_name)) => {
+                    self.on_start(project_name, module_name, test_name).await?;
+                }
+                Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
+                    self.on_http_call(project_name, module_name, test_name, log)
+                        .await?;
+                }
+                Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
+                    self.on_end(project_name, module_name, test_name, test)
+                        .await?;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     debug!("runner channel has been closed");
                     break;
@@ -36,14 +41,50 @@ impl Reporter for NullReporter {
             }
         }
 
-        debug!("NullReporter stopped");
+        Ok(())
+    }
 
+    /// Called when a test case starts.
+    async fn on_start(
+        &mut self,
+        _project: String,
+        _module: String,
+        _test_name: String,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    /// Called when an HTTP call is made.
+    async fn on_http_call(
+        &mut self,
+        _project: String,
+        _module: String,
+        _test_name: String,
+        _log: Box<http::Log>,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    /// Called when a test case ends.
+    async fn on_end(
+        &mut self,
+        _project: String,
+        _module: String,
+        _test_name: String,
+        _test: Test,
+    ) -> eyre::Result<()> {
         Ok(())
     }
 }
 
+pub struct NullReporter;
+
+#[async_trait::async_trait]
+impl Reporter for NullReporter {}
+
 #[allow(clippy::vec_box)]
 pub struct ListReporter {
+    terminal: Term,
     buffer: HashMap<(String, String), Vec<Box<http::Log>>>,
     capture_http: bool,
 }
@@ -51,6 +92,7 @@ pub struct ListReporter {
 impl ListReporter {
     pub fn new(capture_http: bool) -> ListReporter {
         ListReporter {
+            terminal: Term::stdout(),
             buffer: HashMap::new(),
             capture_http,
         }
@@ -59,94 +101,91 @@ impl ListReporter {
 
 #[async_trait::async_trait]
 impl Reporter for ListReporter {
-    async fn run(&mut self) -> eyre::Result<()> {
-        let mut rx = runner::subscribe()?;
+    async fn on_start(
+        &mut self,
+        project_name: String,
+        _module_name: String,
+        test_name: String,
+    ) -> eyre::Result<()> {
+        self.buffer.insert((project_name, test_name), Vec::new());
+        Ok(())
+    }
 
-        let term = Term::stdout();
-        loop {
-            trace!("ListReporter polling");
-            match rx.recv().await {
-                Ok(runner::Message::Start(project_name, _module_name, test_name)) => {
-                    self.buffer.insert((project_name, test_name), Vec::new());
-                }
-                Ok(runner::Message::HttpLog(project_name, _module_name, test_name, log)) => {
-                    if self.capture_http {
-                        self.buffer
-                            .get_mut(&(project_name, test_name.clone()))
-                            .ok_or_else(|| {
-                                eyre::eyre!("test case \"{test_name}\" not found in the buffer")
-                            })?
-                            .push(log);
-                    }
-                }
-                Ok(runner::Message::End(project_name, _module_name, test_name, test)) => {
-                    let http_logs = self
-                        .buffer
-                        .remove(&(project_name.clone(), test_name.clone()))
-                        .ok_or_else(|| {
-                            eyre::eyre!("test case \"{test_name}\" not found in the buffer")
-                        })?;
+    async fn on_http_call(
+        &mut self,
+        project_name: String,
+        _module_name: String,
+        test_name: String,
+        log: Box<http::Log>,
+    ) -> eyre::Result<()> {
+        if self.capture_http {
+            self.buffer
+                .get_mut(&(project_name, test_name.clone()))
+                .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?
+                .push(log);
+        }
+        Ok(())
+    }
 
-                    for log in http_logs {
-                        write(
-                            &term,
-                            format!(" => {} {}", log.request.method, log.request.url),
-                        )?;
-                        write(&term, "  > request:")?;
-                        write(&term, "    > headers:")?;
-                        for key in log.request.headers.keys() {
-                            write(
-                                &term,
-                                format!(
-                                    "       > {key}: {}",
-                                    log.request.headers.get(key).unwrap().to_str().unwrap()
-                                ),
-                            )?;
-                        }
-                        write(&term, "  < response")?;
-                        write(&term, "    < headers:")?;
-                        for key in log.response.headers.keys() {
-                            write(
-                                &term,
-                                format!(
-                                    "       < {key}: {}",
-                                    log.response.headers.get(key).unwrap().to_str().unwrap()
-                                ),
-                            )?;
-                        }
-                        write(&term, format!("    < body: {}", log.response.body))?;
-                    }
+    async fn on_end(
+        &mut self,
+        project_name: String,
+        _module_name: String,
+        test_name: String,
+        test: Test,
+    ) -> eyre::Result<()> {
+        let http_logs = self
+            .buffer
+            .remove(&(project_name.clone(), test_name.clone()))
+            .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
 
-                    let Test { result, metadata } = test;
-                    match result {
-                        Ok(_res) => {
-                            let status = style("✓").green();
-                            term.write_line(&format!(
-                                "{status} [{project_name}] {}::{}",
-                                metadata.module, metadata.name
-                            ))?;
-                        }
-                        Err(e) => {
-                            let status = style("✘").red();
-                            term.write_line(&format!(
-                                "{status} [{project_name}] {}::{}: {e:#}",
-                                metadata.module, metadata.name
-                            ))?;
-                        }
-                    }
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    debug!("runner channel has been closed");
-                    break;
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => {
-                    debug!("runner channel recv error");
-                    continue;
-                }
+        for log in http_logs {
+            write(
+                &self.terminal,
+                format!(" => {} {}", log.request.method, log.request.url),
+            )?;
+            write(&self.terminal, "  > request:")?;
+            write(&self.terminal, "    > headers:")?;
+            for key in log.request.headers.keys() {
+                write(
+                    &self.terminal,
+                    format!(
+                        "       > {key}: {}",
+                        log.request.headers.get(key).unwrap().to_str().unwrap()
+                    ),
+                )?;
             }
+            write(&self.terminal, "  < response")?;
+            write(&self.terminal, "    < headers:")?;
+            for key in log.response.headers.keys() {
+                write(
+                    &self.terminal,
+                    format!(
+                        "       < {key}: {}",
+                        log.response.headers.get(key).unwrap().to_str().unwrap()
+                    ),
+                )?;
+            }
+            write(&self.terminal, format!("    < body: {}", log.response.body))?;
         }
 
-        debug!("ListReporter stopped");
+        let Test { result, metadata } = test;
+        match result {
+            Ok(_res) => {
+                let status = style("✓").green();
+                self.terminal.write_line(&format!(
+                    "{status} [{project_name}] {}::{}",
+                    metadata.module, metadata.name
+                ))?;
+            }
+            Err(e) => {
+                let status = style("✘").red();
+                self.terminal.write_line(&format!(
+                    "{status} [{project_name}] {}::{}: {e:#}",
+                    metadata.module, metadata.name
+                ))?;
+            }
+        }
 
         Ok(())
     }
