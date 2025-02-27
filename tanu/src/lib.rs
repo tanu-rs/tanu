@@ -11,7 +11,7 @@ pub use tanu_core::{
     assertion,
     config::{get_config, get_tanu_config, Config, ProjectConfig},
     http,
-    reporter::{ListReporter, NullReporter, Reporter},
+    reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{Runner, TestMetadata},
     {assert_eq, assert_ne, assert_str_eq},
 };

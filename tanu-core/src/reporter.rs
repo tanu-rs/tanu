@@ -1,13 +1,58 @@
-use console::{style, Term};
+use console::{style, StyledObject, Term};
 use eyre::WrapErr;
+use itertools::Itertools;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
-    http,
+    get_tanu_config, http,
     runner::{self, Test},
+    ModuleName, ProjectName, TestName,
 };
+
+#[derive(Debug, Clone, Default, strum::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum ReporterType {
+    Null,
+    #[default]
+    List,
+    Table,
+}
+
+async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> {
+    let mut rx = runner::subscribe()?;
+
+    loop {
+        match rx.recv().await {
+            Ok(runner::Message::Start(project_name, module_name, test_name)) => {
+                reporter
+                    .on_start(project_name, module_name, test_name)
+                    .await?;
+            }
+            Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
+                reporter
+                    .on_http_call(project_name, module_name, test_name, log)
+                    .await?;
+            }
+            Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
+                reporter
+                    .on_end(project_name, module_name, test_name, test)
+                    .await?;
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                debug!("runner channel has been closed");
+                break;
+            }
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                debug!("runner channel recv error");
+                continue;
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Reporter trait. The trait is based on the "template method" pattern.
 /// You can implement on_xxx methods to hook into the test runner. This way is enough for most usecases.
@@ -15,33 +60,7 @@ use crate::{
 #[async_trait::async_trait]
 pub trait Reporter {
     async fn run(&mut self) -> eyre::Result<()> {
-        let mut rx = runner::subscribe()?;
-
-        loop {
-            match rx.recv().await {
-                Ok(runner::Message::Start(project_name, module_name, test_name)) => {
-                    self.on_start(project_name, module_name, test_name).await?;
-                }
-                Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
-                    self.on_http_call(project_name, module_name, test_name, log)
-                        .await?;
-                }
-                Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
-                    self.on_end(project_name, module_name, test_name, test)
-                        .await?;
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    debug!("runner channel has been closed");
-                    break;
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => {
-                    debug!("runner channel recv error");
-                    continue;
-                }
-            }
-        }
-
-        Ok(())
+        run(self).await
     }
 
     /// Called when a test case starts.
@@ -85,7 +104,7 @@ impl Reporter for NullReporter {}
 #[allow(clippy::vec_box)]
 pub struct ListReporter {
     terminal: Term,
-    buffer: HashMap<(String, String), Vec<Box<http::Log>>>,
+    buffer: HashMap<(ProjectName, TestName), Vec<Box<http::Log>>>,
     capture_http: bool,
 }
 
@@ -169,17 +188,16 @@ impl Reporter for ListReporter {
             write(&self.terminal, format!("    < body: {}", log.response.body))?;
         }
 
+        let status = symbol_test_result(&test);
         let Test { result, metadata } = test;
         match result {
             Ok(_res) => {
-                let status = style("✓").green();
                 self.terminal.write_line(&format!(
                     "{status} [{project_name}] {}::{}",
                     metadata.module, metadata.name
                 ))?;
             }
             Err(e) => {
-                let status = style("✘").red();
                 self.terminal.write_line(&format!(
                     "{status} [{project_name}] {}::{}: {e:#}",
                     metadata.module, metadata.name
@@ -195,4 +213,89 @@ fn write(term: &Term, s: impl AsRef<str>) -> eyre::Result<()> {
     let colored = style(s.as_ref()).dim();
     term.write_line(&format!("{colored}"))
         .wrap_err("failed to write character on terminal")
+}
+
+fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
+    match test.result {
+        Ok(_) => style("✓").green(),
+        Err(_) => style("✘").red(),
+    }
+}
+
+fn emoji_symbol_test_result(test: &Test) -> char {
+    match test.result {
+        Ok(_) => '🟢',
+        Err(_) => '🔴',
+    }
+}
+
+#[allow(clippy::vec_box, dead_code)]
+pub struct TableReporter {
+    terminal: Term,
+    buffer: HashMap<(ProjectName, ModuleName, TestName), Test>,
+    capture_http: bool,
+}
+
+impl TableReporter {
+    pub fn new(capture_http: bool) -> TableReporter {
+        TableReporter {
+            terminal: Term::stdout(),
+            buffer: HashMap::new(),
+            capture_http,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Reporter for TableReporter {
+    async fn run(&mut self) -> eyre::Result<()> {
+        run(self).await?;
+
+        let project_order: Vec<_> = get_tanu_config().projects.iter().map(|p| &p.name).collect();
+
+        let mut builder = tabled::builder::Builder::default();
+        builder.push_record(["Project", "Module", "Test", "Result"]);
+        self.buffer
+            .drain()
+            .sorted_by(|(a, _), (b, _)| {
+                let project_order_a = project_order
+                    .iter()
+                    .position(|&p| *p == a.0)
+                    .unwrap_or(usize::MAX);
+                let project_order_b = project_order
+                    .iter()
+                    .position(|&p| *p == b.0)
+                    .unwrap_or(usize::MAX);
+
+                project_order_a
+                    .cmp(&project_order_b)
+                    .then(a.1.cmp(&b.1))
+                    .then(a.2.cmp(&b.2))
+            })
+            .for_each(|((p, m, t), test)| {
+                builder.push_record([p, m, t, emoji_symbol_test_result(&test).to_string()])
+            });
+
+        let mut table = builder.build();
+        table.with(tabled::settings::Style::modern()).with(
+            tabled::settings::Modify::new(tabled::settings::object::Columns::single(3))
+                .with(tabled::settings::Alignment::center()),
+        );
+
+        write(&self.terminal, format!("{table}")).wrap_err("failed to write table on terminal")?;
+
+        Ok(())
+    }
+
+    async fn on_end(
+        &mut self,
+        project_name: String,
+        module_name: String,
+        test_name: String,
+        test: Test,
+    ) -> eyre::Result<()> {
+        self.buffer
+            .insert((project_name, module_name, test_name), test);
+        Ok(())
+    }
 }

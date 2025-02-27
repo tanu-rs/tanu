@@ -8,7 +8,7 @@
 
 /// Custom error type used by assertion macros. This `Error` type is
 /// designed to be propagated from test functions using the assertion macros.
-/// estman wraps the error with `eyre::Report` for enhanced error reporting,
+/// tanu wraps the error with `eyre::Report` for enhanced error reporting,
 /// including the ability to generate and display colorized backtraces.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
