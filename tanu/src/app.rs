@@ -3,7 +3,7 @@ use console::Term;
 use eyre::OptionExt;
 use itertools::Itertools;
 
-use crate::{get_tanu_config, ListReporter};
+use crate::{get_tanu_config, ListReporter, NullReporter, ReporterType, TableReporter};
 
 /// tanu CLI.
 #[derive(Default)]
@@ -29,6 +29,7 @@ impl App {
                 projects,
                 modules,
                 tests,
+                reporter,
             } => {
                 if capture_http {
                     runner.capture_http();
@@ -37,7 +38,11 @@ impl App {
                     runner.capture_rust();
                 }
                 runner.terminate_channel();
-                runner.add_reporter(ListReporter::new(capture_http));
+                match reporter.unwrap_or_default() {
+                    ReporterType::Table => runner.add_reporter(TableReporter::new(capture_http)),
+                    ReporterType::List => runner.add_reporter(ListReporter::new(capture_http)),
+                    ReporterType::Null => runner.add_reporter(NullReporter),
+                }
                 runner.run(&projects, &modules, &tests).await
             }
             Command::Tui {
@@ -101,6 +106,9 @@ pub enum Command {
         /// ---tests b
         #[arg(short, long)]
         tests: Vec<String>,
+        /// Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null".
+        #[arg(long)]
+        reporter: Option<ReporterType>,
     },
     Tui {
         #[arg(long, default_value = "Info")]

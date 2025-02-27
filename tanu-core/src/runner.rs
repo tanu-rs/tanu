@@ -15,6 +15,7 @@ use crate::{
     config::{self, get_config, get_tanu_config, ProjectConfig},
     http,
     reporter::Reporter,
+    ModuleName, ProjectName, TestName,
 };
 
 pub static CHANNEL: Lazy<Mutex<Option<broadcast::Sender<Message>>>> =
@@ -53,12 +54,6 @@ pub enum Error {
     #[error("error: {0}")]
     ErrorReturned(String),
 }
-
-pub type ProjectName = String;
-
-pub type ModuleName = String;
-
-pub type TestName = String;
 
 #[derive(Debug, Clone)]
 pub enum Message {
