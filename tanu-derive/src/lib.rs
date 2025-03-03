@@ -13,8 +13,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 use syn::{
-    parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprLit, File, Ident, Item,
-    ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Token, Type,
+    parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprCall, ExprLit, ExprPath,
+    File, Ident, Item, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Token, Type,
 };
 use walkdir::WalkDir;
 
@@ -83,7 +83,6 @@ impl Parse for Input {
     }
 }
 
-/// Generates a unique function name for a test case.
 /// - If a test name argument is provided (e.g., `#[test(a; xxx)]`), use it as the function name.
 /// - Otherwise, generate a function name by concatenating the test parameters with `_`.
 fn generate_test_name_with_parameters(
@@ -107,19 +106,22 @@ fn generate_test_name_with_parameters(
             let args = input
                 .args
                 .iter()
-                .filter_map(|expr| {
-                    let lit: &Lit = match expr {
-                        Expr::Lit(ExprLit { lit, .. }) => lit,
-                        _ => {
-                            panic!("not supported");
-                        }
-                    };
-                    match lit {
+                .filter_map(|expr| match expr {
+                    Expr::Lit(ExprLit { lit, .. }) => match lit {
                         Lit::Str(lit_str) => Some(lit_str.value()),
-                        Lit::Int(lit_int) => Some(lit_int.to_string()),
-                        _ => None,
+                        other_literal => Some(quote!(#other_literal).to_string()),
+                    },
+                    expr @ Expr::Path(_) | expr @ Expr::Call(_) => {
+                        extract_and_stringify_option(expr)
+                    }
+                    expr => {
+                        panic!(
+                            "\"{}\" is not supported in #[test] attribute",
+                            get_expr_variant_name(expr)
+                        );
                     }
                 })
+                .map(|s| s.replace(".", "_").replace(" :: ", "_").to_lowercase())
                 .collect::<Vec<_>>()
                 .join("_");
 
@@ -184,6 +186,83 @@ fn insepct_error_crate(sig: &Signature) -> ErrorCrate {
             }
         }
     }
+}
+
+/// Returns the name of the variant of the given expression.
+fn get_expr_variant_name(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Array(_) => "Array",
+        Expr::Assign(_) => "Assign",
+        Expr::Async(_) => "Async",
+        Expr::Await(_) => "Await",
+        Expr::Binary(_) => "Binary",
+        Expr::Block(_) => "Block",
+        Expr::Break(_) => "Break",
+        Expr::Call(_) => "Call",
+        Expr::Cast(_) => "Cast",
+        Expr::Closure(_) => "Closure",
+        Expr::Continue(_) => "Continue",
+        Expr::Field(_) => "Field",
+        Expr::ForLoop(_) => "ForLoop",
+        Expr::Group(_) => "Group",
+        Expr::If(_) => "If",
+        Expr::Index(_) => "Index",
+        Expr::Let(_) => "Let",
+        Expr::Lit(_) => "Lit",
+        Expr::Loop(_) => "Loop",
+        Expr::Macro(_) => "Macro",
+        Expr::Match(_) => "Match",
+        Expr::MethodCall(_) => "MethodCall",
+        Expr::Paren(_) => "Paren",
+        Expr::Path(_) => "Path",
+        Expr::Range(_) => "Range",
+        Expr::Reference(_) => "Reference",
+        Expr::Repeat(_) => "Repeat",
+        Expr::Return(_) => "Return",
+        Expr::Struct(_) => "Struct",
+        Expr::Try(_) => "Try",
+        Expr::TryBlock(_) => "TryBlock",
+        Expr::Tuple(_) => "Tuple",
+        Expr::Unary(_) => "Unary",
+        Expr::Unsafe(_) => "Unsafe",
+        Expr::Verbatim(_) => "Verbatim",
+        Expr::While(_) => "While",
+        Expr::Yield(_) => "Yield",
+        _ => "Unknown",
+    }
+}
+
+fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Call(ExprCall { func, args, .. }) => {
+            if let Expr::Path(ExprPath { path, .. }) = &**func {
+                let segment = path.segments.last()?;
+                if segment.ident == "Some" {
+                    match args.first()? {
+                        Expr::Lit(ExprLit { lit, .. }) => match lit {
+                            Lit::Str(lit_str) => {
+                                return Some(lit_str.value());
+                            }
+                            other_type_of_literal => {
+                                return Some(other_type_of_literal.to_token_stream().to_string());
+                            }
+                        },
+                        first_arg => {
+                            return Some(quote!(#first_arg).to_string());
+                        }
+                    }
+                }
+            }
+        }
+        Expr::Path(ExprPath { path, .. }) => {
+            if path.get_ident()? == "None" {
+                return Some("None".into());
+            }
+        }
+        _ => {}
+    }
+
+    None
 }
 
 /// #[test] attribute registers the test function in tanu runner.
@@ -399,7 +478,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod test {
-    use super::ErrorCrate;
+    use super::*;
     use test_case::test_case;
 
     #[test_case("test" => true; "test")]
@@ -418,5 +497,16 @@ mod test {
     fn insepct_error_crate(s: &str) -> ErrorCrate {
         let sig: syn::Signature = syn::parse_str(s).expect("failed to parse function signature");
         super::insepct_error_crate(&sig)
+    }
+
+    #[test_case("Some(1)" => Some("1".into()); "Some with int")]
+    #[test_case("Some(\"test\")" => Some("test".into()); "Some with string")]
+    #[test_case("Some(true)" => Some("true".into()); "Some with boolean")]
+    #[test_case("Some(1.0)" => Some("1.0".into()); "Some with float")]
+    #[test_case("Some(StatusCode::OK)" => Some("StatusCode :: OK".into()); "Some third party type")]
+    #[test_case("None" => Some("None".into()); "None")]
+    fn extract_and_stringify_option(s: &str) -> Option<String> {
+        let expr: Expr = syn::parse_str(s).expect("failed to parse expression");
+        super::extract_and_stringify_option(&expr)
     }
 }
