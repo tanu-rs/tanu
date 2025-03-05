@@ -36,8 +36,8 @@ impl TestCase {
     /// Create a test case where `func`
     fn from_func_name(input: &Input, org_func_name: &str) -> TestCase {
         TestCase {
-            func_name: generate_test_name_with_parameters(org_func_name, input, Some("tanu")),
-            test_name: generate_test_name_with_parameters(org_func_name, input, None),
+            func_name: generate_test_name(org_func_name, input, Some("tanu")),
+            test_name: generate_test_name(org_func_name, input, None),
         }
     }
 }
@@ -85,11 +85,7 @@ impl Parse for Input {
 
 /// - If a test name argument is provided (e.g., `#[test(a; xxx)]`), use it as the function name.
 /// - Otherwise, generate a function name by concatenating the test parameters with `_`.
-fn generate_test_name_with_parameters(
-    org_func_name: &str,
-    input: &Input,
-    prefix: Option<&str>,
-) -> String {
+fn generate_test_name(org_func_name: &str, input: &Input, prefix: Option<&str>) -> String {
     let func_name = org_func_name.to_string();
 
     if input.args.is_empty() {
@@ -114,14 +110,50 @@ fn generate_test_name_with_parameters(
                     expr @ Expr::Path(_) | expr @ Expr::Call(_) => {
                         extract_and_stringify_option(expr)
                     }
-                    expr => {
-                        panic!(
-                            "\"{}\" is not supported in #[test] attribute",
-                            get_expr_variant_name(expr)
-                        );
-                    }
+                    other_expr => Some(quote!(#other_expr).to_string()),
                 })
-                .map(|s| s.replace(".", "_").replace(" :: ", "_").to_lowercase())
+                .map(|s| {
+                    s.replace("+=", "_add_")
+                        .replace("+", "_add_")
+                        .replace("-=", "_sub_")
+                        .replace("-", "_sub_")
+                        .replace("/=", "_div_")
+                        .replace("/", "_div_")
+                        .replace("*=", "_mul_")
+                        .replace("*", "_mul_")
+                        .replace("%=", "_mod_")
+                        .replace("%", "_mod_")
+                        .replace("==", "_eq_")
+                        .replace("!=", "_nq_")
+                        .replace("&&", "_and_")
+                        .replace("||", "_or_")
+                        .replace("!", "not_")
+                        .replace("&=", "_and_")
+                        .replace("&", "_and_")
+                        .replace("|=", "_or_")
+                        .replace("|", "_or_")
+                        .replace("^=", "_xor_")
+                        .replace("^", "_xor_")
+                        .replace("<<=", "_lshift_")
+                        .replace("<<", "_lshift_")
+                        .replace("<=", "_le_")
+                        .replace("<", "_lt_")
+                        .replace(">>=", "_rshift_")
+                        .replace(">>", "_rshift_")
+                        .replace(">=", "_ge_")
+                        .replace(">", "_gt_")
+                        .replace("&mut ", "")
+                        .replace("*mut ", "")
+                        .replace("&", "")
+                        .replace("*", "")
+                        .replace(" :: ", "_")
+                        .replace("\"", "")
+                        .replace("(", "")
+                        .replace(")", "")
+                        .replace(" ", "")
+                        .replace(".", "_")
+                        .to_lowercase()
+                })
                 .collect::<Vec<_>>()
                 .join("_");
 
@@ -163,7 +195,7 @@ enum ErrorCrate {
 ///
 /// For further details and discussion on this limitation, see:
 /// https://users.rust-lang.org/t/in-a-proc-macro-attribute-procedural-macro-how-to-get-the-full-typepath-of-some-type/107713/2
-fn insepct_error_crate(sig: &Signature) -> ErrorCrate {
+fn inspect_error_crate(sig: &Signature) -> ErrorCrate {
     match &sig.output {
         ReturnType::Default => panic!("return type needs to be other than ()"),
         ReturnType::Type(_, ty) => {
@@ -188,6 +220,7 @@ fn insepct_error_crate(sig: &Signature) -> ErrorCrate {
     }
 }
 
+#[allow(dead_code)]
 /// Returns the name of the variant of the given expression.
 fn get_expr_variant_name(expr: &Expr) -> &'static str {
     match expr {
@@ -298,7 +331,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     //
     // - If the test function returns another result type (e.g., `anyhow::Result`),
     //   the macro will automatically wrap the return value in an `eyre::Result`.
-    let error_crate = insepct_error_crate(&input_fn.sig);
+    let error_crate = inspect_error_crate(&input_fn.sig);
     let output = if error_crate == ErrorCrate::Eyre {
         quote! {
             #input_fn
@@ -478,7 +511,9 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::Input;
+
+    use super::{ErrorCrate, Expr, TestCase};
     use test_case::test_case;
 
     #[test_case("test" => true; "test")]
@@ -494,9 +529,9 @@ mod test {
     #[test_case("fn foo() -> anyhow::Result" => ErrorCrate::AnythingElse; "anyhow")]
     #[test_case("fn foo() -> miette::Result" => ErrorCrate::AnythingElse; "miette")]
     #[test_case("fn foo() -> Result" => ErrorCrate::AnythingElse; "std_result")]
-    fn insepct_error_crate(s: &str) -> ErrorCrate {
+    fn inspect_error_crate(s: &str) -> ErrorCrate {
         let sig: syn::Signature = syn::parse_str(s).expect("failed to parse function signature");
-        super::insepct_error_crate(&sig)
+        super::inspect_error_crate(&sig)
     }
 
     #[test_case("Some(1)" => Some("1".into()); "Some with int")]
@@ -504,9 +539,61 @@ mod test {
     #[test_case("Some(true)" => Some("true".into()); "Some with boolean")]
     #[test_case("Some(1.0)" => Some("1.0".into()); "Some with float")]
     #[test_case("Some(StatusCode::OK)" => Some("StatusCode :: OK".into()); "Some third party type")]
+    #[test_case("Some(\"foo\".to_string())" => Some("\"foo\" . to_string ()".into()); "Some expression")]
     #[test_case("None" => Some("None".into()); "None")]
     fn extract_and_stringify_option(s: &str) -> Option<String> {
         let expr: Expr = syn::parse_str(s).expect("failed to parse expression");
         super::extract_and_stringify_option(&expr)
+    }
+
+    #[allow(clippy::erasing_op)]
+    #[test_case("a, b; \"test_name\"" => "test_name"; "with test name")]
+    #[test_case("1+1" => "foo_1_add_1"; "with add expression")]
+    #[test_case("1+=1" => "foo_1_add_1"; "with add assignment expression")]
+    #[test_case("1-1" => "foo_1_sub_1"; "with sub expression")]
+    #[test_case("1-=1" => "foo_1_sub_1"; "with sub assignment expression")]
+    #[test_case("1/1" => "foo_1_div_1"; "with div expression")]
+    #[test_case("1/=1" => "foo_1_div_1"; "with div assignment expression")]
+    #[test_case("1*1" => "foo_1_mul_1"; "with mul expression")]
+    #[test_case("1*=1" => "foo_1_mul_1"; "with mul assignment expression")]
+    #[test_case("1%1" => "foo_1_mod_1"; "with mod expression")]
+    #[test_case("1%=1" => "foo_1_mod_1"; "with mod assignment expression")]
+    #[test_case("1==1" => "foo_1_eq_1"; "with eq expression")]
+    #[test_case("1!=1" => "foo_1_nq_1"; "with neq expression")]
+    #[test_case("1<1" => "foo_1_lt_1"; "with lt expression")]
+    #[test_case("1>1" => "foo_1_gt_1"; "with gt expression")]
+    #[test_case("1<=1" => "foo_1_le_1"; "with le expression")]
+    #[test_case("1>=1" => "foo_1_ge_1"; "with ge expression")]
+    #[test_case("true&&false" => "foo_true_and_false"; "with and expression")]
+    #[test_case("true||false" => "foo_true_or_false"; "with or expression")]
+    #[test_case("!true" => "foo_not_true"; "with not expression")]
+    #[test_case("1&1" => "foo_1_and_1"; "with bitwise and expression")]
+    #[test_case("1&=1" => "foo_1_and_1"; "with bitwise and assignment expression")]
+    #[test_case("1|1" => "foo_1_or_1"; "with bitwise or expression")]
+    #[test_case("1|=1" => "foo_1_or_1"; "with bitwise or assignment expression")]
+    #[test_case("1^1" => "foo_1_xor_1"; "with xor expression")]
+    #[test_case("1^=1" => "foo_1_xor_1"; "with xor assignment expression")]
+    #[test_case("1<<1" => "foo_1_lshift_1"; "with left shift expression")]
+    #[test_case("1<<=1" => "foo_1_lshift_1"; "with left shift assignment expression")]
+    #[test_case("1>>1" => "foo_1_rshift_1"; "with right shift expression")]
+    #[test_case("1>>=1" => "foo_1_rshift_1"; "with right shift assignment expression")]
+    #[test_case("\"bar\".to_string()" => "foo_bar_to_string"; "to_string")]
+    #[test_case("1+1*2" => "foo_1_add_1_mul_2"; "with add and mul expression")]
+    #[test_case("1*(2+3)" => "foo_1_mul_2_add_3"; "with mul and add expression")]
+    #[test_case("1+2-3" => "foo_1_add_2_sub_3"; "with add and sub expression")]
+    #[test_case("1/2*3" => "foo_1_div_2_mul_3"; "with div and mul expression")]
+    #[test_case("1%2+3" => "foo_1_mod_2_add_3"; "with mod and add expression")]
+    #[test_case("1==2&&3!=4" => "foo_1_eq_2_and_3_nq_4"; "with eq and and expression")]
+    #[test_case("true||false&&true" => "foo_true_or_false_and_true"; "with or and and expression")]
+    #[test_case("!(1+2)" => "foo_not_1_add_2"; "with not and add expression")]
+    #[test_case("1&2|3^4" => "foo_1_and_2_or_3_xor_4"; "with bitwise and, or, xor expression")]
+    #[test_case("1<<2>>3" => "foo_1_lshift_2_rshift_3"; "with left shift and right shift expression")]
+    #[test_case("Some(1+2)" => "foo_1_add_2"; "with Some and add expression")]
+    #[test_case("None" => "foo_none"; "with None")]
+    #[test_case("\"foo\".to_string().len()" => "foo_foo_to_string_len"; "with function call chain")]
+    fn generate_test_name(args: &str) -> String {
+        let input_args: Input = syn::parse_str(args).expect("failed to parse input args");
+        let test_case = TestCase::from_func_name(&input_args, "foo");
+        test_case.test_name
     }
 }
