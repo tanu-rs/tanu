@@ -28,8 +28,6 @@ struct TestCase {
     func_name: String,
     /// Human friendly test case name listed by `cargo run ls`.
     test_name: String,
-    // Unique ID to identify
-    //id: String,
 }
 
 impl TestCase {
@@ -498,7 +496,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
         fn run() -> tanu::Runner {
             let mut runner = tanu::Runner::new();
             #(
-            runner.add_test(#test_names, stringify!(#test_mods), Box::new(|| Box::pin(#test_mods::#func_names())));
+            runner.add_test(#test_names, stringify!(#test_mods), std::sync::Arc::new(|| Box::pin(#test_mods::#func_names())));
             )*
             runner
         }

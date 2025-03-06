@@ -1,0 +1,8 @@
+[[projects]]
+name = "default"        # project name
+test_ignore = []        # list of test names to exclude
+retry.count = 0         # retry count, default is 0
+retry.factor = 2.0      # factor for backoff, default is 2.0
+retry.jitter = false    # true to enable backoff jitter, default is false
+retry.min_delay = "1s"  # minimum delay for backoff, default is 1s
+retry.max_delay = "60s" # maximum delay for backoff, default is 60s

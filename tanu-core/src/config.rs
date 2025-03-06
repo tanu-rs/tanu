@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::{collections::HashMap, io::Read};
+use std::{collections::HashMap, io::Read, path::Path, time::Duration};
 use toml::Value as TomlValue;
 use tracing::*;
 
@@ -29,9 +29,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load tanu configuration from tanu.toml
-    fn load() -> Result<Config> {
-        let Ok(mut file) = std::fs::File::open("tanu.toml") else {
+    /// Load tanu configuration from path.
+    fn load_from(path: &Path) -> Result<Config> {
+        let Ok(mut file) = std::fs::File::open(path) else {
             return Ok(Config::default());
         };
 
@@ -49,6 +49,11 @@ impl Config {
         cfg.load_env();
 
         Ok(cfg)
+    }
+
+    /// Load tanu configuration from tanu.toml in the current directory.
+    fn load() -> Result<Config> {
+        Config::load_from(Path::new("tanu.toml"))
     }
 
     /// Load tanu configuration from environment variables.
@@ -121,8 +126,11 @@ pub struct ProjectConfig {
     /// Keys and values specified by user.
     #[serde(flatten)]
     pub data: HashMap<String, TomlValue>,
+    /// List of files to ignore in the project.
     #[serde(default)]
     pub test_ignore: Vec<String>,
+    #[serde(default)]
+    pub retry: RetryConfig,
 }
 
 impl ProjectConfig {
@@ -138,5 +146,75 @@ impl ProjectConfig {
         self.get(key)?
             .as_str()
             .ok_or_else(|| Error::ValueNotFound(key.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetryConfig {
+    /// Number of retries.
+    pub count: Option<usize>,
+    /// Factor to multiply the delay between retries.
+    pub factor: Option<f32>,
+    /// Whether to add jitter to the delay between retries.
+    pub jitter: Option<bool>,
+    /// Minimum delay between retries.
+    #[serde(with = "humantime_serde")]
+    pub min_delay: Option<Duration>,
+    /// Maximum delay between retries.
+    #[serde(with = "humantime_serde")]
+    pub max_delay: Option<Duration>,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        RetryConfig {
+            count: Some(0),
+            factor: Some(2.0),
+            jitter: Some(false),
+            min_delay: Some(Duration::from_secs(1)),
+            max_delay: Some(Duration::from_secs(60)),
+        }
+    }
+}
+
+impl RetryConfig {
+    pub fn backoff(&self) -> backon::ExponentialBuilder {
+        let builder = backon::ExponentialBuilder::new()
+            .with_max_times(self.count.unwrap_or_default())
+            .with_factor(self.factor.unwrap_or(2.0))
+            .with_min_delay(self.min_delay.unwrap_or(Duration::from_secs(1)))
+            .with_max_delay(self.max_delay.unwrap_or(Duration::from_secs(60)));
+
+        if self.jitter.unwrap_or_default() {
+            builder.with_jitter()
+        } else {
+            builder
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use std::time::Duration;
+
+    #[test]
+    fn load_config() -> eyre::Result<()> {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let config_path = Path::new(manifest_dir).join("../tanu-sample.toml");
+        let cfg = super::Config::load_from(&config_path)?;
+        assert_eq!(cfg.projects.len(), 1);
+
+        let project = &cfg.projects[0];
+        assert_eq!(project.name, "default");
+        assert_eq!(project.test_ignore, Vec::<String>::new());
+        assert_eq!(project.retry.count, Some(0));
+        assert_eq!(project.retry.factor, Some(2.0));
+        assert_eq!(project.retry.jitter, Some(false));
+        assert_eq!(project.retry.min_delay, Some(Duration::from_secs(1)));
+        assert_eq!(project.retry.max_delay, Some(Duration::from_secs(60)));
+
+        Ok(())
     }
 }

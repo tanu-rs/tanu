@@ -13,16 +13,18 @@ categories = ["development-tools"]
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+backon = "1.4"
 console = { version = "0.15" }
 eyre = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
+humantime-serde = "1"
 itertools = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"
 reqwest = { workspace = true }
 serde = { workspace = true }
-serde_json  = "1"
+serde_json = "1"
 strum = { workspace = true }
 tabled = "0.18"
 tanu-derive = { version = "=0.2.0", path = "../tanu-derive" }
@@ -31,3 +33,6 @@ tokio = { workspace = true }
 toml = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+mockito = "1.7"
