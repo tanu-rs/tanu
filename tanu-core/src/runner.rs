@@ -1,4 +1,5 @@
 /// tanu's test runner
+use backon::Retryable;
 use eyre::WrapErr;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use once_cell::sync::Lazy;
@@ -15,7 +16,7 @@ use crate::{
     config::{self, get_config, get_tanu_config, ProjectConfig},
     http,
     reporter::Reporter,
-    ModuleName, ProjectName, TestName,
+    Config, ModuleName, ProjectName, TestName,
 };
 
 pub static CHANNEL: Lazy<Mutex<Option<broadcast::Sender<Message>>>> =
@@ -81,7 +82,7 @@ impl TestMetadata {
     }
 }
 
-type TestCaseFactory = Box<
+type TestCaseFactory = Arc<
     dyn Fn() -> Pin<Box<dyn futures::Future<Output = eyre::Result<()>> + Send + 'static>>
         + Sync
         + Send
@@ -94,13 +95,6 @@ pub struct Options {
     pub capture_http: bool,
     pub capture_rust: bool,
     pub terminate_channel: bool,
-}
-
-#[derive(Default)]
-pub struct Runner {
-    options: Options,
-    test_cases: Vec<(TestMetadata, TestCaseFactory)>,
-    reporters: Vec<Box<dyn Reporter + Send>>,
 }
 
 /// Test case filter trait.
@@ -188,9 +182,26 @@ impl Filter for TestIgnoreFilter {
     }
 }
 
+#[derive(Default)]
+pub struct Runner {
+    cfg: Config,
+    options: Options,
+    test_cases: Vec<(TestMetadata, TestCaseFactory)>,
+    reporters: Vec<Box<dyn Reporter + Send>>,
+}
+
 impl Runner {
     pub fn new() -> Runner {
-        Runner::default()
+        Runner::with_config(get_tanu_config().clone())
+    }
+
+    pub fn with_config(cfg: Config) -> Runner {
+        Runner {
+            cfg,
+            options: Options::default(),
+            test_cases: Vec::new(),
+            reporters: Vec::new(),
+        }
     }
 
     pub fn capture_http(&mut self) {
@@ -221,6 +232,7 @@ impl Runner {
     }
 
     /// Run tanu runner.
+    #[allow(clippy::too_many_lines)]
     pub async fn run(
         &mut self,
         project_names: &[String],
@@ -242,7 +254,7 @@ impl Runner {
                 .test_cases
                 .iter()
                 .flat_map(|(metadata, factory)| {
-                    let projects = get_tanu_config().projects.clone();
+                    let projects = self.cfg.projects.clone();
                     let projects = if projects.is_empty() {
                         vec![ProjectConfig {
                             name: "default".into(),
@@ -253,7 +265,9 @@ impl Runner {
                     };
                     projects
                         .into_iter()
-                        .map(move |project| (project.clone(), metadata.clone(), (factory)()))
+                        .map(move |project| {
+                            (project.clone(), metadata.clone(), factory.clone())
+                        })
                 })
                 .filter(move |(project, metadata, _)| {
                     test_name_filter.filter(project, metadata)
@@ -267,10 +281,10 @@ impl Runner {
                 .filter(move |(project, metadata, _)| {
                     test_ignore_filter.filter(project, metadata)
                 })
-                .map(|(project, metadata, fut)| {
+                .map(|(project, metadata, factory)| {
                     tokio::spawn(async move {
                         config::PROJECT
-                            .scope(project, async {
+                            .scope(project.clone(), async {
                                 http::CHANNEL
                                     .scope(
                                         Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
@@ -278,11 +292,12 @@ impl Runner {
                                             let test_name = &metadata.name;
                                             let mut http_rx = http::subscribe()?;
 
+                                            let f= || async {factory().await};
+                                            let fut = f.retry(project.retry.backoff());
                                             let fut =
                                                 std::panic::AssertUnwindSafe(fut).catch_unwind();
                                             let res = fut.await;
 
-                                            let project = get_config();
                                             publish(Message::Start(project.name.clone(), metadata.module.clone(), test_name.to_string()))?;
 
                                             let result = match res {
@@ -379,5 +394,109 @@ impl Runner {
             .iter()
             .map(|(meta, _test)| meta)
             .collect::<Vec<_>>()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::config::RetryConfig;
+
+    fn create_config() -> Config {
+        Config {
+            projects: vec![ProjectConfig {
+                name: "default".into(),
+                ..Default::default()
+            }],
+        }
+    }
+
+    fn create_config_with_retry() -> Config {
+        Config {
+            projects: vec![ProjectConfig {
+                name: "default".into(),
+                retry: RetryConfig {
+                    count: Some(1),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn runner_fail_because_no_retry_configured() {
+        let mut server = mockito::Server::new_async().await;
+        let m1 = server
+            .mock("GET", "/")
+            .with_status(500)
+            .expect(1)
+            .create_async()
+            .await;
+        let m2 = server
+            .mock("GET", "/")
+            .with_status(200)
+            .expect(0)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let res = reqwest::get(url).await?;
+                if res.status().is_success() {
+                    Ok(())
+                } else {
+                    eyre::bail!("request failed")
+                }
+            })
+        });
+
+        let mut runner = Runner::with_config(create_config());
+        runner.add_test("retry_test", "module", factory);
+
+        let result = runner.run(&[], &[], &[]).await;
+        m1.assert_async().await;
+        m2.assert_async().await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn runner_retry_after_failure() {
+        let mut server = mockito::Server::new_async().await;
+        let m1 = server
+            .mock("GET", "/")
+            .with_status(500)
+            .expect(1)
+            .create_async()
+            .await;
+        let m2 = server
+            .mock("GET", "/")
+            .with_status(200)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let res = reqwest::get(url).await?;
+                if res.status().is_success() {
+                    Ok(())
+                } else {
+                    eyre::bail!("request failed")
+                }
+            })
+        });
+
+        let mut runner = Runner::with_config(create_config_with_retry());
+        runner.add_test("retry_test", "module", factory);
+
+        let result = runner.run(&[], &[], &[]).await;
+        m1.assert_async().await;
+        m2.assert_async().await;
+
+        assert!(result.is_ok());
     }
 }

@@ -369,11 +369,13 @@ mod test {
                 name: "dev".into(),
                 data: HashMap::new(),
                 test_ignore: vec![],
+                ..Default::default()
             },
             tanu_core::ProjectConfig {
                 name: "staging".into(),
                 data: HashMap::new(),
                 test_ignore: vec![],
+                ..Default::default()
             },
         ];
         let test_cases = vec![
