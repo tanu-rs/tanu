@@ -8,4 +8,6 @@ pub enum Error {
     /// Occurs when the specified key is not found in `tanu.toml`.
     #[error("the specified key \"{0}\" not found in tanu.toml")]
     ValueNotFound(String),
+    #[error("the specified value could not be casted to the desired type: {0}")]
+    ValueError(eyre::Error),
 }

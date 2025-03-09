@@ -17,7 +17,6 @@ impl App {
     /// Parse command-line args and run tanu CLI sub command.
     pub async fn run(self, mut runner: crate::Runner) -> eyre::Result<()> {
         let args = Args::parse();
-        dotenv::dotenv().ok();
         color_eyre::install().unwrap();
 
         let cfg = get_tanu_config();

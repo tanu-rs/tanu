@@ -1,12 +1,16 @@
+use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use std::{collections::HashMap, io::Read, path::Path, time::Duration};
 use toml::Value as TomlValue;
 use tracing::*;
 
 use crate::{Error, Result};
 
-static CONFIG: Lazy<Config> = Lazy::new(|| Config::load().expect("failed to load tanu.toml"));
+static CONFIG: Lazy<Config> = Lazy::new(|| {
+    let _ = dotenv::dotenv();
+    Config::load().expect("failed to load tanu.toml")
+});
 
 tokio::task_local! {
     pub static PROJECT: ProjectConfig;
@@ -72,8 +76,9 @@ impl Config {
         let project_prefixes: Vec<_> = self
             .projects
             .iter()
-            .map(|p| format!("{PREFIX}_PROJECT_{}_", p.name.to_uppercase()))
+            .map(|p| format!("{PREFIX}_{}_", p.name.to_uppercase()))
             .collect();
+        debug!("Loading global configuration from env");
         let global_vars: HashMap<_, _> = std::env::vars()
             .filter_map(|(k, v)| {
                 let is_project_var = project_prefixes.iter().any(|pp| k.contains(pp));
@@ -82,32 +87,23 @@ impl Config {
                 }
 
                 k.find(&global_prefix)?;
-                if global_prefix.len() >= k.len() {
-                    None
-                } else {
-                    debug!("Loading {k} from env");
-                    Some((
-                        k[global_prefix.len()..].to_string().to_lowercase(),
-                        TomlValue::String(v),
-                    ))
-                }
+                Some((
+                    k[global_prefix.len()..].to_string().to_lowercase(),
+                    TomlValue::String(v),
+                ))
             })
             .collect();
 
+        debug!("Loading project configuration from env");
         for project in &mut self.projects {
-            let project_prefix = format!("{PREFIX}_PROJECT_{}_", project.name.to_uppercase());
+            let project_prefix = format!("{PREFIX}_{}_", project.name.to_uppercase());
             let vars: HashMap<_, _> = std::env::vars()
                 .filter_map(|(k, v)| {
                     k.find(&project_prefix)?;
-                    if project_prefix.len() >= k.len() {
-                        None
-                    } else {
-                        debug!("Loading {k} from env");
-                        Some((
-                            k[project_prefix.len()..].to_string().to_lowercase(),
-                            TomlValue::String(v),
-                        ))
-                    }
+                    Some((
+                        k[project_prefix.len()..].to_string().to_lowercase(),
+                        TomlValue::String(v),
+                    ))
                 })
                 .collect();
             project.data.extend(vars);
@@ -146,6 +142,40 @@ impl ProjectConfig {
         self.get(key)?
             .as_str()
             .ok_or_else(|| Error::ValueNotFound(key.to_string()))
+    }
+
+    pub fn get_int(&self, key: impl AsRef<str>) -> Result<i64> {
+        self.get_str(key)?
+            .parse()
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
+    }
+
+    pub fn get_float(&self, key: impl AsRef<str>) -> Result<f64> {
+        self.get_str(key)?
+            .parse()
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
+    }
+
+    pub fn get_bool(&self, key: impl AsRef<str>) -> Result<bool> {
+        self.get_str(key)?
+            .parse()
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
+    }
+
+    pub fn get_datetime(&self, key: impl AsRef<str>) -> Result<DateTime<Utc>> {
+        self.get_str(key)?
+            .parse::<DateTime<Utc>>()
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
+    }
+
+    pub fn get_array<T: DeserializeOwned>(&self, key: impl AsRef<str>) -> Result<Vec<T>> {
+        serde_json::from_str(self.get_str(key)?)
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
+    }
+
+    pub fn get_object<T: DeserializeOwned>(&self, key: impl AsRef<str>) -> Result<T> {
+        serde_json::from_str(self.get_str(key)?)
+            .map_err(|e| Error::ValueError(eyre::Error::from(e)))
     }
 }
 
@@ -197,13 +227,22 @@ impl RetryConfig {
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
-    use std::time::Duration;
+    use std::{time::Duration, vec};
+    use test_case::test_case;
+
+    fn load_test_config() -> eyre::Result<Config> {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let config_path = Path::new(manifest_dir).join("../tanu-sample.toml");
+        Ok(super::Config::load_from(&config_path)?)
+    }
+
+    fn load_test_project_config() -> eyre::Result<ProjectConfig> {
+        Ok(load_test_config()?.projects.remove(0))
+    }
 
     #[test]
     fn load_config() -> eyre::Result<()> {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let config_path = Path::new(manifest_dir).join("../tanu-sample.toml");
-        let cfg = super::Config::load_from(&config_path)?;
+        let cfg = load_test_config()?;
         assert_eq!(cfg.projects.len(), 1);
 
         let project = &cfg.projects[0];
@@ -215,6 +254,84 @@ mod test {
         assert_eq!(project.retry.min_delay, Some(Duration::from_secs(1)));
         assert_eq!(project.retry.max_delay, Some(Duration::from_secs(60)));
 
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT_STR_KEY"; "project config")]
+    #[test_case("TANU_STR_KEY"; "global config")]
+    fn get_str(key: &str) -> eyre::Result<()> {
+        std::env::set_var(key, "example_string");
+        let project = load_test_project_config()?;
+        assert_eq!(project.get_str("str_key")?, "example_string");
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT_INT_KEY"; "project config")]
+    #[test_case("TANU_INT_KEY"; "global config")]
+    fn get_int(key: &str) -> eyre::Result<()> {
+        std::env::set_var(key, "42");
+        let project = load_test_project_config()?;
+        assert_eq!(project.get_int("int_key")?, 42);
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT"; "project config")]
+    #[test_case("TANU"; "global config")]
+    fn get_float(prefix: &str) -> eyre::Result<()> {
+        std::env::set_var(format!("{prefix}_FLOAT_KEY"), "5.5");
+        let project = load_test_project_config()?;
+        assert_eq!(project.get_float("float_key")?, 5.5);
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT_BOOL_KEY"; "project config")]
+    #[test_case("TANU_BOOL_KEY"; "global config")]
+    fn get_bool(key: &str) -> eyre::Result<()> {
+        std::env::set_var(key, "true");
+        let project = load_test_project_config()?;
+        assert_eq!(project.get_bool("bool_key")?, true);
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT_DATETIME_KEY"; "project config")]
+    #[test_case("TANU_DATETIME_KEY"; "global config")]
+    fn get_datetime(key: &str) -> eyre::Result<()> {
+        let datetime_str = "2025-03-08T12:00:00Z";
+        std::env::set_var(key, datetime_str);
+        let project = load_test_project_config()?;
+        assert_eq!(
+            project
+                .get_datetime("datetime_key")?
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            datetime_str
+        );
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT_ARRAY_KEY"; "project config")]
+    #[test_case("TANU_ARRAY_KEY"; "global config")]
+    fn get_array(key: &str) -> eyre::Result<()> {
+        std::env::set_var(key, "[1, 2, 3]");
+        let project = load_test_project_config()?;
+        let array: Vec<i64> = project.get_array("array_key")?;
+        assert_eq!(array, vec![1, 2, 3]);
+        Ok(())
+    }
+
+    #[test_case("TANU_DEFAULT"; "project config")]
+    #[test_case("TANU"; "global config")]
+    fn get_object(prefix: &str) -> eyre::Result<()> {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Foo {
+            foo: Vec<String>,
+        }
+        std::env::set_var(
+            format!("{prefix}_OBJECT_KEY"),
+            "{\"foo\": [\"bar\", \"baz\"]}",
+        );
+        let project = load_test_project_config()?;
+        let obj: Foo = project.get_object("object_key")?;
+        assert_eq!(obj.foo, vec!["bar", "baz"]);
         Ok(())
     }
 }
