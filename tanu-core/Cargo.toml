@@ -14,7 +14,9 @@ categories = ["development-tools"]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 backon = "1.4"
+chrono = "0.4"
 console = { version = "0.15" }
+dotenv = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -36,3 +38,4 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 mockito = "1.7"
+test-case = { workspace = true }

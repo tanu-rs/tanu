@@ -16,7 +16,6 @@ async-trait = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 console = { version = "0.15" }
-dotenv = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
