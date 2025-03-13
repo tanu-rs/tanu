@@ -9,7 +9,7 @@ use quote::{quote, ToTokens};
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use syn::{
@@ -380,11 +380,7 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
 
         let file = syn::parse_file(&code)?;
         test_modules.extend(extract_module_and_test(
-            source_path
-                .file_stem()
-                .ok_or_eyre("invalid source file name")?
-                .to_str()
-                .ok_or_eyre("invalid source file name")?,
+            &extract_module_path(&source_path).ok_or_eyre("malformed module path")?,
             file,
         ));
     }
@@ -392,7 +388,21 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
     Ok(test_modules)
 }
 
-/// Test the function has #[tanu::test] attribute.
+// Extract module path "foo::bar::baz" from path "/xxxx/src/foo/bar/baz.rs".
+fn extract_module_path(path: &Path) -> Option<String> {
+    let src_index = path.iter().position(|p| p == "src")?;
+    let module_path: Vec<_> = path.iter().skip(src_index + 1).collect();
+    let module_path_str = module_path
+        .iter()
+        .filter_map(|p| p.to_str())
+        .map(|s| s.strip_suffix(".rs").unwrap_or(s)) // Remove ".rs" extension if present
+        .filter(|s| *s != "mod")
+        .collect::<Vec<_>>()
+        .join("::");
+    Some(module_path_str)
+}
+
+/// Test if the function has #[tanu::test] attribute.
 fn has_test_attribute(path: &syn::Path) -> bool {
     // The function has #[test].
     let has_test = path.is_ident("test");
@@ -484,8 +494,10 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
         .iter()
         .map(|f| {
             let test_module = test_modules.get(&f.func_name).expect("module not found");
+            let test_module_path: syn::Path =
+                syn::parse_str(test_module).expect("failed to parse module path");
             (
-                Ident::new(test_module, Span::call_site()),
+                test_module_path,
                 f.test_name.clone(),
                 Ident::new(&f.func_name, Span::call_site()),
             )
@@ -496,7 +508,11 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
         fn run() -> tanu::Runner {
             let mut runner = tanu::Runner::new();
             #(
-            runner.add_test(#test_names, stringify!(#test_mods), std::sync::Arc::new(|| Box::pin(#test_mods::#func_names())));
+            runner.add_test(
+                #test_names,
+                &stringify!(#test_mods).replace(" ", ""),
+                std::sync::Arc::new(|| Box::pin(#test_mods::#func_names()))
+            );
             )*
             runner
         }
@@ -511,7 +527,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 mod test {
     use crate::Input;
 
-    use super::{ErrorCrate, Expr, TestCase};
+    use super::{ErrorCrate, Expr, Path, TestCase};
     use test_case::test_case;
 
     #[test_case("test" => true; "test")]
@@ -521,6 +537,17 @@ mod test {
     fn has_test_attribute(s: &str) -> bool {
         let path: syn::Path = syn::parse_str(s).expect("Failed to parse path");
         super::has_test_attribute(&path)
+    }
+
+    #[test_case("/home/yukinari/tanu/src/main.rs", "main"; "main")]
+    #[test_case("/home/yukinari/tanu/src/foo.rs", "foo"; "foo")]
+    #[test_case("/home/yukinari/tanu/src/foo/bar.rs", "foo::bar"; "foo::bar")]
+    #[test_case("/home/yukinari/tanu/src/foo/bar/baz.rs", "foo::bar::baz"; "foo::bar::baz")]
+    #[test_case("/home/yukinari/tanu/src/foo/bar/mod.rs", "foo::bar"; "foo::bar::mod")]
+    fn test_extract_module_path(path: &str, module_path: &str) {
+        let path = Path::new(path);
+        let extracted_module = super::extract_module_path(path);
+        assert_eq!(extracted_module, Some(module_path.to_string()));
     }
 
     #[test_case("fn foo() -> eyre::Result" => ErrorCrate::Eyre; "eyre")]
