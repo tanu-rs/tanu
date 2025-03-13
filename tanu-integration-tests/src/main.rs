@@ -1,4 +1,4 @@
-mod get;
+mod http;
 mod macros;
 
 use tanu::eyre;
