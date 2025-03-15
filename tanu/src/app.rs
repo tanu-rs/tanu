@@ -105,7 +105,7 @@ pub enum Command {
         /// ---tests b
         #[arg(short, long)]
         tests: Vec<String>,
-        /// Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null".
+        /// Specify the reporter to use. Default is "list". Possible values are "table", "list" and "null".
         #[arg(long)]
         reporter: Option<ReporterType>,
     },

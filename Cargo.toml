@@ -5,7 +5,7 @@ members = [
   "tanu-derive",
   "tanu-tui",
   "tanu-integration-tests",
-  "examples/simple",
+  "examples",
 ]
 resolver = "2"
 
