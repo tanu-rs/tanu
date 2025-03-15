@@ -1,0 +1,36 @@
+site_name: tanu
+site_url: https://tanu-rs.github.io/tanu/
+theme:
+  name: material
+  favicon: assets/tanu.png
+  logo: assets/tanu.png
+  palette:
+    scheme: slate
+    primary: black
+    accent: black
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.action.edit
+    - toc.integrate
+    - toc.follow
+    - navigation.path
+    - navigation.top
+    - navigation.tabs
+    - navigation.footer
+nav:
+  - Welcome: index.md
+  - User Guide:
+      - Getting Started: getting-started.md
+      - Test Attributes: attribute.md
+      - Configuration: configuration.md
+      - Command Line Options: command-line-option.md
+      - TUI: tui.md
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+plugins:
+  - mike

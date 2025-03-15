@@ -1,10 +1,10 @@
 [package]
-name = "simple"
+name = "tanu-examples"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 serde = { workspace = true }
-tanu = { path = "../../tanu" }
+tanu = { path = "../tanu" }
 tokio = { workspace = true }
 url = { version = "2", features = ["serde"] }
