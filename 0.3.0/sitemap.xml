@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/attribute/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/command-line-option/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/configuration/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/getting-started/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+    <url>
+         <loc>https://tanu-rs.github.io/tanu/0.3.0/tui/</loc>
+         <lastmod>2025-03-16</lastmod>
+    </url>
+</urlset>
