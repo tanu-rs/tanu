@@ -32,6 +32,7 @@ pub struct InfoState {
     pub selected_test: Option<TestCaseSelector>,
     pub headers_req_state: TableState,
     pub headers_res_state: TableState,
+    pub payload_state: PayloadState,
     pub error_state: ErrorState,
 }
 
@@ -43,6 +44,7 @@ impl InfoState {
             selected_test: None,
             headers_req_state: TableState::new(),
             headers_res_state: TableState::new(),
+            payload_state: PayloadState::default(),
             error_state: ErrorState::default(),
         }
     }
@@ -358,7 +360,8 @@ impl InfoWidget {
         };
         let paragraph = Paragraph::new(highlighted_json.into_text().unwrap())
             .block(Block::bordered().padding(Padding::uniform(1)))
-            .bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b));
+            .bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b))
+            .scroll((state.payload_state.scroll_offset, 0));
 
         paragraph.render(area, buf);
     }
@@ -383,6 +386,11 @@ impl InfoWidget {
 
         paragraph.render(area, buf);
     }
+}
+
+#[derive(Default)]
+pub struct PayloadState {
+    pub scroll_offset: u16,
 }
 
 #[derive(Default)]
