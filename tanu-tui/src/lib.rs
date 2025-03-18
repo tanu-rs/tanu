@@ -167,20 +167,37 @@ enum Command {
 
 /// Move down the offset of the model.
 fn offset_down(model: &mut Model, val: i16) {
-    if model.info_state.selected_tab == Tab::Error {
-        model.info_state.error_state.scroll_offset += val as u16;
+    match model.info_state.selected_tab {
+        Tab::Payload => {
+            model.info_state.payload_state.scroll_offset += val as u16;
+        }
+        Tab::Error => {
+            model.info_state.error_state.scroll_offset += val as u16;
+        }
+        _ => {}
     }
 }
 
 /// Move up the offset of the model.
 fn offset_up(model: &mut Model, val: i16) {
-    if model.info_state.selected_tab == Tab::Error {
-        model.info_state.error_state.scroll_offset = model
-            .info_state
-            .error_state
-            .scroll_offset
-            .saturating_sub(val as u16);
+    match model.info_state.selected_tab {
+        Tab::Payload => {
+            model.info_state.payload_state.scroll_offset = model
+                .info_state
+                .payload_state
+                .scroll_offset
+                .saturating_sub(val as u16);
+        }
+        Tab::Error => {
+            model.info_state.error_state.scroll_offset = model
+                .info_state
+                .error_state
+                .scroll_offset
+                .saturating_sub(val as u16);
+        }
+        _ => {}
     }
+    if model.info_state.selected_tab == Tab::Error {}
 }
 
 async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>> {
