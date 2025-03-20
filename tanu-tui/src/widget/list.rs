@@ -32,7 +32,7 @@ impl<'a> TestListWidget<'a> {
         )
         .block(
             Block::bordered()
-                .title("Tests (t)".bold())
+                .title("Tests".bold())
                 .border_type(if is_focused {
                     BorderType::Thick
                 } else {
