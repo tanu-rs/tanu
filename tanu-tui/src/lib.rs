@@ -15,11 +15,14 @@ use ratatui::{
     prelude::*,
     style::{palette::tailwind, Modifier, Style},
     text::Line,
-    widgets::{block::BorderType, Block, Borders, Paragraph, Tabs},
+    widgets::{
+        block::{BorderType, Padding},
+        BarChart, Block, Borders, Paragraph, Tabs,
+    },
     Frame,
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     time::Duration,
 };
 use tanu_core::{get_tanu_config, Runner, TestMetadata};
@@ -270,10 +273,13 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let [layout_left, layout_right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(layout_main);
+    let [layout_rightup, layout_rightdown] =
+        Layout::vertical([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .areas(layout_right);
     let layout_right_inner = Layout::default()
         .constraints([Constraint::Percentage(100)])
         .margin(1)
-        .split(layout_right)[0];
+        .split(layout_rightup)[0];
     let [_, layout_tabs, layout_info] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(2),
@@ -374,6 +380,66 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .output_line(false)
         .state(&model.logger_state);
 
+    const BAR_WIDTH: usize = 5;
+    let max_duration = model
+        .test_results
+        .iter()
+        .flat_map(|test| {
+            test.logs
+                .iter()
+                .map(|log| log.response.duration_req.as_millis())
+        })
+        .max()
+        .unwrap_or(0);
+
+    // Decide such number of buckets that histogram bars stretch to the width of the pane.
+    let pane_width = layout_rightdown.width as usize;
+    let mut num_buckets = (pane_width / BAR_WIDTH).max(1);
+    if model.test_results.is_empty() {
+        num_buckets = 1;
+    }
+
+    fn decide_bar_size(value: u128) -> u128 {
+        let exponent = (value as f64).log10().ceil() as i32 - 1;
+        let magnitude = if exponent >= 0 {
+            10u128.saturating_pow(exponent as u32)
+        } else {
+            1 // Default to 1 if the exponent is negative
+        };
+        value.div_ceil(magnitude) * magnitude
+    }
+
+    let bucket_size = decide_bar_size((max_duration / num_buckets as u128).max(1));
+
+    let mut buckets: BTreeMap<u64, usize> = (1..num_buckets).map(|i| (i as u64, 0)).collect();
+    for test in &model.test_results {
+        for log in &test.logs {
+            let bucket = ((log.response.duration_req.as_millis() as f64) / (bucket_size as f64))
+                .ceil() as u64;
+            *buckets.entry(bucket).or_default() += 1;
+        }
+    }
+
+    let histogram_raw_data = buckets
+        .iter()
+        .map(|(k, v)| ((k * bucket_size as u64).to_string(), *v as u64))
+        .collect::<Vec<_>>();
+    let histogram_data = histogram_raw_data
+        .iter()
+        .map(|(k, v)| (k.as_str(), *v))
+        .collect::<Vec<_>>();
+    let histogram: BarChart<'_> = BarChart::default()
+        .data(&histogram_data)
+        .block(
+            Block::new()
+                .title("Latency [ms]")
+                .borders(Borders::ALL)
+                .padding(Padding::top(1)),
+        )
+        .bar_width(BAR_WIDTH as u16)
+        .bar_gap(1)
+        .bar_style(Style::default().fg(tailwind::BLUE.c900));
+
     if model.maximizing {
         match model.current_pane {
             Pane::List => {
@@ -386,9 +452,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
         frame.render_widget(logo, layout_logo);
         frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
         frame.render_widget(logger, layout_logger);
-        frame.render_widget(info_block, layout_right);
+        frame.render_widget(info_block, layout_rightup);
         frame.render_widget(tabs, layout_tabs);
         frame.render_stateful_widget(info, layout_info, &mut model.info_state);
+        frame.render_widget(histogram, layout_rightdown);
     }
 }
 
