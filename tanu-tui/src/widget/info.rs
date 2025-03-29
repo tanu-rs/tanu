@@ -117,7 +117,7 @@ impl InfoWidget {
             let Some(test) = test_result.test.as_ref() else {
                 return false;
             };
-            test.metadata.full_name() == *test_name
+            selector.project == test_result.project_name && test.metadata.full_name() == *test_name
         })
     }
 
