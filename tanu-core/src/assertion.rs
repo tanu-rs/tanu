@@ -21,6 +21,20 @@ pub enum Error {
 }
 
 #[macro_export]
+macro_rules! assert {
+    ($cond:expr) => {
+        if !$cond {
+            tanu::eyre::bail!("assertion failed: {}", stringify!($cond));
+        }
+    };
+    ($cond:expr, $($arg:tt)+) => {
+        if !$cond {
+            tanu::eyre::bail!($($arg)+);
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! assert_str_eq {
     ($left:expr, $right:expr$(,)?) => ({
 		tanu::pretty_assertions::assert_str_eq!(@ $left, $right, "", "");

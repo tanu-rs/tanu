@@ -13,5 +13,5 @@ pub use tanu_core::{
     http,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{Runner, TestMetadata},
-    {assert_eq, assert_ne, assert_str_eq},
+    {assert, assert_eq, assert_ne, assert_str_eq},
 };
