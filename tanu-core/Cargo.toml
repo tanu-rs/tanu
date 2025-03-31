@@ -39,3 +39,8 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 mockito = "1.7"
 test-case = { workspace = true }
+
+[features]
+default = []
+json = ["reqwest/json"]
+multipart = ["reqwest/multipart"]
