@@ -22,7 +22,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = "0.12"
 serde = { workspace = true }
 tanu-core = { version = "=0.3.1", path = "../tanu-core" }
 tanu-derive = { version = "=0.3.1", path = "../tanu-derive" }
@@ -34,3 +34,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
+default = []
+json = ["reqwest/json", "tanu-core/json"]
+multipart = ["reqwest/multipart", "tanu-core/multipart"]

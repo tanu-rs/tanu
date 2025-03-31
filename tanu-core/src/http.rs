@@ -128,8 +128,65 @@ pub struct RequestBuilder {
 }
 
 impl RequestBuilder {
+    pub fn header<K, V>(mut self, key: K, value: V) -> RequestBuilder
+    where
+        HeaderName: TryFrom<K>,
+        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        HeaderValue: TryFrom<V>,
+        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+    {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.header(key, value));
+        self
+    }
+
+    pub fn headers(mut self, headers: HeaderMap) -> RequestBuilder {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.headers(headers));
+        self
+    }
+
+    pub fn basic_auth<U, P>(mut self, username: U, password: Option<P>) -> RequestBuilder
+    where
+        U: std::fmt::Display,
+        P: std::fmt::Display,
+    {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.basic_auth(username, password));
+        self
+    }
+
+    pub fn bearer_auth<T>(mut self, token: T) -> RequestBuilder
+    where
+        T: std::fmt::Display,
+    {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.bearer_auth(token));
+        self
+    }
+
+    pub fn query<T: serde::Serialize + ?Sized>(mut self, query: &T) -> RequestBuilder {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.query(query));
+        self
+    }
+
+    pub fn form<T: serde::Serialize + ?Sized>(mut self, form: &T) -> RequestBuilder {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.form(form));
+        self
+    }
+
+    #[cfg(feature = "json")]
     pub fn json<T: serde::Serialize + ?Sized>(mut self, json: &T) -> RequestBuilder {
         self.inner = self.inner.take().map(|inner| inner.json(json));
+        self
+    }
+
+    #[cfg(feature = "multipart")]
+    pub fn multipart(mut self, multipart: reqwest::multipart::Form) -> RequestBuilder {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.multipart(multipart));
         self
     }
 
@@ -187,40 +244,23 @@ impl RequestBuilder {
         }
     }
 
-    pub fn header<K, V>(mut self, key: K, value: V) -> RequestBuilder
-    where
-        HeaderName: TryFrom<K>,
-        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-        HeaderValue: TryFrom<V>,
-        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
-    {
+    pub fn timeout(mut self, timeout: std::time::Duration) -> RequestBuilder {
         let inner = self.inner.take().expect("inner missing");
-        self.inner = Some(inner.header(key, value));
+        self.inner = Some(inner.timeout(timeout));
         self
     }
 
-    pub fn headers(mut self, headers: HeaderMap) -> RequestBuilder {
-        let inner = self.inner.take().expect("inner missing");
-        self.inner = Some(inner.headers(headers));
-        self
+    pub fn try_clone(&self) -> Option<RequestBuilder> {
+        let inner = self.inner.as_ref()?;
+        Some(RequestBuilder {
+            inner: Some(inner.try_clone()?),
+            client: self.client.clone(),
+        })
     }
 
-    pub fn basic_auth<U, P>(mut self, username: U, password: Option<P>) -> RequestBuilder
-    where
-        U: std::fmt::Display,
-        P: std::fmt::Display,
-    {
+    pub fn version(mut self, version: reqwest::Version) -> RequestBuilder {
         let inner = self.inner.take().expect("inner missing");
-        self.inner = Some(inner.basic_auth(username, password));
-        self
-    }
-
-    pub fn bearer_auth<T>(mut self, token: T) -> RequestBuilder
-    where
-        T: std::fmt::Display,
-    {
-        let inner = self.inner.take().expect("inner missing");
-        self.inner = Some(inner.bearer_auth(token));
+        self.inner = Some(inner.version(version));
         self
     }
 }
