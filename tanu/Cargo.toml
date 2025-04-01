@@ -1,6 +1,6 @@
 [package]
 name = "tanu"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "tanu - High-performance and async-friendly WebAPI testing framework for Rust"
 readme = "README.md"
@@ -24,9 +24,9 @@ once_cell = { workspace = true }
 pretty_assertions = "1"
 reqwest = "0.12"
 serde = { workspace = true }
-tanu-core = { version = "=0.3.1", path = "../tanu-core" }
-tanu-derive = { version = "=0.3.1", path = "../tanu-derive" }
-tanu-tui = { version = "=0.3.1", path = "../tanu-tui" }
+tanu-core = { version = "=0.3.2", path = "../tanu-core" }
+tanu-derive = { version = "=0.3.2", path = "../tanu-derive" }
+tanu-tui = { version = "=0.3.2", path = "../tanu-tui" }
 thiserror = "1"
 tokio = { workspace = true }
 toml = "0.8"
