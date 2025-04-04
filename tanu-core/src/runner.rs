@@ -298,7 +298,7 @@ impl Runner {
                                                 std::panic::AssertUnwindSafe(fut).catch_unwind();
                                             let res = fut.await;
 
-                                            publish(Message::Start(project.name.clone(), metadata.module.clone(), test_name.to_string()))?;
+                                            publish(Message::Start(project.name.clone(), metadata.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
                                             let result = match res {
                                                 Ok(Ok(_)) => {
@@ -330,22 +330,14 @@ impl Runner {
                                             };
 
                                             while let Ok(log) = http_rx.try_recv() {
-                                                publish(Message::HttpLog(
-                                                    project.name.clone(),
-                                                    metadata.module.clone(),
-                                                    test_name.clone(),
-                                                    Box::new(log),
-                                                ))?;
+                                                publish(Message::HttpLog(project.name.clone(), metadata.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
                                             }
 
                                             let project = get_config();
-                                            publish(Message::End(
-                                                project.name,
-                                                metadata.module.clone(),
-                                                test_name.clone(),
-                                                Test { metadata, result },
-                                            ))?;
+                                            let is_err = result.is_err();
+                                            publish(Message::End(project.name, metadata.module.clone(), test_name.clone(), Test { metadata, result })).wrap_err("failed to send Message::End to the channel")?;
 
+                                            eyre::ensure!(!is_err);
                                             eyre::Ok(())
                                         },
                                     )
@@ -359,14 +351,25 @@ impl Runner {
         let reporters =
             futures::future::join_all(reporters.iter_mut().map(|reporter| reporter.run().boxed()));
 
+        let mut has_any_error = false;
         let options = self.options.clone();
         let runner = async move {
             let results = handles.collect::<Vec<_>>().await;
             for result in results {
-                if let Err(e) = result {
-                    if e.is_panic() {
-                        // Resume the panic on the main task
-                        error!("{e}");
+                match result {
+                    Ok(res) => {
+                        if res.is_err() {
+                            has_any_error = true;
+                            println!("res={res:?}");
+                        }
+                    }
+                    Err(e) => {
+                        if e.is_panic() {
+                            // Resume the panic on the main task
+                            error!("{e}");
+                            has_any_error = true;
+                            println!("e={e:?}");
+                        }
                     }
                 }
             }
@@ -379,14 +382,18 @@ impl Runner {
                 guard.take(); // closing the runner channel.
             }
 
+            if has_any_error {
+                eyre::bail!("one or more tests failed");
+            }
+
             eyre::Ok(())
         };
 
-        let (_handles, _reporters) = tokio::join!(runner, reporters);
+        let (handles, _reporters) = tokio::join!(runner, reporters);
 
         debug!("runner stopped");
 
-        Ok(())
+        handles
     }
 
     pub fn list(&self) -> Vec<&TestMetadata> {
@@ -425,7 +432,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn runner_fail_because_no_retry_configured() {
+    async fn runner_fail_because_no_retry_configured() -> eyre::Result<()> {
         let mut server = mockito::Server::new_async().await;
         let m1 = server
             .mock("GET", "/")
@@ -452,6 +459,7 @@ mod test {
             })
         });
 
+        let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
         runner.add_test("retry_test", "module", factory);
 
@@ -459,11 +467,12 @@ mod test {
         m1.assert_async().await;
         m2.assert_async().await;
 
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn runner_retry_after_failure() {
+    async fn runner_retry_successful_after_failure() -> eyre::Result<()> {
         let mut server = mockito::Server::new_async().await;
         let m1 = server
             .mock("GET", "/")
@@ -490,6 +499,7 @@ mod test {
             })
         });
 
+        let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config_with_retry());
         runner.add_test("retry_test", "module", factory);
 
@@ -498,5 +508,7 @@ mod test {
         m2.assert_async().await;
 
         assert!(result.is_ok());
+
+        Ok(())
     }
 }
