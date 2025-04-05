@@ -27,7 +27,7 @@ use std::{
 };
 use tanu_core::{get_tanu_config, Runner, TestMetadata};
 use tokio::sync::mpsc;
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 use tracing_subscriber::layer::SubscriberExt;
 use tui_big_text::{BigText, PixelSize};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, TuiWidgetState};
@@ -493,18 +493,22 @@ impl Runtime {
                     match cmd {
                         Command::ExecuteOne(selector) => {
                             debug!("running selected test cases: selector = {selector:?}");
-                            runner
+                            if let Err(e) = runner
                                 .run(
                                     &[selector.project],
                                     selector.module.into_iter().collect::<Vec<_>>().as_slice(),
                                     selector.test.into_iter().collect::<Vec<_>>().as_slice(),
                                 )
                                 .await
-                                .unwrap();
+                            {
+                                error!("{e:#}");
+                            }
                         }
                         Command::ExecuteAll => {
                             debug!("running all test cases");
-                            runner.run(&[], &[], &[]).await.unwrap();
+                            if let Err(e) = runner.run(&[], &[], &[]).await {
+                                error!("{e:#}");
+                            }
                         }
                     }
                 }
