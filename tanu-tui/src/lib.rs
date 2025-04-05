@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     time::Duration,
 };
-use tanu_core::{get_tanu_config, Runner, TestMetadata};
+use tanu_core::{get_tanu_config, Runner, TestInfo};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::layer::SubscriberExt;
@@ -44,13 +44,20 @@ use crate::widget::{
 };
 
 /// Represents result of a test case.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct TestResult {
     pub project_name: String,
     pub module_name: String,
     pub name: String,
     pub logs: Vec<Box<tanu_core::http::Log>>,
     pub test: Option<tanu_core::runner::Test>,
+}
+
+impl TestResult {
+    /// Unique test name including project and module names
+    pub fn unique_name(&self) -> String {
+        format!("{}::{}::{}", self.project_name, self.module_name, self.name)
+    }
 }
 
 #[derive(
@@ -113,7 +120,7 @@ struct Model {
 }
 
 impl Model {
-    fn new(test_cases: Vec<TestMetadata>) -> Model {
+    fn new(test_cases: Vec<TestInfo>) -> Model {
         let cfg = get_tanu_config();
         Model {
             maximizing: false,
@@ -215,7 +222,7 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
         Message::ListSelectPrev => model.test_cases_list.list_state.select_previous(),
         Message::ListSelectFirst => model.test_cases_list.list_state.select_first(),
         Message::ListSelectLast => model.test_cases_list.list_state.select_last(),
-        Message::ListExpand => model.test_cases_list.expand(),
+        Message::ListExpand => model.test_cases_list.expand(&model.test_results),
         Message::ConsoleSelect(CursorMovement::Down) => {
             offset_down(model, 1);
         }
@@ -248,7 +255,7 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
         Message::ExecuteOne => {
             model.test_results.clear();
             model.current_exec = Some(Execution::One);
-            if let Some(selector) = model.test_cases_list.select_test_case() {
+            if let Some(selector) = model.test_cases_list.select_test_case(&model.test_results) {
                 return Ok(Some(Command::ExecuteOne(selector)));
             }
         }
@@ -259,7 +266,7 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
         }
     }
 
-    model.info_state.selected_test = model.test_cases_list.select_test_case();
+    model.info_state.selected_test = model.test_cases_list.select_test_case(&model.test_results);
 
     Ok(None)
 }

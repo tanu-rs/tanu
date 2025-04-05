@@ -3,8 +3,9 @@ use ratatui::{
     prelude::*,
     widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
 };
+use reqwest::StatusCode;
 use std::collections::HashMap;
-use tanu_core::{self, Filter, TestIgnoreFilter, TestMetadata};
+use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
 
 use crate::{TestResult, SELECTED_STYLE};
 
@@ -85,6 +86,19 @@ fn symbol_test_result(maybe_ok: Option<bool>) -> Span<'static> {
     Span::styled(symbol, style)
 }
 
+fn symbol_http_result(status: StatusCode) -> Span<'static> {
+    Span::styled(
+        "▪",
+        Style::default()
+            .fg(if status.is_success() {
+                Color::Green
+            } else {
+                Color::Red
+            })
+            .bold(),
+    )
+}
+
 impl Project {
     fn to_line_summary(&self, ok: Option<bool>) -> Line<'static> {
         let icon = if self.expanded { EXPANDED } else { UNEXPANDED };
@@ -137,12 +151,14 @@ impl Project {
 
 #[derive(Debug)]
 pub struct Module {
+    /// Project name
+    pub project_name: String,
     /// Module name
     pub name: String,
     /// true: the list item is expanded, false: not expanded
     pub expanded: bool,
     /// List of test cases under this module
-    pub tests: Vec<TestMetadata>,
+    pub tests: Vec<Test>,
 }
 
 impl Module {
@@ -180,21 +196,62 @@ impl Module {
 
         let mut lines = vec![self.to_line_summary(maybe_ok)];
         if self.expanded {
-            let test_map: HashMap<String, &TestResult> = test_results
+            let mut test_results_map: HashMap<String, &TestResult> = test_results
                 .into_iter()
                 .flatten()
-                .map(|test| (test.name.clone(), *test))
+                .map(|test| (test.unique_name(), *test))
                 .collect();
-            lines.extend(self.tests.iter().map(|test| {
-                let ok = test_map
-                    .get(&test.name)
-                    .and_then(|test| test.test.as_ref().map(|test| test.result.is_ok()));
-                let indent = Span::raw("     ");
-                let symbol = symbol_test_result(ok);
-                let name = Span::raw(format!(" {}", test.name));
-                Line::from(vec![indent, symbol, name])
+            lines.extend(self.tests.iter().flat_map(|test| {
+                let test_result =
+                    test_results_map.remove(&test.info.unique_name(&self.project_name));
+                test.to_lines_recursively(test_result)
             }));
         }
+        lines
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Test {
+    info: TestInfo,
+    /// true: the list item is expanded, false: not expanded
+    pub expanded: bool,
+}
+
+impl Test {
+    fn to_lines_recursively(&self, test_result: Option<&TestResult>) -> Vec<Line<'static>> {
+        let more_than_one_http_call = test_result
+            .map(|test_result| test_result.logs.len() > 1)
+            .unwrap_or_default();
+
+        let mut lines = {
+            let ok = test_result
+                .and_then(|test_result| test_result.test.as_ref().map(|test| test.result.is_ok()));
+            let icon = if !more_than_one_http_call {
+                " "
+            } else if self.expanded {
+                EXPANDED
+            } else {
+                UNEXPANDED
+            };
+            let icon = Span::raw(format!("    {icon} "));
+            let symbol = symbol_test_result(ok);
+            let name = Span::raw(format!(" {}", &self.info.name));
+            vec![Line::from(vec![icon, symbol, name])]
+        };
+
+        if self.expanded {
+            for http_call in test_result
+                .into_iter()
+                .flat_map(|test_result| test_result.logs.iter())
+            {
+                let indent = Span::raw("        ");
+                let symbol = symbol_http_result(http_call.response.status);
+                let name = Span::raw(format!(" {}", http_call.request.url));
+                lines.push(Line::from(vec![indent, symbol, name]));
+            }
+        }
+
         lines
     }
 }
@@ -214,6 +271,8 @@ pub struct TestCaseSelector {
     pub module: Option<String>,
     /// The full name of the selected test case, if any.
     pub test: Option<String>,
+    /// The index for HTTP call logs, if any.
+    pub http_call_index: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -223,15 +282,16 @@ pub struct TestListState {
 }
 
 impl TestListState {
-    pub fn new(
-        projects: &[tanu_core::ProjectConfig],
-        test_cases: &[TestMetadata],
-    ) -> TestListState {
+    pub fn new(projects: &[tanu_core::ProjectConfig], test_cases: &[TestInfo]) -> TestListState {
         let test_ignore_filter = TestIgnoreFilter::default();
         let grouped_by_module = test_cases
             .iter()
             .cloned()
-            .into_group_map_by(|test| test.module.clone());
+            .map(|info| Test {
+                info,
+                expanded: false,
+            })
+            .into_group_map_by(|test| test.info.module.clone());
 
         let projects: Vec<_> = projects
             .iter()
@@ -242,11 +302,12 @@ impl TestListState {
                     .clone()
                     .into_iter()
                     .map(|(module_name, tests)| Module {
+                        project_name: proj.name.clone(),
                         name: module_name,
                         expanded: true,
                         tests: tests
                             .into_iter()
-                            .filter(|metadata| test_ignore_filter.filter(proj, metadata))
+                            .filter(|test| test_ignore_filter.filter(proj, &test.info))
                             .collect(),
                     })
                     .filter(|module|
@@ -275,10 +336,15 @@ impl TestListState {
     ///
     /// If a project or module is expanded, it reveals the items (modules or tests)
     /// underneath them in the list.
-    pub fn expand(&mut self) {
+    pub fn expand(&mut self, test_results: &[TestResult]) {
         let Some(selected) = self.list_state.selected() else {
             return;
         };
+
+        let test_results_map: HashMap<_, _> = test_results
+            .iter()
+            .map(|test| (test.unique_name(), test))
+            .collect();
 
         let mut n = 0;
         for proj in &mut self.projects {
@@ -295,8 +361,21 @@ impl TestListState {
                     }
                     n += 1;
                     if module.expanded {
-                        for _ in &module.tests {
+                        for test in &mut module.tests {
+                            if n == selected {
+                                test.expanded = !test.expanded;
+                                return;
+                            }
                             n += 1;
+                            if test.expanded {
+                                for _http_call in test_results_map
+                                    .get(&test.info.unique_name(&proj.name))
+                                    .into_iter()
+                                    .flat_map(|test_result| test_result.logs.iter())
+                                {
+                                    n += 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -305,8 +384,12 @@ impl TestListState {
     }
 
     /// Find currently selected test case from the list widget.
-    pub fn select_test_case(&self) -> Option<TestCaseSelector> {
+    pub fn select_test_case(&self, test_results: &[TestResult]) -> Option<TestCaseSelector> {
         let selected = self.list_state.selected()?;
+        let test_results_map: HashMap<_, _> = test_results
+            .iter()
+            .map(|test| (test.unique_name(), test))
+            .collect();
 
         let mut n = 0;
         for proj in &self.projects {
@@ -330,14 +413,44 @@ impl TestListState {
                     n += 1;
                     if module.expanded {
                         for test in &module.tests {
+                            let test_result =
+                                test_results_map.get(&test.info.unique_name(&proj.name));
+
                             if n == selected {
                                 return Some(TestCaseSelector {
                                     project: proj.name.clone(),
                                     module: Some(module.name.clone()),
-                                    test: Some(test.full_name()),
+                                    test: Some(test.info.full_name()),
+                                    http_call_index: test_result.into_iter().next().and_then(
+                                        |test_result| {
+                                            if test_result.logs.len() == 1 {
+                                                Some(0)
+                                            } else {
+                                                None
+                                            }
+                                        },
+                                    ),
                                 });
                             }
                             n += 1;
+
+                            if test.expanded {
+                                for (index, _test_result) in test_result
+                                    .into_iter()
+                                    .flat_map(|test| test.logs.iter())
+                                    .enumerate()
+                                {
+                                    if n == selected {
+                                        return Some(TestCaseSelector {
+                                            project: proj.name.clone(),
+                                            module: Some(module.name.clone()),
+                                            test: Some(test.info.full_name()),
+                                            http_call_index: Some(index),
+                                        });
+                                    }
+                                    n += 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -352,14 +465,13 @@ impl TestListState {
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
-    use std::collections::HashMap;
 
     #[test]
     fn expand_init() {
         let projects = vec![];
         let test_cases = vec![];
         let mut state = TestListState::new(&projects, &test_cases);
-        state.expand();
+        state.expand(&[]);
     }
 
     #[test]
@@ -367,27 +479,34 @@ mod test {
         let projects = vec![
             tanu_core::ProjectConfig {
                 name: "dev".into(),
-                data: HashMap::new(),
-                test_ignore: vec![],
                 ..Default::default()
             },
             tanu_core::ProjectConfig {
                 name: "staging".into(),
-                data: HashMap::new(),
-                test_ignore: vec![],
                 ..Default::default()
             },
         ];
         let test_cases = vec![
-            TestMetadata {
+            TestInfo {
                 module: "foo".into(),
                 name: "test1".into(),
             },
-            TestMetadata {
+            TestInfo {
                 module: "bar".into(),
-                name: "test1".into(),
+                name: "test2".into(),
             },
         ];
+
+        // ▾ dev
+        //   ▾ foo
+        //     ○ test1
+        //   ▾ bar
+        //     ○ test2
+        // ▾ staging
+        //   ▾ foo
+        //     ○ test1
+        //   ▾ bar
+        //     ○ test2
         let mut state = TestListState::new(projects.as_slice(), &test_cases);
         assert!(state.projects[0].expanded);
         assert!(state.projects[1].expanded);
@@ -396,8 +515,13 @@ mod test {
         assert!(state.projects[1].modules[0].expanded);
         assert!(state.projects[1].modules[1].expanded);
 
-        state.expand();
-
+        // ▸ dev
+        // ▾ staging
+        //   ▾ foo
+        //     ○ test1
+        //   ▾ bar
+        //     ○ test2
+        state.expand(&[]);
         assert!(!state.projects[0].expanded);
         assert!(state.projects[1].expanded);
         assert!(state.projects[0].modules[0].expanded);
@@ -405,14 +529,132 @@ mod test {
         assert!(state.projects[1].modules[0].expanded);
         assert!(state.projects[1].modules[1].expanded);
 
-        state.expand();
+        // ▸ dev
+        // ▸ staging
+        state.list_state.select_next();
+        state.expand(&[]);
+        assert!(!state.projects[0].expanded);
+        assert!(!state.projects[1].expanded);
 
+        // ▸ dev
+        // ▾ staging
+        //   ▸ foo
+        //   ▾ bar
+        //     ○ test2
+        state.expand(&[]);
+        state.list_state.select_next();
+        state.expand(&[]);
+        assert!(!state.projects[0].expanded);
+        assert!(state.projects[1].expanded);
+        assert!(state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[1].expanded);
+        assert!(!state.projects[1].modules[0].expanded);
+        assert!(state.projects[1].modules[1].expanded);
+    }
+
+    #[test]
+    fn expand_http_call() -> eyre::Result<()> {
+        let projects = vec![
+            tanu_core::ProjectConfig {
+                name: "dev".into(),
+                ..Default::default()
+            },
+            tanu_core::ProjectConfig {
+                name: "staging".into(),
+                ..Default::default()
+            },
+        ];
+        let test_cases = vec![
+            TestInfo {
+                module: "foo".into(),
+                name: "test1".into(),
+            },
+            TestInfo {
+                module: "bar".into(),
+                name: "test2".into(),
+            },
+        ];
+
+        let test_results = vec![TestResult {
+            project_name: "dev".into(),
+            module_name: "foo".into(),
+            name: "test1".into(),
+            logs: vec![
+                Box::new(tanu_core::http::Log {
+                    request: tanu_core::http::LogRequest {
+                        url: "https://example.com/1".parse()?,
+                        method: reqwest::Method::GET,
+                        headers: reqwest::header::HeaderMap::new(),
+                    },
+                    response: tanu_core::http::LogResponse {
+                        status: StatusCode::OK,
+                        ..Default::default()
+                    },
+                }),
+                Box::new(tanu_core::http::Log {
+                    request: tanu_core::http::LogRequest {
+                        url: "https://example.com/2".parse()?,
+                        method: reqwest::Method::GET,
+                        headers: reqwest::header::HeaderMap::new(),
+                    },
+                    response: tanu_core::http::LogResponse {
+                        status: StatusCode::OK,
+                        ..Default::default()
+                    },
+                }),
+            ],
+            test: None,
+        }];
+
+        // ▾ dev
+        //   ▾ foo
+        //     ▸ ○ test1
+        //   ▾ bar
+        //     ▸ ○ test2
+        // ▾ staging
+        //   ▾ foo
+        //     ▸ ○ test1
+        //   ▾ bar
+        //     ▸ ○ test2
+        let mut state = TestListState::new(projects.as_slice(), &test_cases);
         assert!(state.projects[0].expanded);
         assert!(state.projects[1].expanded);
         assert!(state.projects[0].modules[0].expanded);
         assert!(state.projects[0].modules[1].expanded);
         assert!(state.projects[1].modules[0].expanded);
         assert!(state.projects[1].modules[1].expanded);
+        assert!(!state.projects[0].modules[0].tests[0].expanded);
+        assert!(!state.projects[0].modules[1].tests[0].expanded);
+        assert!(!state.projects[1].modules[0].tests[0].expanded);
+        assert!(!state.projects[1].modules[1].tests[0].expanded);
+
+        state.list_state.select_next();
+        state.list_state.select_next();
+        state.expand(&test_results);
+        // ▾ dev
+        //   ▾ foo
+        //     ▾ ○ test1
+        //         ▪ https://example.com/1
+        //         ▪ https://example.com/2
+        //   ▾ bar
+        //     ▸ ○ test2
+        // ▾ staging
+        //   ▾ foo
+        //     ▸ ○ test1
+        //   ▾ bar
+        //     ▸ ○ test2
+        assert!(state.projects[0].expanded);
+        assert!(state.projects[1].expanded);
+        assert!(state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[1].expanded);
+        assert!(state.projects[1].modules[0].expanded);
+        assert!(state.projects[1].modules[1].expanded);
+        assert!(state.projects[0].modules[0].tests[0].expanded);
+        assert!(!state.projects[0].modules[1].tests[0].expanded);
+        assert!(!state.projects[1].modules[0].tests[0].expanded);
+        assert!(!state.projects[1].modules[1].tests[0].expanded);
+
+        Ok(())
     }
 
     #[test]
@@ -425,7 +667,7 @@ mod test {
         assert_eq!(Some(2), state.list_state.selected());
         state.list_state.select_next();
         assert_eq!(Some(3), state.list_state.selected());
-        state.expand();
+        state.expand(&[]);
         assert_eq!(Some(3), state.list_state.selected());
     }
 

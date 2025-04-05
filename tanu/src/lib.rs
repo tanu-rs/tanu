@@ -12,6 +12,6 @@ pub use tanu_core::{
     config::{get_config, get_tanu_config, Config, ProjectConfig},
     http,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
-    runner::{Runner, TestMetadata},
+    runner::{Runner, TestInfo},
     {assert, assert_eq, assert_ne, assert_str_eq},
 };

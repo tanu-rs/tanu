@@ -65,20 +65,25 @@ pub enum Message {
 
 #[derive(Debug, Clone)]
 pub struct Test {
-    pub metadata: TestMetadata,
+    pub info: TestInfo,
     pub result: Result<(), Error>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TestMetadata {
-    pub name: String,
+pub struct TestInfo {
     pub module: String,
+    pub name: String,
 }
 
-impl TestMetadata {
+impl TestInfo {
     /// Full test name including module
     pub fn full_name(&self) -> String {
         format!("{}::{}", self.module, self.name)
+    }
+
+    /// Unique test name including project and module names
+    pub fn unique_name(&self, project: &str) -> String {
+        format!("{project}::{}::{}", self.module, self.name)
     }
 }
 
@@ -99,7 +104,7 @@ pub struct Options {
 
 /// Test case filter trait.
 pub trait Filter {
-    fn filter(&self, project: &ProjectConfig, metadata: &TestMetadata) -> bool;
+    fn filter(&self, project: &ProjectConfig, info: &TestInfo) -> bool;
 }
 
 /// Filter test cases by project name.
@@ -108,7 +113,7 @@ pub struct ProjectFilter<'a> {
 }
 
 impl Filter for ProjectFilter<'_> {
-    fn filter(&self, project: &ProjectConfig, _metadata: &TestMetadata) -> bool {
+    fn filter(&self, project: &ProjectConfig, _info: &TestInfo) -> bool {
         if self.project_names.is_empty() {
             return true;
         }
@@ -125,14 +130,14 @@ pub struct ModuleFilter<'a> {
 }
 
 impl Filter for ModuleFilter<'_> {
-    fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
+    fn filter(&self, _project: &ProjectConfig, info: &TestInfo) -> bool {
         if self.module_names.is_empty() {
             return true;
         }
 
         self.module_names
             .iter()
-            .any(|module_name| &metadata.module == module_name)
+            .any(|module_name| &info.module == module_name)
     }
 }
 
@@ -142,14 +147,14 @@ pub struct TestNameFilter<'a> {
 }
 
 impl Filter for TestNameFilter<'_> {
-    fn filter(&self, _project: &ProjectConfig, metadata: &TestMetadata) -> bool {
+    fn filter(&self, _project: &ProjectConfig, info: &TestInfo) -> bool {
         if self.test_names.is_empty() {
             return true;
         }
 
         self.test_names
             .iter()
-            .any(|test_name| &metadata.full_name() == test_name)
+            .any(|test_name| &info.full_name() == test_name)
     }
 }
 
@@ -171,14 +176,14 @@ impl Default for TestIgnoreFilter {
 }
 
 impl Filter for TestIgnoreFilter {
-    fn filter(&self, project: &ProjectConfig, metadata: &TestMetadata) -> bool {
+    fn filter(&self, project: &ProjectConfig, info: &TestInfo) -> bool {
         let Some(test_ignore) = self.test_ignores.get(&project.name) else {
             return true;
         };
 
         test_ignore
             .iter()
-            .all(|test_name| &metadata.full_name() != test_name)
+            .all(|test_name| &info.full_name() != test_name)
     }
 }
 
@@ -186,7 +191,7 @@ impl Filter for TestIgnoreFilter {
 pub struct Runner {
     cfg: Config,
     options: Options,
-    test_cases: Vec<(TestMetadata, TestCaseFactory)>,
+    test_cases: Vec<(TestInfo, TestCaseFactory)>,
     reporters: Vec<Box<dyn Reporter + Send>>,
 }
 
@@ -223,7 +228,7 @@ impl Runner {
     /// Add a test case to the runner.
     pub fn add_test(&mut self, name: &str, module: &str, factory: TestCaseFactory) {
         self.test_cases.push((
-            TestMetadata {
+            TestInfo {
                 name: name.into(),
                 module: module.into(),
             },
@@ -253,7 +258,7 @@ impl Runner {
         let handles: FuturesUnordered<_> = self
                 .test_cases
                 .iter()
-                .flat_map(|(metadata, factory)| {
+                .flat_map(|(info, factory)| {
                     let projects = self.cfg.projects.clone();
                     let projects = if projects.is_empty() {
                         vec![ProjectConfig {
@@ -266,22 +271,22 @@ impl Runner {
                     projects
                         .into_iter()
                         .map(move |project| {
-                            (project.clone(), metadata.clone(), factory.clone())
+                            (project.clone(), info.clone(), factory.clone())
                         })
                 })
-                .filter(move |(project, metadata, _)| {
-                    test_name_filter.filter(project, metadata)
+                .filter(move |(project, info, _)| {
+                    test_name_filter.filter(project, info)
                 })
-                .filter(move |(project, metadata, _)| {
-                    module_filter.filter(project, metadata)
+                .filter(move |(project, info, _)| {
+                    module_filter.filter(project, info)
                 })
-                .filter(move |(project, metadata, _)| {
-                    project_filter.filter(project, metadata)
+                .filter(move |(project, info, _)| {
+                    project_filter.filter(project, info)
                 })
-                .filter(move |(project, metadata, _)| {
-                    test_ignore_filter.filter(project, metadata)
+                .filter(move |(project, info, _)| {
+                    test_ignore_filter.filter(project, info)
                 })
-                .map(|(project, metadata, factory)| {
+                .map(|(project, info, factory)| {
                     tokio::spawn(async move {
                         config::PROJECT
                             .scope(project.clone(), async {
@@ -289,7 +294,7 @@ impl Runner {
                                     .scope(
                                         Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
                                         async {
-                                            let test_name = &metadata.name;
+                                            let test_name = &info.name;
                                             let mut http_rx = http::subscribe()?;
 
                                             let f= || async {factory().await};
@@ -298,7 +303,7 @@ impl Runner {
                                                 std::panic::AssertUnwindSafe(fut).catch_unwind();
                                             let res = fut.await;
 
-                                            publish(Message::Start(project.name.clone(), metadata.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
+                                            publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
                                             let result = match res {
                                                 Ok(Ok(_)) => {
@@ -330,12 +335,12 @@ impl Runner {
                                             };
 
                                             while let Ok(log) = http_rx.try_recv() {
-                                                publish(Message::HttpLog(project.name.clone(), metadata.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
+                                                publish(Message::HttpLog(project.name.clone(), info.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
                                             }
 
                                             let project = get_config();
                                             let is_err = result.is_err();
-                                            publish(Message::End(project.name, metadata.module.clone(), test_name.clone(), Test { metadata, result })).wrap_err("failed to send Message::End to the channel")?;
+                                            publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, result })).wrap_err("failed to send Message::End to the channel")?;
 
                                             eyre::ensure!(!is_err);
                                             eyre::Ok(())
@@ -395,7 +400,7 @@ impl Runner {
         handles
     }
 
-    pub fn list(&self) -> Vec<&TestMetadata> {
+    pub fn list(&self) -> Vec<&TestInfo> {
         self.test_cases
             .iter()
             .map(|(meta, _test)| meta)

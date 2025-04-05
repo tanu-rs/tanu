@@ -110,22 +110,30 @@ impl InfoWidget {
         InfoWidget { test_results }
     }
 
-    fn get_selected_test_result(&self, state: &InfoState) -> Option<&TestResult> {
+    fn get_selected_test_result(
+        &self,
+        state: &InfoState,
+    ) -> Option<(&TestResult, &tanu_core::http::Log)> {
         let selector = state.selected_test.as_ref()?;
         let test_name = selector.test.as_ref()?;
-        self.test_results.iter().find(|test_result| {
+        let test_result = self.test_results.iter().find(|test_result| {
             let Some(test) = test_result.test.as_ref() else {
                 return false;
             };
-            selector.project == test_result.project_name && test.metadata.full_name() == *test_name
-        })
+            selector.project == test_result.project_name && test.info.full_name() == *test_name
+        })?;
+
+        Some((
+            test_result,
+            test_result.logs.get(selector.http_call_index?)?,
+        ))
     }
 
     fn render_call(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
         const FIELD_PERCENTAGE: u16 = 30;
         const VALUE_PERCENTAGE: u16 = 70;
         let value_width = area.width * VALUE_PERCENTAGE / 100 - 3;
-        let Some(test_result) = self.get_selected_test_result(state) else {
+        let Some((test_result, http_call)) = self.get_selected_test_result(state) else {
             return;
         };
 
@@ -134,20 +142,18 @@ impl InfoWidget {
             wrap_row("Project Name", &test_result.project_name, value_width),
             wrap_row("Test Name", &test_result.name, value_width),
         ];
-        if let [log, ..] = test_result.logs.as_slice() {
-            rows.push(wrap_row("Request URL", &log.request.url, value_width));
-            rows.push(wrap_row("Method", &log.request.method, value_width));
-            rows.push(wrap_row(
-                "Status",
-                log.response.status.as_str(),
-                value_width,
-            ));
-            rows.push(wrap_row(
-                "Request Duration",
-                format!("{:?}", log.response.duration_req),
-                value_width,
-            ));
-        }
+        rows.push(wrap_row("Request URL", &http_call.request.url, value_width));
+        rows.push(wrap_row("Method", &http_call.request.method, value_width));
+        rows.push(wrap_row(
+            "Status",
+            http_call.response.status.as_str(),
+            value_width,
+        ));
+        rows.push(wrap_row(
+            "Request Duration",
+            format!("{:?}", http_call.response.duration_req),
+            value_width,
+        ));
 
         let widths = [
             Constraint::Percentage(FIELD_PERCENTAGE),
@@ -168,7 +174,7 @@ impl InfoWidget {
     }
 
     fn render_headers(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some(test_result) = self.get_selected_test_result(state) else {
+        let Some((test_result, http_call)) = self.get_selected_test_result(state) else {
             return;
         };
 
@@ -181,149 +187,141 @@ impl InfoWidget {
 
         let colors = TableColors::new();
         {
-            if let [log, ..] = test_result.logs.as_slice() {
-                let rows = log
-                    .request
-                    .headers
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(n, (k, v))| {
-                        let color = match n % 2 {
-                            0 => colors.normal_row_color,
-                            _ => colors.alt_row_color,
-                        };
-                        let value = v
-                            .to_str()
-                            .inspect_err(|e| warn!("could not stringify header: {e:#}"))
-                            .unwrap_or_default();
-                        const PADDING: usize = 5;
-                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
-                        value
-                            .chars()
-                            .chunks(cell_width)
-                            .into_iter()
-                            .enumerate()
-                            .map(|(n, chunked_text)| {
-                                Row::new(vec![
-                                    if n == 0 {
-                                        format!(" {k} ")
-                                    } else {
-                                        String::new()
-                                    },
-                                    format!(" {} ", chunked_text.collect::<String>()),
-                                ])
-                                .bg(color)
-                                .height(1)
-                            })
-                            .collect::<Vec<_>>()
-                    });
+            let rows = http_call
+                .request
+                .headers
+                .iter()
+                .enumerate()
+                .flat_map(|(n, (k, v))| {
+                    let color = match n % 2 {
+                        0 => colors.normal_row_color,
+                        _ => colors.alt_row_color,
+                    };
+                    let value = v
+                        .to_str()
+                        .inspect_err(|e| warn!("could not stringify header: {e:#}"))
+                        .unwrap_or_default();
+                    const PADDING: usize = 5;
+                    let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                    value
+                        .chars()
+                        .chunks(cell_width)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(n, chunked_text)| {
+                            Row::new(vec![
+                                if n == 0 {
+                                    format!(" {k} ")
+                                } else {
+                                    String::new()
+                                },
+                                format!(" {} ", chunked_text.collect::<String>()),
+                            ])
+                            .bg(color)
+                            .height(1)
+                        })
+                        .collect::<Vec<_>>()
+                });
 
-                let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
-                let table = Table::new(rows, widths)
-                    .style(Style::new().fg(colors.row_fg))
-                    .row_highlight_style(Style::default().fg(colors.selected_style_fg))
-                    .header(
-                        Row::new(vec![" Header ", " Value "]).style(
-                            Style::default()
-                                .fg(colors.header_fg)
-                                .bg(colors.header_bg)
-                                .bold(),
-                        ),
-                    )
-                    .block(
-                        Block::new()
-                            .borders(Borders::ALL)
-                            .title("Request")
-                            .padding(Padding::uniform(1)),
-                    )
-                    .style(Style::default());
+            let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
+            let table = Table::new(rows, widths)
+                .style(Style::new().fg(colors.row_fg))
+                .row_highlight_style(Style::default().fg(colors.selected_style_fg))
+                .header(
+                    Row::new(vec![" Header ", " Value "]).style(
+                        Style::default()
+                            .fg(colors.header_fg)
+                            .bg(colors.header_bg)
+                            .bold(),
+                    ),
+                )
+                .block(
+                    Block::new()
+                        .borders(Borders::ALL)
+                        .title("Request")
+                        .padding(Padding::uniform(1)),
+                )
+                .style(Style::default());
 
-                ratatui::widgets::StatefulWidget::render(
-                    table,
-                    layout_req,
-                    buf,
-                    &mut state.headers_res_state,
-                );
-            }
+            ratatui::widgets::StatefulWidget::render(
+                table,
+                layout_req,
+                buf,
+                &mut state.headers_res_state,
+            );
         }
 
         {
-            if let [log, ..] = test_result.logs.as_slice() {
-                let rows = log
-                    .response
-                    .headers
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(n, (k, v))| {
-                        let color = match n % 2 {
-                            0 => colors.normal_row_color,
-                            _ => colors.alt_row_color,
-                        };
-                        let value = v
-                            .to_str()
-                            .inspect_err(|e| warn!("could not stringify header: {e:#}"))
-                            .unwrap_or_default();
-                        const PADDING: usize = 5;
-                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
-                        value
-                            .chars()
-                            .chunks(cell_width)
-                            .into_iter()
-                            .enumerate()
-                            .map(|(n, chunked_text)| {
-                                Row::new(vec![
-                                    if n == 0 {
-                                        format!(" {k} ")
-                                    } else {
-                                        String::new()
-                                    },
-                                    format!(" {} ", chunked_text.collect::<String>()),
-                                ])
-                                .bg(color)
-                                .height(1)
-                            })
-                            .collect::<Vec<_>>()
-                    });
-                let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
-                let table = Table::new(rows, widths)
-                    .style(Style::new().fg(colors.row_fg))
-                    .row_highlight_style(Style::default().fg(colors.selected_style_fg))
-                    .header(
-                        Row::new(vec![" Header ", " Value "]).style(
-                            Style::default()
-                                .fg(colors.header_fg)
-                                .bg(colors.header_bg)
-                                .bold(),
-                        ),
-                    )
-                    .block(
-                        Block::new()
-                            .borders(Borders::ALL)
-                            .title("Response")
-                            .padding(Padding::uniform(1)),
-                    )
-                    .style(Style::default());
+            let rows = http_call
+                .response
+                .headers
+                .iter()
+                .enumerate()
+                .flat_map(|(n, (k, v))| {
+                    let color = match n % 2 {
+                        0 => colors.normal_row_color,
+                        _ => colors.alt_row_color,
+                    };
+                    let value = v
+                        .to_str()
+                        .inspect_err(|e| warn!("could not stringify header: {e:#}"))
+                        .unwrap_or_default();
+                    const PADDING: usize = 5;
+                    let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                    value
+                        .chars()
+                        .chunks(cell_width)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(n, chunked_text)| {
+                            Row::new(vec![
+                                if n == 0 {
+                                    format!(" {k} ")
+                                } else {
+                                    String::new()
+                                },
+                                format!(" {} ", chunked_text.collect::<String>()),
+                            ])
+                            .bg(color)
+                            .height(1)
+                        })
+                        .collect::<Vec<_>>()
+                });
+            let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
+            let table = Table::new(rows, widths)
+                .style(Style::new().fg(colors.row_fg))
+                .row_highlight_style(Style::default().fg(colors.selected_style_fg))
+                .header(
+                    Row::new(vec![" Header ", " Value "]).style(
+                        Style::default()
+                            .fg(colors.header_fg)
+                            .bg(colors.header_bg)
+                            .bold(),
+                    ),
+                )
+                .block(
+                    Block::new()
+                        .borders(Borders::ALL)
+                        .title("Response")
+                        .padding(Padding::uniform(1)),
+                )
+                .style(Style::default());
 
-                ratatui::widgets::StatefulWidget::render(
-                    table,
-                    layout_res,
-                    buf,
-                    &mut state.headers_req_state,
-                );
-            }
+            ratatui::widgets::StatefulWidget::render(
+                table,
+                layout_res,
+                buf,
+                &mut state.headers_req_state,
+            );
         }
     }
 
     fn render_payload(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some(test_result) = self.get_selected_test_result(state) else {
+        let Some((_test_result, http_call)) = self.get_selected_test_result(state) else {
             return;
         };
 
-        let [log, ..] = &test_result.logs.as_slice() else {
-            return;
-        };
-
-        let body = &log.response.body;
+        let body = &http_call.response.body;
         if body.is_empty() {
             return;
         }
@@ -367,7 +365,7 @@ impl InfoWidget {
     }
 
     fn render_error(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some(test_result) = self.get_selected_test_result(state) else {
+        let Some((test_result, _http_call)) = self.get_selected_test_result(state) else {
             return;
         };
 
