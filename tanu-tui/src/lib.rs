@@ -329,7 +329,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             BorderType::Plain
         })
         .borders(Borders::ALL)
-        .title("Request/Response");
+        .title("Request/Response".bold());
 
     let tabs = Tabs::new(
         [Tab::Call, Tab::Headers, Tab::Payload, Tab::Error]
@@ -360,8 +360,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
     );
 
     let logger = TuiLoggerSmartWidget::default()
-        .title_target("Selector")
-        .title_log("Logs")
+        .title_target("Selector".bold())
+        .title_log("Logs".bold())
         .border_type(if matches!(model.current_pane, Pane::Logger) {
             BorderType::Thick
         } else {
@@ -432,7 +432,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .data(&histogram_data)
         .block(
             Block::new()
-                .title("Latency [ms]")
+                .title("Latency [ms]".bold())
                 .borders(Borders::ALL)
                 .padding(Padding::top(1)),
         )
