@@ -189,18 +189,18 @@ impl Reporter for ListReporter {
         }
 
         let status = symbol_test_result(&test);
-        let Test { result, metadata } = test;
+        let Test { result, info } = test;
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
                     "{status} [{project_name}] {}::{}",
-                    metadata.module, metadata.name
+                    info.module, info.name
                 ))?;
             }
             Err(e) => {
                 self.terminal.write_line(&format!(
                     "{status} [{project_name}] {}::{}: {e:#}",
-                    metadata.module, metadata.name
+                    info.module, info.name
                 ))?;
             }
         }
