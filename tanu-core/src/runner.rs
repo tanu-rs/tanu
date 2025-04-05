@@ -360,7 +360,6 @@ impl Runner {
                     Ok(res) => {
                         if res.is_err() {
                             has_any_error = true;
-                            println!("res={res:?}");
                         }
                     }
                     Err(e) => {
