@@ -326,15 +326,25 @@ impl InfoWidget {
             return;
         }
 
-        let json: serde_json::Value = match serde_json::from_str(body) {
-            Ok(json) => json,
-            Err(_) => return, // Handle invalid JSON gracefully
-        };
-        let json_str = serde_json::to_string_pretty(&json).unwrap();
-        let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+        let content_type = http_call
+            .response
+            .headers
+            .get("content-type")
+            .map(|v| v.to_str().unwrap_or_default());
 
+        let (theme_bg, highlighted_text) = if content_type == Some("application/json") {
+            let json: serde_json::Value = match serde_json::from_str(body) {
+                Ok(json) => json,
+                Err(_) => return, // Handle invalid JSON gracefully
+            };
+            let json_str = serde_json::to_string_pretty(&json).unwrap();
+            let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+            (Some(theme_bg), highlighted_json)
+        } else {
+            (None, body.to_string())
+        };
         // Split the highlighted JSON into lines
-        let lines: Vec<&str> = highlighted_json.lines().collect();
+        let lines: Vec<&str> = highlighted_text.lines().collect();
 
         // Ensure scroll_offset is within bounds
         const BOARDER_AND_PADDING: usize = 4;
@@ -351,19 +361,17 @@ impl InfoWidget {
         let end_line = (start_line + area.height as usize).min(lines.len());
         let visible_lines = &lines[start_line..end_line];
 
-        tracing::info!(
-            "lines={} start_line={start_line} end_line={end_line} visible_lines={}",
-            lines.len(),
-            visible_lines.len()
-        );
-
         // Join the visible lines back into a single string
         let visible_text = visible_lines.join("\n");
 
         let paragraph = Paragraph::new(visible_text.into_text().unwrap())
             .block(Block::bordered().padding(Padding::uniform(1)))
-            .bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b))
             .scroll((0, 0)); // Reset scroll since we're slicing manually
+        let paragraph = if let Some(theme_bg) = theme_bg {
+            paragraph.bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b))
+        } else {
+            paragraph
+        };
 
         paragraph.render(area, buf);
     }
