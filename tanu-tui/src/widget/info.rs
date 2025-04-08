@@ -326,40 +326,44 @@ impl InfoWidget {
             return;
         }
 
-        let json: serde_json::Value = serde_json::from_str(body).unwrap();
-        let json_str = serde_json::to_string_pretty(&json).unwrap();
-        let (theme_bg, highlighted_json) = {
-            use syntect::{
-                easy::HighlightLines,
-                highlighting::{Color, Style, ThemeSet},
-                parsing::SyntaxSet,
-                util::as_24_bit_terminal_escaped,
-            };
-
-            let syntax_set = SyntaxSet::load_defaults_newlines();
-            let mut theme_set = ThemeSet::load_defaults();
-            let syntax = syntax_set
-                .find_syntax_by_extension("json")
-                .expect("JSON syntax not found");
-            let theme = theme_set.themes.get_mut("base16-mocha.dark").unwrap();
-            let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
-            let mut highlighter = HighlightLines::new(syntax, theme);
-            (
-                theme_bg,
-                json_str
-                    .lines()
-                    .map(|line| {
-                        let ranges: Vec<(Style, &str)> =
-                            highlighter.highlight_line(line, &syntax_set).unwrap();
-                        as_24_bit_terminal_escaped(&ranges[..], true)
-                    })
-                    .join("\n"),
-            )
+        let json: serde_json::Value = match serde_json::from_str(body) {
+            Ok(json) => json,
+            Err(_) => return, // Handle invalid JSON gracefully
         };
-        let paragraph = Paragraph::new(highlighted_json.into_text().unwrap())
+        let json_str = serde_json::to_string_pretty(&json).unwrap();
+        let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+
+        // Split the highlighted JSON into lines
+        let lines: Vec<&str> = highlighted_json.lines().collect();
+
+        // Ensure scroll_offset is within bounds
+        const BOARDER_AND_PADDING: usize = 4;
+        let max_scroll_offset = lines
+            .len()
+            .saturating_sub(area.height as usize - BOARDER_AND_PADDING);
+        state.payload_state.scroll_offset = state
+            .payload_state
+            .scroll_offset
+            .min(max_scroll_offset as u16);
+
+        // Calculate the visible range of lines
+        let start_line = state.payload_state.scroll_offset as usize;
+        let end_line = (start_line + area.height as usize).min(lines.len());
+        let visible_lines = &lines[start_line..end_line];
+
+        tracing::info!(
+            "lines={} start_line={start_line} end_line={end_line} visible_lines={}",
+            lines.len(),
+            visible_lines.len()
+        );
+
+        // Join the visible lines back into a single string
+        let visible_text = visible_lines.join("\n");
+
+        let paragraph = Paragraph::new(visible_text.into_text().unwrap())
             .block(Block::bordered().padding(Padding::uniform(1)))
             .bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b))
-            .scroll((state.payload_state.scroll_offset, 0));
+            .scroll((0, 0)); // Reset scroll since we're slicing manually
 
         paragraph.render(area, buf);
     }
@@ -416,6 +420,37 @@ impl TableColors {
             alt_row_color: tailwind::STONE.c800,
         }
     }
+}
+
+#[memoize::memoize]
+fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, String) {
+    use syntect::{
+        easy::HighlightLines,
+        highlighting::{Color, Style, ThemeSet},
+        parsing::SyntaxSet,
+        util::as_24_bit_terminal_escaped,
+    };
+
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let mut theme_set = ThemeSet::load_defaults();
+    let syntax = syntax_set
+        .find_syntax_by_extension("json")
+        .expect("JSON syntax not found");
+    let theme = theme_set.themes.get_mut("base16-mocha.dark").unwrap();
+    let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
+    let mut highlighter = HighlightLines::new(syntax, theme);
+
+    let highlighted_with_line_numbers = source_code
+        .lines()
+        .enumerate()
+        .map(|(line_number, line)| {
+            let ranges: Vec<(Style, &str)> = highlighter.highlight_line(line, &syntax_set).unwrap();
+            let highlighted_line = as_24_bit_terminal_escaped(&ranges[..], true);
+            format!("{:>4} | {}", line_number + 1, highlighted_line) // Add line numbers
+        })
+        .join("\n");
+
+    (theme_bg, highlighted_with_line_numbers)
 }
 
 #[cfg(test)]
