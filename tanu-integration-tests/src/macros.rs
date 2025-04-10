@@ -37,6 +37,17 @@ async fn with_string(_: String) -> eyre::Result<()> {
     Ok(())
 }
 
+#[tanu::test("foo")]
+async fn with_into_string(_: impl Into<String>) -> eyre::Result<()> {
+    Ok(())
+}
+
+#[tanu::test("str")]
+#[tanu::test("owned string".to_string())]
+async fn with_as_ref(_: impl AsRef<str>) -> eyre::Result<()> {
+    Ok(())
+}
+
 #[tanu::test(Some(StatusCode::OK))]
 #[tanu::test(None)]
 async fn with_optional_parameters(status: Option<StatusCode>) -> eyre::Result<()> {
