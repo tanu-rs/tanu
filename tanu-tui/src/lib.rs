@@ -12,6 +12,7 @@ use eyre::WrapErr;
 use futures::StreamExt;
 use ratatui::{
     crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
+    layout::Position,
     prelude::*,
     style::{palette::tailwind, Modifier, Style},
     text::Line,
@@ -117,6 +118,8 @@ struct Model {
     info_state: InfoState,
     /// Holds the state of the logger pane, including any focus or visibility settings
     logger_state: TuiWidgetState,
+    /// Stores the last mouse click event, if any
+    click: Option<crossterm::event::MouseEvent>,
 }
 
 impl Model {
@@ -130,6 +133,7 @@ impl Model {
             test_results: vec![],
             info_state: InfoState::new(),
             logger_state: TuiWidgetState::new(),
+            click: None,
         }
     }
 
@@ -167,6 +171,7 @@ enum Message {
     LoggerSelectFocus,
     ExecuteOne,
     ExecuteAll,
+    SelectPane(crossterm::event::MouseEvent),
 }
 
 #[derive(Debug)]
@@ -211,6 +216,7 @@ fn offset_up(model: &mut Model, val: i16) {
 }
 
 async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>> {
+    model.click = None;
     match msg {
         Message::Maximize => {
             model.maximizing = !model.maximizing;
@@ -264,6 +270,9 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
             model.current_exec = Some(Execution::All);
             return Ok(Some(Command::ExecuteAll));
         }
+        Message::SelectPane(click) => {
+            model.click = Some(click);
+        }
     }
 
     model.info_state.selected_test = model.test_cases_list.select_test_case(&model.test_results);
@@ -308,6 +317,41 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Constraint::Length(12),
         ])
         .split(layout_menu);
+
+    // Handle mouse click events on UI. If position is in the list pane area, switch to it.
+    let click_position = model.click.as_ref().map(|click| {
+        let x = click.column;
+        let y = click.row;
+        Position::from((x, y))
+    });
+    if let Some(position) = click_position {
+        if layout_list.contains(position) {
+            model.current_pane = Pane::List;
+            model.info_state.focused = false;
+        } else if layout_info.contains(position) {
+            model.current_pane = Pane::Console;
+            model.info_state.focused = true;
+        } else if layout_tabs.contains(position) {
+            model.current_pane = Pane::Console;
+            model.info_state.focused = true;
+
+            // Check which tab was clicked.
+            let mut left = layout_tabs.left();
+            for tab in [Tab::Call, Tab::Headers, Tab::Payload, Tab::Error] {
+                const TAB_PADDING: u16 = 4;
+                const TAB_DIVIDER: u16 = 1;
+                let tab_length = tab.to_string().len() as u16 + TAB_PADDING;
+                if position.x >= left && position.x <= left + tab_length {
+                    model.info_state.selected_tab = tab;
+                    break;
+                }
+                left += tab_length + TAB_DIVIDER;
+            }
+        } else if layout_logger.contains(position) {
+            model.current_pane = Pane::Logger;
+            model.info_state.focused = false;
+        }
+    }
 
     let menu_items = [
         ("q", "Quit"),
@@ -571,23 +615,47 @@ impl Runtime {
                     }
                 }
                 Some(Ok(event)) = event_stream.next() => {
-                    if let Event::Key(key) = event {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => self.should_exit = true,
-                            _ => {
-                                let Some(msg) = self.handle_key(key, model.current_pane) else {
+                    let msg = match event {
+                        Event::Key(key) => {
+                            match key.code {
+                                KeyCode::Char('q') | KeyCode::Esc => {
+                                    self.should_exit = true;
                                     continue;
-                                };
-                                if let Some(cmd) = update(&mut model, msg).await? {
-                                    cmds.push_back(cmd);
+                                },
+                                _ => {
+                                    self.handle_key(key, model.current_pane)
                                 }
-                                trace!("updated {:?}", model.test_cases_list);
                             }
+                        },
+                        Event::Mouse(mouse) => {
+                            // Only send SelectPane message for click events
+                            if mouse.kind == crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) {
+                                Some(Message::SelectPane(mouse))
+                            } else {
+                                None
+                            }
+                        },
+                        _ => {
+                            continue;
                         }
+                    };
+                    let Some(msg) = msg else {
+                        continue;
+                    };
+                    if let Some(cmd) = update(&mut model, msg).await? {
+                        cmds.push_back(cmd);
                     }
+                    trace!("updated {:?}", model.test_cases_list);
                 }
             }
         }
+
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableMouseCapture
+        )?;
+        crossterm::terminal::disable_raw_mode()?;
 
         Ok(())
     }
@@ -705,6 +773,14 @@ pub async fn run(
     dotenv::dotenv().ok();
     let mut terminal = ratatui::init();
     terminal.clear()?;
+
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
+
     let runtime = Runtime::new();
     let result = runtime.run(runner, terminal).await;
     ratatui::restore();
