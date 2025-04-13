@@ -10,6 +10,7 @@ mod widget;
 use crossterm::event::KeyModifiers;
 use eyre::WrapErr;
 use futures::StreamExt;
+use itertools::Itertools;
 use ratatui::{
     crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
     layout::Position,
@@ -18,7 +19,7 @@ use ratatui::{
     text::Line,
     widgets::{
         block::{BorderType, Padding},
-        BarChart, Block, Borders, Paragraph, Tabs,
+        Bar, BarChart, BarGroup, Block, Borders, Paragraph, Tabs,
     },
     Frame,
 };
@@ -292,6 +293,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let [layout_rightup, layout_rightdown] =
         Layout::vertical([Constraint::Percentage(70), Constraint::Percentage(30)])
             .areas(layout_right);
+    let [layout_histogram, layout_summary] =
+        Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .areas(layout_rightdown);
     let layout_right_inner = Layout::default()
         .constraints([Constraint::Percentage(100)])
         .margin(1)
@@ -441,7 +445,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 .map(|log| log.response.duration_req.as_millis())
         })
         .max()
-        .unwrap_or(0);
+        .unwrap_or_default();
 
     // Decide such number of buckets that histogram bars stretch to the width of the pane.
     let pane_width = layout_rightdown.width as usize;
@@ -491,6 +495,73 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .bar_gap(1)
         .bar_style(Style::default().fg(tailwind::BLUE.c900));
 
+    let grouped_by_project = model
+        .test_results
+        .iter()
+        .into_group_map_by(|result| result.project_name.clone());
+    let project_test_summary: Vec<_> = get_tanu_config()
+        .projects
+        .iter()
+        .filter_map(|project| {
+            let test_results = grouped_by_project.get(&project.name)?;
+            let successful = test_results
+                .iter()
+                .filter(|result| result.test.as_ref().is_some_and(|test| test.result.is_ok()))
+                .count();
+            Some((
+                project.name.clone(),
+                successful,
+                test_results.len() - successful,
+            ))
+        })
+        .collect();
+
+    // Create bar groups for each project (maintaining original order)
+    let bar_groups = project_test_summary
+        .iter()
+        .map(|(name, success, fail)| {
+            BarGroup::default()
+                .label(Line::from(name.to_owned()).centered())
+                .bars(&[
+                    Bar::default()
+                        .value(*success as u64)
+                        .text_value(format!("success: {success}"))
+                        .value_style(
+                            Style::new()
+                                .bg(tailwind::BLUE.c900)
+                                .fg(tailwind::SLATE.c900),
+                        )
+                        .style(tailwind::BLUE.c900),
+                    Bar::default()
+                        .value(*fail as u64)
+                        .text_value(format!("fail: {fail}"))
+                        .value_style(
+                            Style::new()
+                                .bg(tailwind::BLUE.c900)
+                                .fg(tailwind::SLATE.c900),
+                        )
+                        .style(tailwind::BLUE.c900),
+                ])
+        })
+        .collect::<Vec<_>>();
+
+    // Create the bar chart with horizontal orientation
+    let mut bar_chart = BarChart::default()
+        .block(
+            Block::new()
+                .title("Summary".bold())
+                .borders(Borders::ALL)
+                .padding(Padding::top(1)),
+        )
+        .direction(Direction::Horizontal)
+        .bar_width(1)
+        .bar_gap(0)
+        .group_gap(2);
+
+    for bar_group in bar_groups {
+        bar_chart = bar_chart.data(bar_group);
+    }
+
     if model.maximizing {
         match model.current_pane {
             Pane::List => {
@@ -506,7 +577,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
         frame.render_widget(info_block, layout_rightup);
         frame.render_widget(tabs, layout_tabs);
         frame.render_stateful_widget(info, layout_info, &mut model.info_state);
-        frame.render_widget(histogram, layout_rightdown);
+        frame.render_widget(histogram, layout_histogram);
+        frame.render_widget(bar_chart, layout_summary);
     }
 }
 
