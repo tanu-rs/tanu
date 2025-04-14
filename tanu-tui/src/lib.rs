@@ -68,7 +68,7 @@ impl TestResult {
 enum Pane {
     #[default]
     List,
-    Console,
+    Info,
     Logger,
 }
 
@@ -92,6 +92,10 @@ enum CursorMovement {
     UpHalfScreen,
     /// Move the cursor down by half of the screen height.
     DownHalfScreen,
+    /// Move the cursor to the first line.
+    Home,
+    /// Move the cursor to the last line.
+    End,
 }
 
 /// Represents tab movement.
@@ -119,7 +123,7 @@ struct Model {
     info_state: InfoState,
     /// Holds the state of the logger pane, including any focus or visibility settings
     logger_state: TuiWidgetState,
-    /// Stores the last mouse click event, if any
+    /// Stores the last mouse click event, if any. When `click` is not `None`, it indicates that the user has clicked on a specific area of the UI.
     click: Option<crossterm::event::MouseEvent>,
 }
 
@@ -145,7 +149,7 @@ impl Model {
         if let Some(next_pane) = Pane::from_repr(next_index) {
             self.current_pane = next_pane;
         }
-        self.info_state.focused = self.current_pane == Pane::Console;
+        self.info_state.focused = self.current_pane == Pane::Info;
     }
 }
 
@@ -153,16 +157,11 @@ impl Model {
 enum Message {
     Maximize,
     NextPane,
-    ListSelectNext,
-    ListSelectPrev,
-    ListSelectFirst,
-    ListSelectLast,
+    ListSelect(CursorMovement),
     ListExpand,
-    ConsoleSelect(CursorMovement),
-    ConsoleSelectFirst,
-    ConsoleSelectLast,
-    ConsoleShowHttpLog,
-    ConsoleTabSelect(TabMovement),
+    InfoSelect(CursorMovement),
+    InfoShowHttpLog,
+    InfoTabSelect(TabMovement),
     LoggerSelectDown,
     LoggerSelectUp,
     LoggerSelectLeft,
@@ -181,7 +180,25 @@ enum Command {
     ExecuteAll,
 }
 
-/// Move down the offset of the model.
+/// Reset the offset of the list or info pane.
+fn offset_begin(model: &mut Model) {
+    match model.info_state.selected_tab {
+        Tab::Payload => {
+            model.info_state.payload_state.scroll_offset = 0;
+        }
+        Tab::Error => {
+            model.info_state.error_state.scroll_offset = 0;
+        }
+        _ => {}
+    }
+}
+
+/// Move the offset of the list or info pane to the last.
+fn offset_end(_model: &mut Model) {
+    // TODO
+}
+
+/// Move down the offset of the list or info pane.
 fn offset_down(model: &mut Model, val: i16) {
     match model.info_state.selected_tab {
         Tab::Payload => {
@@ -218,6 +235,8 @@ fn offset_up(model: &mut Model, val: i16) {
 
 async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>> {
     model.click = None;
+
+    let terminal_height = crossterm::terminal::size()?.1 as usize;
     match msg {
         Message::Maximize => {
             model.maximizing = !model.maximizing;
@@ -225,33 +244,67 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
         Message::NextPane => {
             model.next_pane();
         }
-        Message::ListSelectNext => model.test_cases_list.list_state.select_next(),
-        Message::ListSelectPrev => model.test_cases_list.list_state.select_previous(),
-        Message::ListSelectFirst => model.test_cases_list.list_state.select_first(),
-        Message::ListSelectLast => model.test_cases_list.list_state.select_last(),
+        Message::ListSelect(CursorMovement::Down) => model.test_cases_list.list_state.select_next(),
+        Message::ListSelect(CursorMovement::Up) => {
+            model.test_cases_list.list_state.select_previous();
+        }
+        Message::ListSelect(CursorMovement::UpHalfScreen) => {
+            let offset = terminal_height / 4;
+            let selected = model
+                .test_cases_list
+                .list_state
+                .selected()
+                .unwrap_or_default();
+            model
+                .test_cases_list
+                .list_state
+                .select(Some(selected.saturating_sub(offset)));
+        }
+        Message::ListSelect(CursorMovement::DownHalfScreen) => {
+            let offset = terminal_height / 4;
+            let selected = model
+                .test_cases_list
+                .list_state
+                .selected()
+                .unwrap_or_default();
+            model
+                .test_cases_list
+                .list_state
+                .select(Some(selected + offset));
+        }
+        Message::ListSelect(CursorMovement::Home) => {
+            model.test_cases_list.list_state.select_first();
+        }
+        Message::ListSelect(CursorMovement::End) => {
+            model.test_cases_list.list_state.select_last();
+        }
         Message::ListExpand => model.test_cases_list.expand(&model.test_results),
-        Message::ConsoleSelect(CursorMovement::Down) => {
+        Message::InfoSelect(CursorMovement::Down) => {
             offset_down(model, 1);
         }
-        Message::ConsoleSelect(CursorMovement::DownHalfScreen) => {
-            offset_down(model, (crossterm::terminal::size()?.1 / 2) as i16);
+        Message::InfoSelect(CursorMovement::DownHalfScreen) => {
+            offset_down(model, (terminal_height / 2) as i16);
         }
-        Message::ConsoleSelect(CursorMovement::Up) => {
+        Message::InfoSelect(CursorMovement::Up) => {
             offset_up(model, 1);
         }
-        Message::ConsoleSelect(CursorMovement::UpHalfScreen) => {
-            offset_up(model, (crossterm::terminal::size()?.1 / 2) as i16);
+        Message::InfoSelect(CursorMovement::UpHalfScreen) => {
+            offset_up(model, (terminal_height / 2) as i16);
         }
-        Message::ConsoleTabSelect(TabMovement::Next) => {
+        Message::InfoSelect(CursorMovement::Home) => {
+            offset_begin(model);
+        }
+        Message::InfoSelect(CursorMovement::End) => {
+            offset_end(model);
+        }
+        Message::InfoTabSelect(TabMovement::Next) => {
             model.info_state.next_tab();
         }
-        Message::ConsoleTabSelect(TabMovement::Prev) => {
+        Message::InfoTabSelect(TabMovement::Prev) => {
             model.info_state.prev_tab();
         }
-        Message::ConsoleSelectFirst => {}
 
-        Message::ConsoleSelectLast => {}
-        Message::ConsoleShowHttpLog => {}
+        Message::InfoShowHttpLog => {}
         Message::LoggerSelectDown => model.logger_state.transition(TuiWidgetEvent::DownKey),
         Message::LoggerSelectUp => model.logger_state.transition(TuiWidgetEvent::UpKey),
         Message::LoggerSelectLeft => model.logger_state.transition(TuiWidgetEvent::LeftKey),
@@ -333,10 +386,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
             model.current_pane = Pane::List;
             model.info_state.focused = false;
         } else if layout_info.contains(position) {
-            model.current_pane = Pane::Console;
+            model.current_pane = Pane::Info;
             model.info_state.focused = true;
         } else if layout_tabs.contains(position) {
-            model.current_pane = Pane::Console;
+            model.current_pane = Pane::Info;
             model.info_state.focused = true;
 
             // Check which tab was clicked.
@@ -567,7 +620,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Pane::List => {
                 frame.render_stateful_widget(test_list, layout_main, &mut model.test_cases_list)
             }
-            Pane::Console => frame.render_stateful_widget(info, layout_main, &mut model.info_state),
+            Pane::Info => frame.render_stateful_widget(info, layout_main, &mut model.info_state),
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
     } else {
@@ -743,58 +796,76 @@ impl Runtime {
         match (key.code, modifier) {
             (KeyCode::Char('z'), _) => return Some(Message::Maximize),
             (KeyCode::BackTab, KeyModifiers::SHIFT) => {
-                return Some(Message::ConsoleTabSelect(TabMovement::Next))
+                return Some(Message::InfoTabSelect(TabMovement::Next))
             }
             (KeyCode::Tab, _) => return Some(Message::NextPane),
             _ => {}
         }
 
         match current_pane {
-            Pane::Console => {
+            Pane::Info => {
                 match (key.code, modifier) {
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                        return Some(Message::ConsoleSelect(CursorMovement::DownHalfScreen));
+                        return Some(Message::InfoSelect(CursorMovement::DownHalfScreen));
                     }
                     (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                        return Some(Message::ConsoleSelect(CursorMovement::UpHalfScreen));
+                        return Some(Message::InfoSelect(CursorMovement::UpHalfScreen));
                     }
                     _ => {}
                 }
 
                 match key.code {
                     KeyCode::Char('j') | KeyCode::Down => {
-                        Some(Message::ConsoleSelect(CursorMovement::Down))
+                        Some(Message::InfoSelect(CursorMovement::Down))
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
-                        Some(Message::ConsoleSelect(CursorMovement::Up))
+                        Some(Message::InfoSelect(CursorMovement::Up))
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
-                        Some(Message::ConsoleTabSelect(TabMovement::Prev))
+                        Some(Message::InfoTabSelect(TabMovement::Prev))
                     }
                     KeyCode::Char('l') | KeyCode::Right => {
-                        Some(Message::ConsoleTabSelect(TabMovement::Next))
+                        Some(Message::InfoTabSelect(TabMovement::Next))
                     }
-                    KeyCode::Char('g') | KeyCode::Home => Some(Message::ConsoleSelectFirst),
-                    KeyCode::Char('G') | KeyCode::End => Some(Message::ConsoleSelectLast),
-                    KeyCode::Enter => Some(Message::ConsoleShowHttpLog),
+                    KeyCode::Char('g') | KeyCode::Home => {
+                        Some(Message::InfoSelect(CursorMovement::Home))
+                    }
+                    KeyCode::Char('G') | KeyCode::End => {
+                        Some(Message::InfoSelect(CursorMovement::End))
+                    }
+                    KeyCode::Enter => Some(Message::InfoShowHttpLog),
                     KeyCode::Char('1') => Some(Message::ExecuteAll),
                     _ => None,
                 }
             }
-            Pane::List => match key.code {
-                KeyCode::Char('j') | KeyCode::Down => Some(Message::ListSelectNext),
-                KeyCode::Char('k') | KeyCode::Up => Some(Message::ListSelectPrev),
-                KeyCode::Char('g') | KeyCode::Home => Some(Message::ListSelectFirst),
-                KeyCode::Char('G') | KeyCode::End => Some(Message::ListSelectLast),
-                KeyCode::Char('h') | KeyCode::Left => {
-                    Some(Message::ConsoleTabSelect(TabMovement::Prev))
+            Pane::List => match (key.code, modifier) {
+                (KeyCode::Char('j') | KeyCode::Down, _) => {
+                    Some(Message::ListSelect(CursorMovement::Down))
                 }
-                KeyCode::Char('l') | KeyCode::Right => {
-                    Some(Message::ConsoleTabSelect(TabMovement::Next))
+                (KeyCode::Char('k') | KeyCode::Up, _) => {
+                    Some(Message::ListSelect(CursorMovement::Up))
                 }
-                KeyCode::Enter => Some(Message::ListExpand),
-                KeyCode::Char('1') => Some(Message::ExecuteAll),
-                KeyCode::Char('2') => Some(Message::ExecuteOne),
+                (KeyCode::Char('g') | KeyCode::Home, _) => {
+                    Some(Message::ListSelect(CursorMovement::Home))
+                }
+                (KeyCode::Char('G') | KeyCode::End, _) => {
+                    Some(Message::ListSelect(CursorMovement::End))
+                }
+                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                    Some(Message::ListSelect(CursorMovement::DownHalfScreen))
+                }
+                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                    Some(Message::ListSelect(CursorMovement::UpHalfScreen))
+                }
+                (KeyCode::Char('h') | KeyCode::Left, _) => {
+                    Some(Message::InfoTabSelect(TabMovement::Prev))
+                }
+                (KeyCode::Char('l') | KeyCode::Right, _) => {
+                    Some(Message::InfoTabSelect(TabMovement::Next))
+                }
+                (KeyCode::Enter, _) => Some(Message::ListExpand),
+                (KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
+                (KeyCode::Char('2'), _) => Some(Message::ExecuteOne),
                 _ => None,
             },
             Pane::Logger => match key.code {
