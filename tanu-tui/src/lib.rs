@@ -803,41 +803,35 @@ impl Runtime {
         }
 
         match current_pane {
-            Pane::Info => {
-                match (key.code, modifier) {
-                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                        return Some(Message::InfoSelect(CursorMovement::DownHalfScreen));
-                    }
-                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                        return Some(Message::InfoSelect(CursorMovement::UpHalfScreen));
-                    }
-                    _ => {}
+            Pane::Info => match (key.code, modifier) {
+                (KeyCode::Char('j') | KeyCode::Down, _) => {
+                    Some(Message::InfoSelect(CursorMovement::Down))
                 }
-
-                match key.code {
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        Some(Message::InfoSelect(CursorMovement::Down))
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        Some(Message::InfoSelect(CursorMovement::Up))
-                    }
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        Some(Message::InfoTabSelect(TabMovement::Prev))
-                    }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        Some(Message::InfoTabSelect(TabMovement::Next))
-                    }
-                    KeyCode::Char('g') | KeyCode::Home => {
-                        Some(Message::InfoSelect(CursorMovement::Home))
-                    }
-                    KeyCode::Char('G') | KeyCode::End => {
-                        Some(Message::InfoSelect(CursorMovement::End))
-                    }
-                    KeyCode::Enter => Some(Message::InfoShowHttpLog),
-                    KeyCode::Char('1') => Some(Message::ExecuteAll),
-                    _ => None,
+                (KeyCode::Char('k') | KeyCode::Up, _) => {
+                    Some(Message::InfoSelect(CursorMovement::Up))
                 }
-            }
+                (KeyCode::Char('h') | KeyCode::Left, _) => {
+                    Some(Message::InfoTabSelect(TabMovement::Prev))
+                }
+                (KeyCode::Char('l') | KeyCode::Right, _) => {
+                    Some(Message::InfoTabSelect(TabMovement::Next))
+                }
+                (KeyCode::Char('g') | KeyCode::Home, _) => {
+                    Some(Message::InfoSelect(CursorMovement::Home))
+                }
+                (KeyCode::Char('G') | KeyCode::End, _) => {
+                    Some(Message::InfoSelect(CursorMovement::End))
+                }
+                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                    Some(Message::InfoSelect(CursorMovement::DownHalfScreen))
+                }
+                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                    Some(Message::InfoSelect(CursorMovement::UpHalfScreen))
+                }
+                (KeyCode::Enter, _) => Some(Message::InfoShowHttpLog),
+                (KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
+                _ => None,
+            },
             Pane::List => match (key.code, modifier) {
                 (KeyCode::Char('j') | KeyCode::Down, _) => {
                     Some(Message::ListSelect(CursorMovement::Down))
