@@ -160,7 +160,6 @@ enum Message {
     ListSelect(CursorMovement),
     ListExpand,
     InfoSelect(CursorMovement),
-    InfoShowHttpLog,
     InfoTabSelect(TabMovement),
     LoggerSelectDown,
     LoggerSelectUp,
@@ -304,7 +303,6 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
             model.info_state.prev_tab();
         }
 
-        Message::InfoShowHttpLog => {}
         Message::LoggerSelectDown => model.logger_state.transition(TuiWidgetEvent::DownKey),
         Message::LoggerSelectUp => model.logger_state.transition(TuiWidgetEvent::UpKey),
         Message::LoggerSelectLeft => model.logger_state.transition(TuiWidgetEvent::LeftKey),
@@ -823,7 +821,6 @@ impl Runtime {
             (Pane::Info, KeyCode::Char('u'), KeyModifiers::CONTROL) => {
                 Some(Message::InfoSelect(CursorMovement::UpHalfScreen))
             }
-            (Pane::Info, KeyCode::Enter, _) => Some(Message::InfoShowHttpLog),
             (Pane::Info, KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
             (Pane::List, KeyCode::Char('j') | KeyCode::Down, _) => {
                 Some(Message::ListSelect(CursorMovement::Down))
