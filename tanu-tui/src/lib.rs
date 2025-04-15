@@ -793,85 +793,82 @@ impl Runtime {
         }
         let modifier = key.modifiers;
 
-        match (key.code, modifier) {
-            (KeyCode::Char('z'), _) => return Some(Message::Maximize),
-            (KeyCode::BackTab, KeyModifiers::SHIFT) => {
-                return Some(Message::InfoTabSelect(TabMovement::Next))
+        match (current_pane, key.code, modifier) {
+            (_, KeyCode::Char('z'), _) => Some(Message::Maximize),
+            (_, KeyCode::BackTab, KeyModifiers::SHIFT) => {
+                Some(Message::InfoTabSelect(TabMovement::Next))
             }
-            (KeyCode::Tab, _) => return Some(Message::NextPane),
-            _ => {}
-        }
-
-        match current_pane {
-            Pane::Info => match (key.code, modifier) {
-                (KeyCode::Char('j') | KeyCode::Down, _) => {
-                    Some(Message::InfoSelect(CursorMovement::Down))
-                }
-                (KeyCode::Char('k') | KeyCode::Up, _) => {
-                    Some(Message::InfoSelect(CursorMovement::Up))
-                }
-                (KeyCode::Char('h') | KeyCode::Left, _) => {
-                    Some(Message::InfoTabSelect(TabMovement::Prev))
-                }
-                (KeyCode::Char('l') | KeyCode::Right, _) => {
-                    Some(Message::InfoTabSelect(TabMovement::Next))
-                }
-                (KeyCode::Char('g') | KeyCode::Home, _) => {
-                    Some(Message::InfoSelect(CursorMovement::Home))
-                }
-                (KeyCode::Char('G') | KeyCode::End, _) => {
-                    Some(Message::InfoSelect(CursorMovement::End))
-                }
-                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                    Some(Message::InfoSelect(CursorMovement::DownHalfScreen))
-                }
-                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                    Some(Message::InfoSelect(CursorMovement::UpHalfScreen))
-                }
-                (KeyCode::Enter, _) => Some(Message::InfoShowHttpLog),
-                (KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
-                _ => None,
-            },
-            Pane::List => match (key.code, modifier) {
-                (KeyCode::Char('j') | KeyCode::Down, _) => {
-                    Some(Message::ListSelect(CursorMovement::Down))
-                }
-                (KeyCode::Char('k') | KeyCode::Up, _) => {
-                    Some(Message::ListSelect(CursorMovement::Up))
-                }
-                (KeyCode::Char('g') | KeyCode::Home, _) => {
-                    Some(Message::ListSelect(CursorMovement::Home))
-                }
-                (KeyCode::Char('G') | KeyCode::End, _) => {
-                    Some(Message::ListSelect(CursorMovement::End))
-                }
-                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                    Some(Message::ListSelect(CursorMovement::DownHalfScreen))
-                }
-                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                    Some(Message::ListSelect(CursorMovement::UpHalfScreen))
-                }
-                (KeyCode::Char('h') | KeyCode::Left, _) => {
-                    Some(Message::InfoTabSelect(TabMovement::Prev))
-                }
-                (KeyCode::Char('l') | KeyCode::Right, _) => {
-                    Some(Message::InfoTabSelect(TabMovement::Next))
-                }
-                (KeyCode::Enter, _) => Some(Message::ListExpand),
-                (KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
-                (KeyCode::Char('2'), _) => Some(Message::ExecuteOne),
-                _ => None,
-            },
-            Pane::Logger => match key.code {
-                KeyCode::Char('j') | KeyCode::Down => Some(Message::LoggerSelectDown),
-                KeyCode::Char('k') | KeyCode::Up => Some(Message::LoggerSelectUp),
-                KeyCode::Char('h') | KeyCode::Left => Some(Message::LoggerSelectLeft),
-                KeyCode::Char('l') | KeyCode::Right => Some(Message::LoggerSelectRight),
-                KeyCode::Char(' ') => Some(Message::LoggerSelectSpace),
-                KeyCode::Char('H') => Some(Message::LoggerSelectHide),
-                KeyCode::Char('F') => Some(Message::LoggerSelectFocus),
-                _ => None,
-            },
+            (_, KeyCode::Tab, _) => Some(Message::NextPane),
+            (Pane::Info, KeyCode::Char('j') | KeyCode::Down, _) => {
+                Some(Message::InfoSelect(CursorMovement::Down))
+            }
+            (Pane::Info, KeyCode::Char('k') | KeyCode::Up, _) => {
+                Some(Message::InfoSelect(CursorMovement::Up))
+            }
+            (Pane::Info, KeyCode::Char('h') | KeyCode::Left, _) => {
+                Some(Message::InfoTabSelect(TabMovement::Prev))
+            }
+            (Pane::Info, KeyCode::Char('l') | KeyCode::Right, _) => {
+                Some(Message::InfoTabSelect(TabMovement::Next))
+            }
+            (Pane::Info, KeyCode::Char('g') | KeyCode::Home, _) => {
+                Some(Message::InfoSelect(CursorMovement::Home))
+            }
+            (Pane::Info, KeyCode::Char('G') | KeyCode::End, _) => {
+                Some(Message::InfoSelect(CursorMovement::End))
+            }
+            (Pane::Info, KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                Some(Message::InfoSelect(CursorMovement::DownHalfScreen))
+            }
+            (Pane::Info, KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                Some(Message::InfoSelect(CursorMovement::UpHalfScreen))
+            }
+            (Pane::Info, KeyCode::Enter, _) => Some(Message::InfoShowHttpLog),
+            (Pane::Info, KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
+            (Pane::List, KeyCode::Char('j') | KeyCode::Down, _) => {
+                Some(Message::ListSelect(CursorMovement::Down))
+            }
+            (Pane::List, KeyCode::Char('k') | KeyCode::Up, _) => {
+                Some(Message::ListSelect(CursorMovement::Up))
+            }
+            (Pane::List, KeyCode::Char('g') | KeyCode::Home, _) => {
+                Some(Message::ListSelect(CursorMovement::Home))
+            }
+            (Pane::List, KeyCode::Char('G') | KeyCode::End, _) => {
+                Some(Message::ListSelect(CursorMovement::End))
+            }
+            (Pane::List, KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                Some(Message::ListSelect(CursorMovement::DownHalfScreen))
+            }
+            (Pane::List, KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                Some(Message::ListSelect(CursorMovement::UpHalfScreen))
+            }
+            (Pane::List, KeyCode::Char('h') | KeyCode::Left, _) => {
+                Some(Message::InfoTabSelect(TabMovement::Prev))
+            }
+            (Pane::List, KeyCode::Char('l') | KeyCode::Right, _) => {
+                Some(Message::InfoTabSelect(TabMovement::Next))
+            }
+            (Pane::List, KeyCode::Enter, _) => Some(Message::ListExpand),
+            (Pane::List, KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
+            (Pane::List, KeyCode::Char('2'), _) => Some(Message::ExecuteOne),
+            (Pane::Logger, KeyCode::Char('j') | KeyCode::Down, _) => {
+                Some(Message::LoggerSelectDown)
+            }
+            (Pane::Logger, KeyCode::Char('k') | KeyCode::Up, _) => Some(Message::LoggerSelectUp),
+            (Pane::Logger, KeyCode::Char('h') | KeyCode::Left, _) => {
+                Some(Message::LoggerSelectLeft)
+            }
+            (Pane::Logger, KeyCode::Char('l') | KeyCode::Right, _) => {
+                Some(Message::LoggerSelectRight)
+            }
+            (Pane::Logger, KeyCode::Char(' '), _) => Some(Message::LoggerSelectSpace),
+            (Pane::Logger, KeyCode::Char('H'), _) => Some(Message::LoggerSelectHide),
+            (Pane::Logger, KeyCode::Char('F'), _) => Some(Message::LoggerSelectFocus),
+            _ => {
+                // Ignore other keys
+                None
+            }
         }
     }
 }
