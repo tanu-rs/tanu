@@ -5,12 +5,14 @@
 //! - Error: shows the error message if the test failed
 use ansi_to_tui::IntoText;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use ratatui::{
     prelude::*,
     style::{Color, Style},
     widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
 };
 use style::palette::tailwind;
+use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tracing::*;
 
 use crate::{widget::list::TestCaseSelector, TestResult};
@@ -430,29 +432,35 @@ impl TableColors {
     }
 }
 
+static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
+static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
+
 #[memoize::memoize]
 fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, String) {
     use syntect::{
         easy::HighlightLines,
-        highlighting::{Color, Style, ThemeSet},
-        parsing::SyntaxSet,
+        highlighting::{Color, Style},
         util::as_24_bit_terminal_escaped,
     };
 
-    let syntax_set = SyntaxSet::load_defaults_newlines();
-    let mut theme_set = ThemeSet::load_defaults();
-    let syntax = syntax_set
+    let syntax = SYNTAX_SET
         .find_syntax_by_extension("json")
         .expect("JSON syntax not found");
-    let theme = theme_set.themes.get_mut("base16-mocha.dark").unwrap();
+
+    // Clone the theme to avoid mutating the static THEME_SET
+    let theme = THEME_SET
+        .themes
+        .get("Solarized (dark)")
+        .expect("Theme not found")
+        .clone();
     let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
-    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut highlighter = HighlightLines::new(syntax, &theme);
 
     let highlighted_with_line_numbers = source_code
         .lines()
         .enumerate()
         .map(|(line_number, line)| {
-            let ranges: Vec<(Style, &str)> = highlighter.highlight_line(line, &syntax_set).unwrap();
+            let ranges: Vec<(Style, &str)> = highlighter.highlight_line(line, &SYNTAX_SET).unwrap();
             let highlighted_line = as_24_bit_terminal_escaped(&ranges[..], true);
             format!("{:>4} | {}", line_number + 1, highlighted_line) // Add line numbers
         })
