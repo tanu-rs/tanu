@@ -16,6 +16,9 @@ The `tanu.toml` file consists of multiple `[[projects]]` tables, each representi
 Below is an example of a `tanu.toml` file:
 
 ```toml
+[tanu]
+payload.color_theme: "tomorrow-night"  # Replace with your preferred theme name
+
 [[projects]]
 name = "staging"
 test_ignore = [
@@ -81,3 +84,97 @@ If the value is not string, you can use other methods to retrieve it:
 
 Tanu also allows you to set user-defined settings in a `.env` file. Secret settings like API keys should not be stored in plain text; instead, environment variables should be used. Any environment variable prefixed with `TANU_{PROJECT}_{NAME}` will be exposed as a configuration. For example, an API key set in the `TANU_STAGING_API_KEY` environment variable can be accessed using `tanu::get_config().get_str("api_key")`.
 
+## Theme
+
+You can customize the appearance of Tanu's interface by selecting a color theme.
+
+To change the theme, add the following to your `tanu.toml` configuration file:
+
+```toml
+[tanu]
+payload.color_theme = "tomorrow-night"  # Replace with your preferred theme name
+```
+
+!!! note
+    The color theme setting primarily affects the Payload tab in the TUI, where it's used to colorize and syntax-highlight response payloads (particularly JSON responses). This makes the API responses more readable and helps you quickly identify different elements in the response data.
+
+### Available Themes
+
+Tanu ships with all Base16 themes, providing a consistent color palette across different interfaces.
+Available themes include:
+
+- `3024`
+- `apathy`
+- `ashes`
+- `atelier-cave`
+- `atelier-dune`
+- `atelier-estuary`
+- `atelier-forest`
+- `atelier-heath`
+- `atelier-lakeside`
+- `atelier-plateau`
+- `atelier-savanna`
+- `atelier-seaside`
+- `atelier-sulphurpool`
+- `atlas`
+- `bespin`
+- `black-metal`
+- `brewer`
+- `bright`
+- `brushtrees`
+- `chalk`
+- `circus`
+- `classic`
+- `codeschool`
+- `cupcake`
+- `cupertino`
+- `darktooth`
+- `default`
+- `eighties`
+- `embers`
+- `flat`
+- `fruit-soda`
+- `github`
+- `google`
+- `grayscale`
+- `greenscreen`
+- `gruvbox`
+- `harmonic`
+- `hopscotch`
+- `irblack`
+- `isotope`
+- `macintosh`
+- `marrakesh`
+- `materia`
+- `material`
+- `mellow`
+- `mexico`
+- `mocha`
+- `monokai`
+- `nord`
+- `ocean`
+- `oceanicnext`
+- `one`
+- `onedark`
+- `papercolor`
+- `paraiso`
+- `phd`
+- `pico`
+- `pop`
+- `porple`
+- `railscasts`
+- `rebecca`
+- `seti`
+- `shapeshifter`
+- `solarflare`
+- `solarized`
+- `spacemacs`
+- `summerfruit`
+- `tomorrow`
+- `tomorrow-night`
+- `tube`
+- `twilight`
+- `unikitty`
+- `woodland`
+- `xcode`
+- `zenburn`

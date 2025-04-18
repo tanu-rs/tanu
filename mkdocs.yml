@@ -30,6 +30,7 @@ nav:
       - Command Line Options: command-line-option.md
       - TUI: tui.md
 markdown_extensions:
+  - admonition
   - pymdownx.highlight
   - pymdownx.superfences
 plugins:

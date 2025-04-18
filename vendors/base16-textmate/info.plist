@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>contactEmailRot13</key>
+	<string></string>
+	<key>contactName</key>
+	<string>Chris Kempson</string>
+	<key>description</key>
+	<string>Base16 provides carefully chosen syntax highlighting and a default set of sixteen colors suitable for a wide range of applications.</string>
+	<key>name</key>
+	<string>Base16</string>
+	<key>uuid</key>
+	<string>24CB4EBB-8D3A-4567-A6AA-200FFFE0A072</string>
+</dict>
+</plist>

@@ -30,6 +30,22 @@ pub fn get_config() -> ProjectConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
     pub projects: Vec<ProjectConfig>,
+    /// Global tanu configuration
+    #[serde(default)]
+    pub tui: Tui,
+}
+
+/// Global tanu configuration
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Tui {
+    #[serde(default)]
+    pub payload: Payload,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Payload {
+    /// Optional color theme for terminal output
+    pub color_theme: Option<String>,
 }
 
 impl Config {
@@ -111,6 +127,11 @@ impl Config {
         }
 
         debug!("tanu configuration loaded from env: {self:#?}");
+    }
+
+    /// Get the current color theme
+    pub fn color_theme(&self) -> Option<&str> {
+        self.tui.payload.color_theme.as_deref()
     }
 }
 
