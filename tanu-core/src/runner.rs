@@ -419,6 +419,7 @@ mod test {
                 name: "default".into(),
                 ..Default::default()
             }],
+            ..Default::default()
         }
     }
 
@@ -432,6 +433,7 @@ mod test {
                 },
                 ..Default::default()
             }],
+            ..Default::default()
         }
     }
 

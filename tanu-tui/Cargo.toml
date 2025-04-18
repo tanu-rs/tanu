@@ -37,3 +37,6 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+
+[build-dependencies]
+eyre = { workspace = true }

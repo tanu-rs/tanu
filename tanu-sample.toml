@@ -1,3 +1,6 @@
+[tui]
+payload.color_theme = "apathy"  # color theme for the payload tab, default is "solarized-dark"
+
 [[projects]]
 name = "default"        # project name
 test_ignore = []        # list of test names to exclude

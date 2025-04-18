@@ -12,7 +12,11 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
 };
 use style::palette::tailwind;
-use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
+use syntect::{
+    highlighting::{Theme, ThemeSet},
+    parsing::SyntaxSet,
+};
+use tanu_core::get_tanu_config;
 use tracing::*;
 
 use crate::{widget::list::TestCaseSelector, TestResult};
@@ -433,7 +437,48 @@ impl TableColors {
 }
 
 static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
+static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| {
+    let mut ts = ThemeSet::load_defaults();
+
+    // Load all included themes
+    for (name, content) in themes::get_all_themes() {
+        let mut reader = std::io::Cursor::new(content);
+        match syntect::highlighting::ThemeSet::load_from_reader(&mut reader) {
+            Ok(theme) => {
+                ts.themes.insert(name.to_string(), theme);
+                debug!("Successfully loaded theme: {name}");
+            }
+            Err(e) => {
+                warn!("Failed to load theme {name}: {e}");
+            }
+        }
+    }
+
+    ts
+});
+
+static THEME: Lazy<Theme> = Lazy::new(|| {
+    const DEFAULT_THEME: &str = "Solarized (dark)";
+    let color_theme = get_tanu_config().color_theme();
+    let theme_name = color_theme
+        .map(|s| format!("base16-{s}"))
+        .unwrap_or(DEFAULT_THEME.into());
+
+    match THEME_SET.themes.get(&theme_name) {
+        Some(theme) => theme.clone(),
+        None => {
+            warn!("Theme '{theme_name}' not found, falling back to default");
+            THEME_SET
+                .themes
+                .get(DEFAULT_THEME)
+                .expect("Default theme '{DEFAULT_THEME}' not found")
+                .clone()
+        }
+    }
+});
+
+// Include the generated themes module
+include!(concat!(env!("OUT_DIR"), "/themes.rs"));
 
 #[memoize::memoize]
 fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, String) {
@@ -447,14 +492,8 @@ fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, 
         .find_syntax_by_extension("json")
         .expect("JSON syntax not found");
 
-    // Clone the theme to avoid mutating the static THEME_SET
-    let theme = THEME_SET
-        .themes
-        .get("Solarized (dark)")
-        .expect("Theme not found")
-        .clone();
-    let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
-    let mut highlighter = HighlightLines::new(syntax, &theme);
+    let theme_bg = THEME.settings.background.unwrap_or(Color::BLACK);
+    let mut highlighter = HighlightLines::new(syntax, &THEME);
 
     let highlighted_with_line_numbers = source_code
         .lines()
