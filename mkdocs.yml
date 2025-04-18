@@ -1,5 +1,10 @@
 site_name: tanu
 site_url: https://tanu-rs.github.io/tanu/
+repo_name: tanu-rs/tanu
+repo_url: https://github.com/tanu-rs/tanu
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2025 Yukinari Tani
+
 theme:
   name: material
   favicon: assets/tanu.png
@@ -35,3 +40,4 @@ markdown_extensions:
   - pymdownx.superfences
 plugins:
   - mike
+  - search
