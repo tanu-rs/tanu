@@ -147,10 +147,17 @@ fn generate_test_name(org_func_name: &str, input: &Input) -> String {
                     .replace("&", "")
                     .replace("*", "")
                     .replace(" :: ", "_")
+                    .replace("\\", "")
+                    .replace("/", "")
                     .replace("\"", "")
                     .replace("(", "")
                     .replace(")", "")
+                    .replace("{", "")
+                    .replace("}", "")
+                    .replace("[", "")
+                    .replace("]", "")
                     .replace(" ", "")
+                    .replace(",", "_")
                     .replace(".", "_")
                     .to_lowercase()
             })
@@ -623,7 +630,39 @@ mod test {
     #[test_case("1<<2>>3" => "foo::1_lshift_2_rshift_3"; "with left shift and right shift expression")]
     #[test_case("Some(1+2)" => "foo::1_add_2"; "with Some and add expression")]
     #[test_case("None" => "foo::none"; "with None")]
+    #[test_case("[1, 2]" => "foo::1_2"; "with array")]
+    #[test_case("vec![1, 2]" => "foo::vecnot_1_2"; "with macro")] // TODO should parse macro so that it won't have "not"
     #[test_case("\"foo\".to_string().len()" => "foo::foo_to_string_len"; "with function call chain")]
+    #[test_case("0.5+0.3" => "foo::0_5_add_0_3"; "with floating point add")] // TODO should be foo::05_add_03
+    #[test_case("-10" => "foo::_sub_10"; "with negative number")] // TODO should be neg_10
+    #[test_case("1.0e10" => "foo::1_0e10"; "with scientific notation")] // TODO should be foo::10e10
+    #[test_case("0xff" => "foo::0xff"; "with hex literal")]
+    #[test_case("0o777" => "foo::0o777"; "with octal literal")]
+    #[test_case("0b1010" => "foo::0b1010"; "with binary literal")]
+    #[test_case("\"hello\" + \"world\"" => "foo::hello_add_world"; "with string concatenation")]
+    #[test_case("format!(\"{}{}\", 1, 2)" => "foo::formatnot__1_2"; "with format macro")] // TODO should be format_1_2
+    #[test_case("r#\"raw string\"#" => "foo::rawstring"; "with raw string")]
+    //#[test_case("\n\t\r" => "foo::n_t_r"; "with escape sequences")] // TODO this does not work yet
+    #[test_case("(1, \"hello\", true)" => "foo::1_hello_true"; "with mixed tuple")]
+    //#[test_case("HashSet::from([1, 2, 3])" => "foo::hashsetfrom_1_2_3"; "with collection construction")] // TODO should be 1_2_3
+    //#[test_case("add(1, 2)" => "foo::add1_2"; "with function call")] // This does not work
+    //#[test_case("HashSet::from([1, 2, 3])" => "foo::hashsetfrom_1_2_3"; "with collection construction")] // TODO should be 1_2_3
+    #[test_case("vec![1..5]" => "foo::vecnot_1__5"; "with range in macro")]
+    //#[test_case("add(1, 2)" => "foo::add1_2"; "with function call")] // This does not work
+    #[test_case("x.map(|v| v+1)" => "foo::x_map_or_v_or_v_add_1"; "with closure")]
+    #[test_case("a.into()" => "foo::a_into"; "with method call no args")]
+    // should be a_parse_i32_unwrap
+    #[test_case("a.parse::<i32>().unwrap()" => "foo::a_parse__lt_i32_gt__unwrap"; "with turbofish syntax")]
+    // #[test_case("if x { 1 } else { 2 }" => "foo::if_x_1_else_2"; "with if expression")]
+    // #[test_case("match x { Some(v) => v, None => 0 }" => "foo::match_x_somev_v_none_0"; "with match expression")]
+    //#[test_case("Box::new(1)" => "foo::boxnew_1"; "with box allocation")]
+    //#[test_case("Rc::new(vec![1, 2])" => "foo::rcnew_vecnot_1_2"; "with reference counting")]
+    //#[test_case("<Vec<i32> as IntoIterator>::into_iter" => "foo::veci32_as_intoiterator_into_iter"; "with type casting")]
+    // TODO should be 1_10
+    #[test_case("1..10" => "foo::1__10"; "with range")]
+    //#[test_case("1..=10" => "foo::1_10"; "with inclusive range")]
+    //#[test_case("..10" => "foo::_10"; "with range to")]
+    //#[test_case("10.." => "foo::10_"; "with range from")]
     fn generate_test_name(args: &str) -> String {
         let input_args: Input = syn::parse_str(args).expect("failed to parse input args");
         let test_case = TestCase::from_func_name(&input_args, "foo");
