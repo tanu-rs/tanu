@@ -1,6 +1,6 @@
 <h1 align="center">tanu</h1>
 <p align="center">High-performance, async-friendly and ergonomic WebAPI testing framework for Rust</p>
-<p align="center"><img src="tanu.jpg" width=180></p>
+<p align="center"><img src="tanu.png" width=240></p>
 
 ## Motivation
 
@@ -19,4 +19,6 @@ I tried multiple solutions in the past but encountered significant limitations:
 
 ## Screenshots
 
-![](tui.png)
+![](cli.gif)
+<br />
+![](tui.gif )
