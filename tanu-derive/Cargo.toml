@@ -1,6 +1,6 @@
 [package]
 name = "tanu-derive"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Offering #[tanu::test] and #[tanu::main] macros"
 readme = "README.md"
