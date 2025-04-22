@@ -288,65 +288,61 @@ impl Runner {
                 })
                 .map(|(project, info, factory)| {
                     tokio::spawn(async move {
-                        config::PROJECT
-                            .scope(project.clone(), async {
-                                http::CHANNEL
-                                    .scope(
-                                        Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
-                                        async {
-                                            let test_name = &info.name;
-                                            let mut http_rx = http::subscribe()?;
+                        config::PROJECT.scope(project.clone(), async {
+                            http::CHANNEL.scope(
+                                Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
+                                async {
+                                    let test_name = &info.name;
+                                    let mut http_rx = http::subscribe()?;
 
-                                            let f= || async {factory().await};
-                                            let fut = f.retry(project.retry.backoff());
-                                            let fut =
-                                                std::panic::AssertUnwindSafe(fut).catch_unwind();
-                                            let res = fut.await;
+                                    let f= || async {factory().await};
+                                    let fut = f.retry(project.retry.backoff());
+                                    let fut =
+                                        std::panic::AssertUnwindSafe(fut).catch_unwind();
+                                    let res = fut.await;
 
-                                            publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
+                                    publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
-                                            let result = match res {
-                                                Ok(Ok(_)) => {
-                                                    debug!("{test_name} ok");
-                                                    Ok(())
-                                                }
-                                                Ok(Err(e)) => {
-                                                    debug!("{test_name} failed: {e:#}");
-                                                    Err(Error::ErrorReturned(format!("{e:?}")))
-                                                }
-                                                Err(e) => {
-                                                    let panic_message =
-                                                        if let Some(panic_message) = e.downcast_ref::<&str>() {
-                                                            format!(
-                                                            "{test_name} failed with message: {panic_message}"
-                                                        )
-                                                        } else if let Some(panic_message) =
-                                                            e.downcast_ref::<String>()
-                                                        {
-                                                            format!(
-                                                            "{test_name} failed with message: {panic_message}"
-                                                        )
-                                                        } else {
-                                                            format!("{test_name} failed with unknown message")
-                                                        };
-                                                    let e = eyre::eyre!(panic_message);
-                                                    Err(Error::Panicked(format!("{e:?}")))
-                                                }
-                                            };
+                                    let result = match res {
+                                        Ok(Ok(_)) => {
+                                            debug!("{test_name} ok");
+                                            Ok(())
+                                        }
+                                        Ok(Err(e)) => {
+                                            debug!("{test_name} failed: {e:#}");
+                                            Err(Error::ErrorReturned(format!("{e:?}")))
+                                        }
+                                        Err(e) => {
+                                            let panic_message =
+                                                if let Some(panic_message) = e.downcast_ref::<&str>() {
+                                                    format!(
+                                                    "{test_name} failed with message: {panic_message}"
+                                                )
+                                                } else if let Some(panic_message) =
+                                                    e.downcast_ref::<String>()
+                                                {
+                                                    format!(
+                                                    "{test_name} failed with message: {panic_message}"
+                                                )
+                                                } else {
+                                                    format!("{test_name} failed with unknown message")
+                                                };
+                                            let e = eyre::eyre!(panic_message);
+                                            Err(Error::Panicked(format!("{e:?}")))
+                                        }
+                                    };
 
-                                            while let Ok(log) = http_rx.try_recv() {
-                                                publish(Message::HttpLog(project.name.clone(), info.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
-                                            }
+                                    while let Ok(log) = http_rx.try_recv() {
+                                        publish(Message::HttpLog(project.name.clone(), info.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
+                                    }
 
-                                            let project = get_config();
-                                            let is_err = result.is_err();
-                                            publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, result })).wrap_err("failed to send Message::End to the channel")?;
+                                    let project = get_config();
+                                    let is_err = result.is_err();
+                                    publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, result })).wrap_err("failed to send Message::End to the channel")?;
 
-                                            eyre::ensure!(!is_err);
-                                            eyre::Ok(())
-                                        },
-                                    )
-                                    .await
+                                    eyre::ensure!(!is_err);
+                                    eyre::Ok(())
+                                }).await
                             })
                             .await
                     })
@@ -360,6 +356,9 @@ impl Runner {
         let options = self.options.clone();
         let runner = async move {
             let results = handles.collect::<Vec<_>>().await;
+            if results.is_empty() {
+                console::Term::stdout().write_line("no test cases found")?;
+            }
             for result in results {
                 match result {
                     Ok(res) => {
