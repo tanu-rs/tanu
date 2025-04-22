@@ -366,10 +366,17 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let layout_menu_items = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(9),
-            Constraint::Length(13),
-            Constraint::Length(12),
-            Constraint::Length(12),
+            Constraint::Length(9),  // q
+            Constraint::Length(13), // z
+            Constraint::Length(12), // 1
+            Constraint::Length(8),  // 2
+            Constraint::Length(16), // tab
+            Constraint::Length(15), // ←|→
+            Constraint::Length(14), // ↑|↓
+            Constraint::Length(26), // CTRL+U|CTRL+D
+            Constraint::Length(10), // g
+            Constraint::Length(9),  // G
+            Constraint::Length(15), // Enter
         ])
         .split(layout_menu);
 
@@ -409,21 +416,40 @@ fn view(model: &mut Model, frame: &mut Frame) {
     }
 
     let menu_items = [
-        ("q", "Quit"),
-        ("z", "Maximize"),
-        ("1", "Run ALL"),
-        ("2", "Run"),
+        ("[q]", "Quit"),
+        ("[z]", "Maximize"),
+        ("[1]", "Run ALL"),
+        ("[2]", "Run"),
+        ("[Tab]", "Next Pane"),
+        ("[←|→]", "Next Tab"),
+        ("[↑|↓]", "Up/Down"),
+        if matches!(model.current_pane, Pane::List | Pane::Info) {
+            ("[CTRL+U|D]", "Scroll Up/Down")
+        } else {
+            ("", "")
+        },
+        if matches!(model.current_pane, Pane::List | Pane::Info) {
+            ("[g]", "First")
+        } else {
+            ("", "")
+        },
+        if matches!(model.current_pane, Pane::List | Pane::Info) {
+            ("[G]", "Last")
+        } else {
+            ("", "")
+        },
+        if matches!(model.current_pane, Pane::List) {
+            ("[Enter]", "Expand")
+        } else {
+            ("", "")
+        },
     ];
 
     for (n, &(key, label)) in menu_items.iter().enumerate() {
         let menu_item = Paragraph::new(vec![Line::from(vec![
-            Span::styled(
-                format!("{WHITESPACE}{key}{WHITESPACE}"),
-                Style::default().bg(tailwind::TEAL.c900),
-            ),
+            Span::styled(key, Style::default().bold()),
             Span::styled(format!("{WHITESPACE}{label}"), Style::default()),
         ])])
-        .style(Style::default().add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::NONE));
         frame.render_widget(menu_item, layout_menu_items[n]);
     }
