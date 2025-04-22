@@ -203,15 +203,20 @@ impl ProjectConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetryConfig {
     /// Number of retries.
+    #[serde(default)]
     pub count: Option<usize>,
     /// Factor to multiply the delay between retries.
+    #[serde(default)]
     pub factor: Option<f32>,
     /// Whether to add jitter to the delay between retries.
+    #[serde(default)]
     pub jitter: Option<bool>,
     /// Minimum delay between retries.
+    #[serde(default)]
     #[serde(with = "humantime_serde")]
     pub min_delay: Option<Duration>,
     /// Maximum delay between retries.
+    #[serde(default)]
     #[serde(with = "humantime_serde")]
     pub max_delay: Option<Duration>,
 }
