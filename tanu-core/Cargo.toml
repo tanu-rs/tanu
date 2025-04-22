@@ -30,7 +30,7 @@ serde_json = "1"
 strum = { workspace = true }
 tabled = "0.18"
 tanu-derive = { version = "=0.4.0", path = "../tanu-derive" }
-thiserror = "1"
+thiserror = "2"
 tokio = { workspace = true }
 toml = "0.8"
 tracing = { workspace = true }
