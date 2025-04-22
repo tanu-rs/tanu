@@ -120,6 +120,42 @@ impl Client {
             client: self.inner.clone(),
         }
     }
+
+    pub fn put(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
+        let url = url.into_url().unwrap();
+        debug!("Requesting {url}");
+        RequestBuilder {
+            inner: Some(self.inner.put(url)),
+            client: self.inner.clone(),
+        }
+    }
+
+    pub fn patch(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
+        let url = url.into_url().unwrap();
+        debug!("Requesting {url}");
+        RequestBuilder {
+            inner: Some(self.inner.patch(url)),
+            client: self.inner.clone(),
+        }
+    }
+
+    pub fn delete(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
+        let url = url.into_url().unwrap();
+        debug!("Requesting {url}");
+        RequestBuilder {
+            inner: Some(self.inner.delete(url)),
+            client: self.inner.clone(),
+        }
+    }
+
+    pub fn head(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
+        let url = url.into_url().unwrap();
+        debug!("Requesting {url}");
+        RequestBuilder {
+            inner: Some(self.inner.head(url)),
+            client: self.inner.clone(),
+        }
+    }
 }
 
 pub struct RequestBuilder {
