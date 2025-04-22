@@ -602,7 +602,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Block::new()
                 .title("Summary".bold())
                 .borders(Borders::ALL)
-                .padding(Padding::top(1)),
+                .padding(Padding::uniform(1)),
         )
         .direction(Direction::Horizontal)
         .bar_width(1)
