@@ -19,7 +19,7 @@ use ratatui::{
     text::Line,
     widgets::{
         block::{BorderType, Padding},
-        Bar, BarChart, BarGroup, Block, Borders, Paragraph, Tabs,
+        Bar, BarChart, BarGroup, Block, Borders, LineGauge, Paragraph, Tabs,
     },
     Frame,
 };
@@ -29,7 +29,7 @@ use std::{
 };
 use tanu_core::{get_tanu_config, Runner, TestInfo};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 use tracing_subscriber::layer::SubscriberExt;
 use tui_big_text::{BigText, PixelSize};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, TuiWidgetState};
@@ -336,8 +336,12 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
 fn view(model: &mut Model, frame: &mut Frame) {
     trace!("rendering view");
 
-    let [layout_main, layout_menu] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+    let [layout_main, layout_menu, layout_gauge] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
     let [layout_left, layout_right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(layout_main);
@@ -414,6 +418,22 @@ fn view(model: &mut Model, frame: &mut Frame) {
             model.info_state.focused = false;
         }
     }
+
+    let ratio = model.test_results.len() as f64 / model.test_cases_list.len() as f64;
+    let gauge = LineGauge::default()
+        .block(
+            Block::default()
+                .borders(Borders::NONE)
+                .padding(Padding::new(1, 1, 0, 0)),
+        )
+        .filled_style(Style::new().red())
+        .unfilled_style(Style::new().black())
+        .ratio(ratio)
+        .label(if ratio == 0.0 {
+            "".to_string() // Hide label when no tests are running
+        } else {
+            format!("{}%", (ratio * 100.0).round() as u32)
+        });
 
     let menu_items = [
         ("[q]", "Quit"),
@@ -628,7 +648,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Block::new()
                 .title("Summary".bold())
                 .borders(Borders::ALL)
-                .padding(Padding::uniform(1)),
+                .padding(Padding::new(0, 1, 1, 1)),
         )
         .direction(Direction::Horizontal)
         .bar_width(1)
@@ -648,6 +668,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
     } else {
+        frame.render_widget(gauge, layout_gauge);
         frame.render_widget(logo, layout_logo);
         frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
         frame.render_widget(logger, layout_logger);
@@ -692,7 +713,12 @@ impl Runtime {
                 while let Some(cmd) = runner_rx.recv().await {
                     match cmd {
                         Command::ExecuteOne(selector) => {
-                            debug!("running selected test cases: selector = {selector:?}");
+                            info!(
+                                "running the selected test case: project={} module={} test={}",
+                                selector.project,
+                                selector.module.as_deref().unwrap_or_default(),
+                                selector.test.as_deref().unwrap_or_default()
+                            );
                             if let Err(e) = runner
                                 .run(
                                     &[selector.project],
@@ -705,7 +731,7 @@ impl Runtime {
                             }
                         }
                         Command::ExecuteAll => {
-                            debug!("running all test cases");
+                            info!("running all test cases");
                             if let Err(e) = runner.run(&[], &[], &[]).await {
                                 error!("{e:#}");
                             }

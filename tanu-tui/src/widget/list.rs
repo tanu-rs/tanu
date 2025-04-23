@@ -459,6 +459,18 @@ impl TestListState {
 
         None
     }
+
+    pub fn len(&self) -> usize {
+        self.projects
+            .iter()
+            .map(|proj| {
+                proj.modules
+                    .iter()
+                    .map(|module| module.tests.len())
+                    .sum::<usize>()
+            })
+            .sum()
+    }
 }
 
 #[cfg(test)]
