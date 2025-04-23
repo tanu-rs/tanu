@@ -125,6 +125,8 @@ struct Model {
     logger_state: TuiWidgetState,
     /// Stores the last mouse click event, if any. When `click` is not `None`, it indicates that the user has clicked on a specific area of the UI.
     click: Option<crossterm::event::MouseEvent>,
+    /// Measures the frames per second (FPS).
+    fps_counter: FpsCounter,
 }
 
 impl Model {
@@ -139,6 +141,7 @@ impl Model {
             info_state: InfoState::new(),
             logger_state: TuiWidgetState::new(),
             click: None,
+            fps_counter: FpsCounter::new(),
         }
     }
 
@@ -367,6 +370,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
         Constraint::Percentage(50),
     ])
     .areas(layout_left);
+    let [layout_logo, layout_fps] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(9)]).areas(layout_logo);
     let layout_menu_items = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -419,7 +424,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     }
 
-    let ratio = model.test_results.len() as f64 / model.test_cases_list.len() as f64;
+    let fps = Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps))
+        .style(Style::default().fg(tailwind::SLATE.c500))
+        .alignment(Alignment::Right);
+
+    let ratio =
+        (model.test_results.len() as f64 / model.test_cases_list.len() as f64).clamp(0.0, 1.0);
     let gauge = LineGauge::default()
         .block(
             Block::default()
@@ -668,6 +678,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
     } else {
+        frame.render_widget(fps, layout_fps);
         frame.render_widget(gauge, layout_gauge);
         frame.render_widget(logo, layout_logo);
         frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
@@ -748,6 +759,7 @@ impl Runtime {
         while !self.should_exit {
             tokio::select! {
                 _ = draw_interval.tick() => {
+                    model.fps_counter.update();
                     terminal.draw(|frame| view(&mut model, frame))?;
                 },
                 _ = cmds_interval.tick() => {
@@ -969,4 +981,32 @@ pub async fn run(
     ratatui::restore();
     println!("tanu-tui terminated with {result:?}");
     result
+}
+
+struct FpsCounter {
+    frame_count: usize,
+    last_second: std::time::Instant,
+    fps: f64,
+}
+
+impl FpsCounter {
+    fn new() -> Self {
+        Self {
+            frame_count: 0,
+            last_second: std::time::Instant::now(),
+            fps: 0.0,
+        }
+    }
+
+    fn update(&mut self) {
+        self.frame_count += 1;
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(self.last_second).as_secs_f64();
+
+        if elapsed >= 1.0 {
+            self.fps = self.frame_count as f64 / elapsed;
+            self.frame_count = 0;
+            self.last_second = now;
+        }
+    }
 }
