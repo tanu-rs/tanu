@@ -4,8 +4,10 @@
 #![allow(clippy::eq_op)]
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::identity_op)]
-use reqwest::StatusCode;
-use tanu::{assert_eq, eyre, http::Client};
+use tanu::{
+    assert_eq, eyre,
+    http::{Client, StatusCode},
+};
 
 #[tanu::test]
 async fn without_parameters() -> eyre::Result<()> {

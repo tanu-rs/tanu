@@ -29,3 +29,4 @@ tracing = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 test-case = "3"
+url = "2"

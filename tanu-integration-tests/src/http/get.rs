@@ -1,7 +1,9 @@
-use reqwest::StatusCode;
 use serde::Deserialize;
 use std::collections::HashMap;
-use tanu::{assert, assert_eq, eyre, http::Client};
+use tanu::{
+    assert, assert_eq, eyre,
+    http::{Client, StatusCode},
+};
 
 #[derive(Debug, Deserialize)]
 struct Payload {

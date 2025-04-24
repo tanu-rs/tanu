@@ -1,7 +1,7 @@
 /// tanu's HTTP client is a wrapper for `reqwest::Client` and offers * exactly same interface as `reqwest::Client`
 /// * to capture reqnest and response logs
 use eyre::{OptionExt, WrapErr};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+pub use http::{header, Method, StatusCode, Version};
 use std::{
     ops::Deref,
     sync::{Arc, Mutex},
@@ -39,16 +39,16 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct LogRequest {
-    pub url: reqwest::Url,
-    pub method: reqwest::Method,
-    pub headers: reqwest::header::HeaderMap,
+    pub url: url::Url,
+    pub method: Method,
+    pub headers: header::HeaderMap,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct LogResponse {
-    pub headers: reqwest::header::HeaderMap,
+    pub headers: header::HeaderMap,
     pub body: String,
-    pub status: reqwest::StatusCode,
+    pub status: StatusCode,
     pub duration_req: Duration,
 }
 
@@ -60,17 +60,17 @@ pub struct Log {
 
 #[derive(Debug, Clone)]
 pub struct Response {
-    pub headers: reqwest::header::HeaderMap,
-    pub status: reqwest::StatusCode,
+    pub headers: header::HeaderMap,
+    pub status: StatusCode,
     pub text: String,
 }
 
 impl Response {
-    pub fn status(&self) -> reqwest::StatusCode {
+    pub fn status(&self) -> StatusCode {
         self.status
     }
 
-    pub fn headers(&self) -> &reqwest::header::HeaderMap {
+    pub fn headers(&self) -> &header::HeaderMap {
         &self.headers
     }
 
@@ -166,17 +166,17 @@ pub struct RequestBuilder {
 impl RequestBuilder {
     pub fn header<K, V>(mut self, key: K, value: V) -> RequestBuilder
     where
-        HeaderName: TryFrom<K>,
-        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-        HeaderValue: TryFrom<V>,
-        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+        header::HeaderName: TryFrom<K>,
+        <header::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        header::HeaderValue: TryFrom<V>,
+        <header::HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
         let inner = self.inner.take().expect("inner missing");
         self.inner = Some(inner.header(key, value));
         self
     }
 
-    pub fn headers(mut self, headers: HeaderMap) -> RequestBuilder {
+    pub fn headers(mut self, headers: header::HeaderMap) -> RequestBuilder {
         let inner = self.inner.take().expect("inner missing");
         self.inner = Some(inner.headers(headers));
         self
@@ -294,7 +294,7 @@ impl RequestBuilder {
         })
     }
 
-    pub fn version(mut self, version: reqwest::Version) -> RequestBuilder {
+    pub fn version(mut self, version: Version) -> RequestBuilder {
         let inner = self.inner.take().expect("inner missing");
         self.inner = Some(inner.version(version));
         self

@@ -1,9 +1,9 @@
+use http::StatusCode;
 use itertools::Itertools;
 use ratatui::{
     prelude::*,
     widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
 };
-use reqwest::StatusCode;
 use std::collections::HashMap;
 use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
 
@@ -595,8 +595,8 @@ mod test {
                 Box::new(tanu_core::http::Log {
                     request: tanu_core::http::LogRequest {
                         url: "https://example.com/1".parse()?,
-                        method: reqwest::Method::GET,
-                        headers: reqwest::header::HeaderMap::new(),
+                        method: http::Method::GET,
+                        headers: http::header::HeaderMap::new(),
                     },
                     response: tanu_core::http::LogResponse {
                         status: StatusCode::OK,
@@ -606,8 +606,8 @@ mod test {
                 Box::new(tanu_core::http::Log {
                     request: tanu_core::http::LogRequest {
                         url: "https://example.com/2".parse()?,
-                        method: reqwest::Method::GET,
-                        headers: reqwest::header::HeaderMap::new(),
+                        method: http::Method::GET,
+                        headers: http::header::HeaderMap::new(),
                     },
                     response: tanu_core::http::LogResponse {
                         status: StatusCode::OK,
