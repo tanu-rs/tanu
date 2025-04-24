@@ -22,7 +22,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"
-reqwest = "0.12"
+reqwest = { version = "0.12", optional = true }
 serde = { workspace = true }
 tanu-core = { version = "=0.4.2", path = "../tanu-core" }
 tanu-derive = { version = "=0.4.2", path = "../tanu-derive" }

@@ -4,7 +4,6 @@ version = "0.4.2"
 edition = "2021"
 
 [dependencies]
-reqwest = { workspace = true }
 serde = { workspace = true }
 tanu = { path = "../tanu" }
 tokio = { workspace = true }
