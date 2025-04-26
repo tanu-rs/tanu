@@ -299,21 +299,13 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let func_name_inner = &input_fn.sig.ident;
     let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string());
 
-    let duplicated = match TEST_CASES.lock() {
-        Ok(mut lock) => !lock.insert(test_case.clone()),
+    match TEST_CASES.lock() {
+        Ok(mut lock) => lock.insert(test_case.clone()),
         Err(e) => {
             eprintln!("Failed to acquire test case lock: {}", e);
             return quote! { #input_fn }.into();
         }
     };
-
-    if duplicated {
-        eprintln!(
-            r#"tanu does not yet support registering test with the exactly same signature.
- please check the name of this function "{func_name_inner}" and try again."#
-        );
-        return quote! { #input_fn }.into();
-    }
 
     let func_name = Ident::new(&test_case.func_name, Span::call_site());
     let args = input_args.args.to_token_stream();
@@ -469,7 +461,10 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     let main_fn = parse_macro_input!(input as ItemFn);
 
     let test_modules = discover_tests().expect("failed to discover test cases");
-    let test_modules: HashMap<String, String> = test_modules
+    // Create a HashMap mapping test function names to their module paths.
+    // Using Vec<String> as the value allows multiple test functions with the same name
+    // to exist across different modules.
+    let test_modules: HashMap<String, Vec<String>> = test_modules
         .iter()
         .flat_map(|module| {
             let module_name = module.module.clone();
@@ -484,33 +479,34 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
                 )
             })
         })
-        .collect();
+        .fold(HashMap::new(), |mut acc, (func_name, module_name)| {
+            acc.entry(func_name).or_default().push(module_name);
+            acc
+        });
 
     let (test_mods, test_names, func_names): (Vec<_>, Vec<_>, Vec<_>) = match TEST_CASES.lock() {
         Ok(lock) => lock
             .iter()
-            .filter_map(|f| {
-                let test_module = match test_modules.get(&f.func_name) {
-                    Some(module) => module,
-                    None => {
-                        eprintln!("module not found for function: {}", f.func_name);
-                        return None;
-                    }
-                };
+            .flat_map(|f| {
+                test_modules
+                    .get(&f.func_name)
+                    .into_iter() // This safely handles None by returning an empty iterator
+                    .flatten() // Flatten the Vec<String> to String
+                    .filter_map(|module_name| {
+                        let test_module_path = match syn::parse_str::<syn::Path>(module_name) {
+                            Ok(path) => path,
+                            Err(e) => {
+                                eprintln!("failed to parse module path '{module_name}': {e}");
+                                return None;
+                            }
+                        };
 
-                let test_module_path = match syn::parse_str::<syn::Path>(test_module) {
-                    Ok(path) => path,
-                    Err(e) => {
-                        eprintln!("failed to parse module path '{test_module}': {e}");
-                        return None;
-                    }
-                };
-
-                Some((
-                    test_module_path,
-                    f.test_name.clone(),
-                    Ident::new(&f.func_name, Span::call_site()),
-                ))
+                        Some((
+                            test_module_path,
+                            f.test_name.clone(),
+                            Ident::new(&f.func_name, Span::call_site()),
+                        ))
+                    })
             })
             .multiunzip(),
         Err(e) => {
