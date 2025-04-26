@@ -221,3 +221,8 @@ async fn with_none(_: Option<u8>) -> eyre::Result<()> {
 async fn with_function_call_chain(_: usize) -> eyre::Result<()> {
     Ok(())
 }
+
+#[tanu::test]
+async fn same_test_name_in_different_modules() -> eyre::Result<()> {
+    Ok(())
+}

@@ -1,5 +1,6 @@
 mod http;
 mod macros;
+mod misc;
 
 use tanu::eyre;
 
