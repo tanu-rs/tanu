@@ -255,6 +255,7 @@ impl Runner {
         let test_name_filter = TestNameFilter { test_names };
         let test_ignore_filter = TestIgnoreFilter::default();
 
+        let start = std::time::Instant::now();
         let handles: FuturesUnordered<_> = self
                 .test_cases
                 .iter()
@@ -348,6 +349,11 @@ impl Runner {
                     })
                 })
                 .collect();
+        debug!(
+            "created handles for {} test cases; took {}s",
+            handles.len(),
+            start.elapsed().as_secs_f32()
+        );
 
         let reporters =
             futures::future::join_all(reporters.iter_mut().map(|reporter| reporter.run().boxed()));

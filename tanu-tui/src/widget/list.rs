@@ -6,6 +6,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
+use throbber_widgets_tui::ThrobberState;
 
 use crate::{TestResult, SELECTED_STYLE};
 
@@ -18,31 +19,20 @@ pub struct TestListWidget<'a> {
 }
 
 impl<'a> TestListWidget<'a> {
-    pub fn new(
-        is_focused: bool,
-        projects: &[Project],
-        test_results: &[TestResult],
-    ) -> TestListWidget<'a> {
-        let grouped_by_project = test_results
-            .iter()
-            .into_group_map_by(|result| result.project_name.clone());
-        let list_widget = List::new(
-            projects
-                .iter()
-                .flat_map(|p| p.to_lines_recursively(&grouped_by_project)),
-        )
-        .block(
-            Block::bordered()
-                .title("Tests".bold())
-                .border_type(if is_focused {
-                    BorderType::Thick
-                } else {
-                    BorderType::Plain
-                }),
-        )
-        .highlight_style(SELECTED_STYLE)
-        .highlight_symbol(">")
-        .highlight_spacing(HighlightSpacing::Always);
+    pub fn new(focused: bool, projects: &[ProjectState]) -> TestListWidget<'a> {
+        let list_widget = List::new(projects.iter().flat_map(|p| p.to_lines_recursively()))
+            .block(
+                Block::bordered()
+                    .title("Tests".bold())
+                    .border_type(if focused {
+                        BorderType::Thick
+                    } else {
+                        BorderType::Plain
+                    }),
+            )
+            .highlight_style(SELECTED_STYLE)
+            .highlight_symbol(">")
+            .highlight_spacing(HighlightSpacing::Always);
 
         TestListWidget { list_widget }
     }
@@ -56,34 +46,27 @@ impl StatefulWidget for TestListWidget<'_> {
     }
 }
 
-#[derive(Debug)]
-pub struct Project {
-    /// Project name
-    pub name: String,
-    /// true: the list item is expanded, false: not expanded
-    pub expanded: bool,
-    /// List of modules under this project
-    pub modules: Vec<Module>,
-}
-
 /// Helper function to create a symbol for test result.
-fn symbol_test_result(maybe_ok: Option<bool>) -> Span<'static> {
-    let (symbol, color) = match maybe_ok {
-        Some(ok) => {
-            if ok {
-                ("✓", Some(Color::Green))
+fn symbol_test_result(execution_state: &ExecutionState) -> Span<'static> {
+    match execution_state {
+        ExecutionState::Initialized => Span::styled("○ ", Style::default().bold()),
+        ExecutionState::Executing(throbber_state) => {
+            let throbber = throbber_widgets_tui::Throbber::default();
+            throbber.to_symbol_span(throbber_state)
+        }
+        ExecutionState::Executed(test_result) => {
+            let test_result = test_result
+                .test
+                .as_ref()
+                .map(|test| test.result.is_ok())
+                .unwrap_or_default();
+            if test_result {
+                Span::styled("✓ ", Style::default().fg(Color::Green).bold())
             } else {
-                ("✘", Some(Color::Red))
+                Span::styled("✘ ", Style::default().fg(Color::Red).bold())
             }
         }
-        None => ("○", None),
-    };
-    let style = if let Some(color) = color {
-        Style::default().fg(color).bold()
-    } else {
-        Style::default().bold()
-    };
-    Span::styled(symbol, style)
+    }
 }
 
 fn symbol_http_result(status: StatusCode) -> Span<'static> {
@@ -99,50 +82,274 @@ fn symbol_http_result(status: StatusCode) -> Span<'static> {
     )
 }
 
-impl Project {
-    fn to_line_summary(&self, ok: Option<bool>) -> Line<'static> {
+/// The main state controller for test cases.
+pub struct ExecutionStateController;
+
+impl ExecutionStateController {
+    /// Executes all test cases in the list.
+    pub fn execute_all(test_cases_list: &mut TestListState) {
+        test_cases_list
+            .projects
+            .iter_mut()
+            .for_each(|project_state| {
+                Self::execute_project(project_state);
+            });
+    }
+
+    /// Executes the specified test cases in the list.
+    pub fn execute_specified(test_cases_list: &mut TestListState, selector: &TestCaseSelector) {
+        for project_state in test_cases_list
+            .projects
+            .iter_mut()
+            .filter(|p| p.name == selector.project)
+        {
+            // Project is selected in the list.
+            if selector.module.is_none() && selector.test.is_none() {
+                Self::execute_project(project_state)
+            }
+
+            if let Some(module) = &selector.module {
+                for module_state in project_state
+                    .modules
+                    .iter_mut()
+                    .filter(|m| &m.name == module)
+                {
+                    // Module is selected in the list.
+                    if selector.test.is_none() {
+                        Self::execute_module(module_state);
+                    }
+
+                    if let Some(ref test) = selector.test {
+                        for test_state in module_state
+                            .tests
+                            .iter_mut()
+                            .filter(|t| &t.info.name == test)
+                        {
+                            // Test is selected in the list.
+                            Self::execute_test(test_state);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Execute the specified project and its modules and tests.
+    fn execute_project(project_state: &mut ProjectState) {
+        project_state.execution_state.execute();
+
+        // Propagate the execution state to all modules.
+        project_state
+            .modules
+            .iter_mut()
+            .for_each(Self::execute_module);
+    }
+
+    /// Execute the specified module and its tests.
+    fn execute_module(module_state: &mut ModuleState) {
+        module_state.execution_state.execute();
+
+        // Propagate the execution state to all tests.
+        module_state.tests.iter_mut().for_each(Self::execute_test);
+    }
+
+    /// Execute the specified test case.
+    fn execute_test(test_state: &mut TestState) {
+        test_state.execution_state.execute();
+    }
+
+    /// Handler for when a test case is updated.
+    pub fn on_test_updated(
+        test_cases_list: &mut TestListState,
+        project_name: &str,
+        module_name: &str,
+        name: &str,
+        test_result: TestResult,
+    ) {
+        test_cases_list
+            .projects
+            .iter_mut()
+            .filter(|p| p.name == project_name)
+            .for_each(|project_state| {
+                let mut project_updated = false;
+                project_state
+                    .modules
+                    .iter_mut()
+                    .filter(|m| m.name == module_name)
+                    .for_each(|module_state| {
+                        let mut module_updated = false;
+                        module_state
+                            .tests
+                            .iter_mut()
+                            .filter(|t| t.info.name == name)
+                            .for_each(|test_state| {
+                                test_state.execution_state.executed(test_result.clone());
+                                module_updated = true;
+                                project_updated = true;
+                            });
+                        if module_updated {
+                            Self::on_module_updated(module_state);
+                        }
+                    });
+                if project_updated {
+                    Self::on_project_updated(project_state);
+                }
+            });
+    }
+
+    /// Handler for when a module is updated.
+    pub fn on_module_updated(module_state: &mut ModuleState) {
+        // Determine the module's execution state based on the execution state of its modules.
+        let mut still_executing = false;
+        let ok = module_state.tests.iter().all(|test| {
+            let ExecutionState::Executed(ref test_result) = test.execution_state else {
+                still_executing = true;
+                return false;
+            };
+            test_result
+                .test
+                .as_ref()
+                .map(|test| test.result.is_ok())
+                .unwrap_or_default()
+        });
+
+        if !still_executing {
+            module_state.execution_state.executed(TestResult {
+                project_name: module_state.project_name.clone(),
+                module_name: module_state.name.clone(),
+                test: Some(tanu_core::runner::Test {
+                    info: TestInfo {
+                        module: "".into(),
+                        name: "".into(),
+                    },
+                    result: if ok {
+                        Ok(())
+                    } else {
+                        Err(tanu_core::runner::Error::ErrorReturned(
+                            "Execution failed".into(),
+                        ))
+                    },
+                }),
+                ..Default::default()
+            });
+        }
+    }
+
+    /// Handler for when a project is updated.
+    pub fn on_project_updated(project_state: &mut ProjectState) {
+        // Determine project execution state based on module execution states.
+        let mut still_executing = false;
+        let ok = project_state.modules.iter().all(|module| {
+            let ExecutionState::Executed(ref test_result) = module.execution_state else {
+                still_executing = true;
+                return false;
+            };
+            test_result
+                .test
+                .as_ref()
+                .map(|test| test.result.is_ok())
+                .unwrap_or_default()
+        });
+
+        if !still_executing {
+            project_state.execution_state.executed(TestResult {
+                project_name: project_state.name.clone(),
+                test: Some(tanu_core::runner::Test {
+                    info: TestInfo {
+                        module: "".into(),
+                        name: "".into(),
+                    },
+                    result: if ok {
+                        Ok(())
+                    } else {
+                        Err(tanu_core::runner::Error::ErrorReturned(
+                            "Execution failed".into(),
+                        ))
+                    },
+                }),
+                ..Default::default()
+            });
+        }
+    }
+
+    pub fn update_throbber(test_cases_list: &mut TestListState) {
+        test_cases_list
+            .projects
+            .iter_mut()
+            .for_each(|project_state| {
+                project_state.execution_state.update_throbber();
+                project_state.modules.iter_mut().for_each(|module_state| {
+                    module_state.execution_state.update_throbber();
+                    module_state.tests.iter_mut().for_each(|test_state| {
+                        test_state.execution_state.update_throbber();
+                    });
+                })
+            });
+    }
+}
+
+/// Represents the execution state of a test case, module, or project.
+#[derive(Debug, Clone, Default)]
+pub enum ExecutionState {
+    /// The test case, module, or project is initialized.
+    #[default]
+    Initialized,
+    /// The test case, module, or project is executing.
+    Executing(ThrobberState),
+    /// The test case, module, or project has been executed.
+    Executed(TestResult),
+}
+
+impl ExecutionState {
+    /// Transition to the executing state.
+    fn execute(&mut self) {
+        let _ = std::mem::replace(self, ExecutionState::Executing(ThrobberState::default()));
+    }
+
+    /// Transition to the executed state with the given test result.
+    fn executed(&mut self, test_result: TestResult) {
+        let _ = std::mem::replace(self, ExecutionState::Executed(test_result));
+    }
+
+    fn update_throbber(&mut self) {
+        match self {
+            ExecutionState::Executing(throbber_state) => {
+                throbber_state.calc_next();
+            }
+            ExecutionState::Initialized => {}
+            ExecutionState::Executed(_) => {}
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ProjectState {
+    /// Project name
+    pub name: String,
+    /// true: the list item is expanded, false: not expanded
+    pub expanded: bool,
+    /// List of modules under this project
+    pub modules: Vec<ModuleState>,
+    /// The execution state of the project.
+    pub execution_state: ExecutionState,
+}
+
+impl ProjectState {
+    fn to_line_summary(&self) -> Line<'static> {
         let icon = if self.expanded { EXPANDED } else { UNEXPANDED };
         let icon = Span::raw(format!("{icon} "));
-        let symbol = symbol_test_result(ok);
-        let name = Span::raw(format!(" {}", self.name));
+        let symbol = symbol_test_result(&self.execution_state);
+        let name = Span::raw(self.name.clone());
         Line::from(vec![icon, symbol, name])
     }
 
-    fn to_lines_recursively(
-        &self,
-        grouped_by_project: &HashMap<String, Vec<&TestResult>>,
-    ) -> Vec<Line<'static>> {
-        let test_results = grouped_by_project.get(&self.name);
-
-        let test_length: usize = self.modules.iter().map(|module| module.tests.len()).sum();
-        let test_results_length = test_results
-            .map(|test_results| test_results.len())
-            .unwrap_or(0);
-
-        // If all of the tests are finished, check if all of the tests are successful to determine
-        // test result symbol,
-        let maybe_ok = if test_length == test_results_length {
-            Some(test_results.into_iter().flatten().all(|res| {
-                res.test
-                    .as_ref()
-                    .map(|test| test.result.is_ok())
-                    .unwrap_or(false)
-            }))
-        } else {
-            None
-        };
-
-        let mut lines = vec![self.to_line_summary(maybe_ok)];
+    fn to_lines_recursively(&self) -> Vec<Line<'static>> {
+        let mut lines = vec![self.to_line_summary()];
         if self.expanded {
-            let grouped_by_module = test_results
-                .into_iter()
-                .flatten()
-                .copied()
-                .into_group_map_by(|test| test.module_name.clone());
             lines.extend(
                 self.modules
                     .iter()
-                    .flat_map(|module| module.to_lines_recursively(&grouped_by_module)),
+                    .flat_map(|module| module.to_lines_recursively()),
             );
         }
         lines
@@ -150,7 +357,7 @@ impl Project {
 }
 
 #[derive(Debug)]
-pub struct Module {
+pub struct ModuleState {
     /// Project name
     pub project_name: String,
     /// Module name
@@ -158,75 +365,52 @@ pub struct Module {
     /// true: the list item is expanded, false: not expanded
     pub expanded: bool,
     /// List of test cases under this module
-    pub tests: Vec<Test>,
+    pub tests: Vec<TestState>,
+    /// The execution state of the module.
+    pub execution_state: ExecutionState,
 }
 
-impl Module {
-    fn to_line_summary(&self, maybe_ok: Option<bool>) -> Line<'static> {
+impl ModuleState {
+    fn to_line_summary(&self) -> Line<'static> {
         let icon = if self.expanded { EXPANDED } else { UNEXPANDED };
         let icon = Span::raw(format!("  {icon} "));
-        let symbol = symbol_test_result(maybe_ok);
-        let name = Span::raw(format!(" {}", self.name));
+        let symbol = symbol_test_result(&self.execution_state);
+        let name = Span::raw(self.name.clone());
         Line::from(vec![icon, symbol, name])
     }
 
-    fn to_lines_recursively(
-        &self,
-        grouped_by_module: &HashMap<String, Vec<&TestResult>>,
-    ) -> Vec<Line<'static>> {
-        let test_results = grouped_by_module.get(&self.name);
-
-        let test_length: usize = self.tests.len();
-        let test_results_length = test_results
-            .map(|test_results| test_results.len())
-            .unwrap_or(0);
-
-        // If all of the tests are finished, check if all of the tests are successful to determine
-        // test result symbol,
-        let maybe_ok = if test_length == test_results_length {
-            Some(test_results.into_iter().flatten().all(|res| {
-                res.test
-                    .as_ref()
-                    .map(|test| test.result.is_ok())
-                    .unwrap_or(false)
-            }))
-        } else {
-            None
-        };
-
-        let mut lines = vec![self.to_line_summary(maybe_ok)];
+    fn to_lines_recursively(&self) -> Vec<Line<'static>> {
+        let mut lines = vec![self.to_line_summary()];
         if self.expanded {
-            let mut test_results_map: HashMap<String, &TestResult> = test_results
-                .into_iter()
-                .flatten()
-                .map(|test| (test.unique_name(), *test))
-                .collect();
-            lines.extend(self.tests.iter().flat_map(|test| {
-                let test_result =
-                    test_results_map.remove(&test.info.unique_name(&self.project_name));
-                test.to_lines_recursively(test_result)
-            }));
+            lines.extend(
+                self.tests
+                    .iter()
+                    .flat_map(|test| test.to_lines_recursively()),
+            );
         }
         lines
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Test {
-    info: TestInfo,
+pub struct TestState {
+    pub info: TestInfo,
     /// true: the list item is expanded, false: not expanded
     pub expanded: bool,
+    /// The execution state of the test.
+    pub execution_state: ExecutionState,
 }
 
-impl Test {
-    fn to_lines_recursively(&self, test_result: Option<&TestResult>) -> Vec<Line<'static>> {
-        let more_than_one_http_call = test_result
-            .map(|test_result| test_result.logs.len() > 1)
-            .unwrap_or_default();
+impl TestState {
+    fn to_lines_recursively(&self) -> Vec<Line<'static>> {
+        let more_than_one_http_call =
+            if let ExecutionState::Executed(test_result) = &self.execution_state {
+                test_result.logs.len() > 1
+            } else {
+                false
+            };
 
         let mut lines = {
-            let ok = test_result
-                .and_then(|test_result| test_result.test.as_ref().map(|test| test.result.is_ok()));
             let icon = if !more_than_one_http_call {
                 " "
             } else if self.expanded {
@@ -235,20 +419,19 @@ impl Test {
                 UNEXPANDED
             };
             let icon = Span::raw(format!("    {icon} "));
-            let symbol = symbol_test_result(ok);
-            let name = Span::raw(format!(" {}", &self.info.name));
+            let symbol = symbol_test_result(&self.execution_state);
+            let name = Span::raw(self.info.name.clone());
             vec![Line::from(vec![icon, symbol, name])]
         };
 
         if self.expanded {
-            for http_call in test_result
-                .into_iter()
-                .flat_map(|test_result| test_result.logs.iter())
-            {
-                let indent = Span::raw("        ");
-                let symbol = symbol_http_result(http_call.response.status);
-                let name = Span::raw(format!(" {}", http_call.request.url));
-                lines.push(Line::from(vec![indent, symbol, name]));
+            if let ExecutionState::Executed(test_result) = &self.execution_state {
+                for http_call in &test_result.logs {
+                    let indent = Span::raw("        ");
+                    let symbol = symbol_http_result(http_call.response.status);
+                    let name = Span::raw(format!(" {}", http_call.request.url));
+                    lines.push(Line::from(vec![indent, symbol, name]));
+                }
             }
         }
 
@@ -277,7 +460,7 @@ pub struct TestCaseSelector {
 
 #[derive(Debug)]
 pub struct TestListState {
-    pub projects: Vec<Project>,
+    pub projects: Vec<ProjectState>,
     pub list_state: ListState,
 }
 
@@ -287,21 +470,22 @@ impl TestListState {
         let grouped_by_module = test_cases
             .iter()
             .cloned()
-            .map(|info| Test {
+            .map(|info| TestState {
                 info,
                 expanded: false,
+                execution_state: ExecutionState::default(),
             })
             .into_group_map_by(|test| test.info.module.clone());
 
         let projects: Vec<_> = projects
             .iter()
-            .map(|proj| Project {
+            .map(|proj| ProjectState {
                 name: proj.name.clone(),
                 expanded: true,
                 modules: grouped_by_module
                     .clone()
                     .into_iter()
-                    .map(|(module_name, tests)| Module {
+                    .map(|(module_name, tests)| ModuleState {
                         project_name: proj.name.clone(),
                         name: module_name,
                         expanded: true,
@@ -309,11 +493,13 @@ impl TestListState {
                             .into_iter()
                             .filter(|test| test_ignore_filter.filter(proj, &test.info))
                             .collect(),
+                        execution_state: ExecutionState::default(),
                     })
                     .filter(|module|
                         // Filter out module that has no test cases
                         !module.tests.is_empty())
                     .collect(),
+                execution_state: ExecutionState::default(),
             })
             .collect();
 
@@ -685,17 +871,42 @@ mod test {
 
     #[test]
     fn symbol_test_result() {
+        // Test for ExecutionState::Initialized
         assert_eq!(
-            super::symbol_test_result(Some(true)),
-            Span::styled("✓", Style::default().fg(Color::Green).bold())
+            super::symbol_test_result(&ExecutionState::Initialized),
+            Span::styled("○ ", Style::default().bold())
         );
+
+        // Test for ExecutionState::Executed with successful result
+        let successful_result = TestResult {
+            test: Some(tanu_core::runner::Test {
+                info: TestInfo {
+                    module: "".into(),
+                    name: "".into(),
+                },
+                result: Ok(()),
+            }),
+            ..Default::default()
+        };
         assert_eq!(
-            super::symbol_test_result(Some(false)),
-            Span::styled("✘", Style::default().fg(Color::Red).bold())
+            super::symbol_test_result(&ExecutionState::Executed(successful_result)),
+            Span::styled("✓ ", Style::default().fg(Color::Green).bold())
         );
+
+        // Test for ExecutionState::Executed with failed result
+        let failed_result = TestResult {
+            test: Some(tanu_core::runner::Test {
+                info: TestInfo {
+                    module: "".into(),
+                    name: "".into(),
+                },
+                result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),
+            }),
+            ..Default::default()
+        };
         assert_eq!(
-            super::symbol_test_result(None),
-            Span::styled("○", Style::default().bold())
+            super::symbol_test_result(&ExecutionState::Executed(failed_result)),
+            Span::styled("✘ ", Style::default().fg(Color::Red).bold())
         );
     }
 }

@@ -42,7 +42,7 @@ const SELECTED_STYLE: Style = Style::new()
 
 use crate::widget::{
     info::{InfoState, InfoWidget, Tab},
-    list::{TestCaseSelector, TestListState, TestListWidget},
+    list::{ExecutionStateController, TestCaseSelector, TestListState, TestListWidget},
 };
 
 /// Represents result of a test case.
@@ -314,15 +314,17 @@ async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>
         Message::LoggerSelectHide => model.logger_state.transition(TuiWidgetEvent::HideKey),
         Message::LoggerSelectFocus => model.logger_state.transition(TuiWidgetEvent::FocusKey),
         Message::ExecuteOne => {
-            model.test_results.clear();
             model.current_exec = Some(Execution::One);
-            if let Some(selector) = model.test_cases_list.select_test_case(&model.test_results) {
-                return Ok(Some(Command::ExecuteOne(selector)));
-            }
+            let Some(selector) = model.test_cases_list.select_test_case(&model.test_results) else {
+                return Ok(None);
+            };
+            ExecutionStateController::execute_specified(&mut model.test_cases_list, &selector);
+            return Ok(Some(Command::ExecuteOne(selector)));
         }
         Message::ExecuteAll => {
             model.test_results.clear();
             model.current_exec = Some(Execution::All);
+            ExecutionStateController::execute_all(&mut model.test_cases_list);
             return Ok(Some(Command::ExecuteAll));
         }
         Message::SelectPane(click) => {
@@ -518,7 +520,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let test_list = TestListWidget::new(
         matches!(model.current_pane, Pane::List),
         &model.test_cases_list.projects,
-        &model.test_results,
     );
 
     let logger = TuiLoggerSmartWidget::default()
@@ -712,6 +713,7 @@ impl Runtime {
         let mut draw_interval = tokio::time::interval(period);
         let mut cmds_interval = tokio::time::interval(period);
         let mut scrl_interval = tokio::time::interval(Duration::from_secs_f32(0.05));
+        let mut thrb_interval = tokio::time::interval(Duration::from_secs_f32(0.1));
         let mut event_stream = EventStream::new();
 
         let test_cases = runner.list().into_iter().cloned().collect();
@@ -771,6 +773,9 @@ impl Runtime {
                 }
                 _ = scrl_interval.tick() => {
                 }
+                _ = thrb_interval.tick() => {
+                    ExecutionStateController::update_throbber(&mut model.test_cases_list);
+                }
                 _ = &mut runner_task => {
                 }
                 Ok(msg) = runner_rx.recv() => {
@@ -790,9 +795,16 @@ impl Runtime {
                                 // TODO error
                             }
                         },
-                        tanu_core::runner::Message::End(project_name, _module_name, name, test) => {
-                            if let Some(mut test_result) = test_results_buffer.remove(&(project_name,name)) {
+                        tanu_core::runner::Message::End(project_name, module_name, name, test) => {
+                            if let Some(mut test_result) = test_results_buffer.remove(&(project_name.clone(), name.clone())) {
                                 test_result.test = Some(test);
+                                ExecutionStateController::on_test_updated(
+                                    &mut model.test_cases_list,
+                                    &project_name,
+                                    &module_name,
+                                    &name,
+                                    test_result.clone(),
+                                );
                                 model.test_results.push(test_result);
                             } else {
                                 // TODO error

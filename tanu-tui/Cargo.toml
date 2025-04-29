@@ -28,6 +28,7 @@ strum = { workspace = true }
 syntect = "5"
 tanu-core = { version = "=0.4.2", path = "../tanu-core" }
 textwrap = "0.16"
+throbber-widgets-tui = "0.8"
 tokio = { workspace = true }
 tui-big-text = "0.7"
 tui-logger = { version = "0.14", features = ["tracing-support"] }
