@@ -30,12 +30,16 @@ impl App {
                 modules,
                 tests,
                 reporter,
+                concurrency,
             } => {
                 if capture_http {
                     runner.capture_http();
                 }
                 if capture_rust {
                     runner.capture_rust();
+                }
+                if let Some(concurrency) = concurrency {
+                    runner.set_concurrency(concurrency);
                 }
                 runner.terminate_channel();
                 match reporter.unwrap_or_default() {
@@ -48,7 +52,16 @@ impl App {
             Command::Tui {
                 log_level,
                 tanu_log_level,
-            } => tanu_tui::run(runner, log_level, tanu_log_level).await,
+                concurrency,
+            } => {
+                if let Some(concurrency) = concurrency {
+                    runner.set_concurrency(concurrency);
+                } else {
+                    runner.set_concurrency(num_cpus::get());
+                }
+
+                tanu_tui::run(runner, log_level, tanu_log_level).await
+            }
             Command::Ls {} => {
                 let filter = tanu_core::runner::TestIgnoreFilter::default();
                 let list = runner.list();
@@ -106,19 +119,25 @@ pub enum Command {
         /// --modules foo --modules bar
         #[arg(short, long)]
         modules: Vec<String>,
-        /// Run only the specified test cases. This option can be specified multiple times e.g. --tests a
-        /// ---tests b
+        /// Run only the specified test cases. This option can be specified multiple times
+        /// e.g. --tests a --tests b
         #[arg(short, long)]
         tests: Vec<String>,
         /// Specify the reporter to use. Default is "list". Possible values are "table", "list" and "null".
         #[arg(long)]
         reporter: Option<ReporterType>,
+        /// Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel.
+        #[arg(short, long)]
+        concurrency: Option<usize>,
     },
     Tui {
         #[arg(long, default_value = "Info")]
         log_level: log::LevelFilter,
         #[arg(long, default_value = "Info")]
         tanu_log_level: log::LevelFilter,
+        /// Specify the maximum number of tests to run in parallel. Default is the number of logical CPU cores.
+        #[arg(short, long)]
+        concurrency: Option<usize>,
     },
     /// List test cases
     Ls {},

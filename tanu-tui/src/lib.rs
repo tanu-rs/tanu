@@ -762,7 +762,9 @@ impl Runtime {
             tokio::select! {
                 _ = draw_interval.tick() => {
                     model.fps_counter.update();
+                    let start_draw = std::time::Instant::now();
                     terminal.draw(|frame| view(&mut model, frame))?;
+                    trace!("Took {:?} to draw", start_draw.elapsed());
                 },
                 _ = cmds_interval.tick() => {
                     let Some(cmd) = cmds.pop_front() else {

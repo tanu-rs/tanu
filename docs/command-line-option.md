@@ -12,6 +12,7 @@ Run tests with tanu.
 * `-m, --modules <MODULES>`    Run only the specified modules. This option can be specified multiple times e.g. --modules foo --modules bar
 * `-t, --tests <TESTS>`        Run only the specified test cases. This option can be specified multiple times e.g. --tests a ---tests b
 * `--reporter <REPORTER>`  Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null"
+* `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel.
 
 ### `tui`
 Launch the TUI (Text User Interface) for tanu.
@@ -19,6 +20,7 @@ Launch the TUI (Text User Interface) for tanu.
 #### Options
 * `--log-level <LOG_LEVEL>`            [default: Info]
 * `--tanu-log-level <TANU_LOG_LEVEL>`  [default: Info]
+* `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. Default is the number of logical CPU cores
 
 ### `ls`
 List test cases.

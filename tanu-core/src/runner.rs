@@ -9,7 +9,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use tracing::*;
 
 use crate::{
@@ -100,6 +100,7 @@ pub struct Options {
     pub capture_http: bool,
     pub capture_rust: bool,
     pub terminate_channel: bool,
+    pub concurrency: Option<usize>,
 }
 
 /// Test case filter trait.
@@ -236,6 +237,10 @@ impl Runner {
         ));
     }
 
+    pub fn set_concurrency(&mut self, concurrency: usize) {
+        self.options.concurrency = Some(concurrency);
+    }
+
     /// Run tanu runner.
     #[allow(clippy::too_many_lines)]
     pub async fn run(
@@ -256,8 +261,13 @@ impl Runner {
         let test_ignore_filter = TestIgnoreFilter::default();
 
         let start = std::time::Instant::now();
-        let handles: FuturesUnordered<_> = self
-                .test_cases
+        let handles: FuturesUnordered<_> = {
+            // Create a semaphore to limit concurrency if specified
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(
+                self.options.concurrency.unwrap_or(Semaphore::MAX_PERMITS),
+            ));
+
+            self.test_cases
                 .iter()
                 .flat_map(|(info, factory)| {
                     let projects = self.cfg.projects.clone();
@@ -288,7 +298,9 @@ impl Runner {
                     test_ignore_filter.filter(project, info)
                 })
                 .map(|(project, info, factory)| {
+                    let semaphore = semaphore.clone();
                     tokio::spawn(async move {
+                        let _permit = semaphore.acquire().await.unwrap();
                         config::PROJECT.scope(project.clone(), async {
                             http::CHANNEL.scope(
                                 Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
@@ -296,10 +308,9 @@ impl Runner {
                                     let test_name = &info.name;
                                     let mut http_rx = http::subscribe()?;
 
-                                    let f= || async {factory().await};
+                                    let f = || async {factory().await};
                                     let fut = f.retry(project.retry.backoff());
-                                    let fut =
-                                        std::panic::AssertUnwindSafe(fut).catch_unwind();
+                                    let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
                                     let res = fut.await;
 
                                     publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
@@ -348,7 +359,8 @@ impl Runner {
                             .await
                     })
                 })
-                .collect();
+                .collect()
+        };
         debug!(
             "created handles for {} test cases; took {}s",
             handles.len(),
