@@ -15,7 +15,7 @@ use ratatui::{
     crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
     layout::Position,
     prelude::*,
-    style::{palette::tailwind, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
     widgets::{
         block::{BorderType, Padding},
@@ -36,9 +36,7 @@ use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, Tui
 
 pub const WHITESPACE: &str = "\u{00A0}";
 
-const SELECTED_STYLE: Style = Style::new()
-    .bg(tailwind::SLATE.c800)
-    .add_modifier(Modifier::BOLD);
+const SELECTED_STYLE: Style = Style::new().bg(Color::Black).add_modifier(Modifier::BOLD);
 
 use crate::widget::{
     info::{InfoState, InfoWidget, Tab},
@@ -426,9 +424,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     }
 
-    let fps = Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps))
-        .style(Style::default().fg(tailwind::SLATE.c500))
-        .alignment(Alignment::Right);
+    let fps =
+        Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps)).alignment(Alignment::Right);
 
     let ratio =
         (model.test_results.len() as f64 / model.test_cases_list.len() as f64).clamp(0.0, 1.0);
@@ -513,7 +510,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
     let logo = BigText::builder()
         .pixel_size(PixelSize::Sextant)
-        .style(Style::new().fg(tailwind::TEAL.c800))
+        .style(Style::new().fg(Color::Blue))
         .lines(vec!["tanu".into()])
         .build();
 
@@ -530,8 +527,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
         } else {
             BorderType::Plain
         })
-        .style_error(Style::default().fg(tailwind::RED.c900))
-        .style_warn(Style::default().fg(tailwind::AMBER.c900))
+        .style_error(Style::default().fg(Color::Red))
+        .style_warn(Style::default().fg(Color::Yellow))
         .style_info(Style::default())
         .style_debug(Style::default().dim())
         .style_trace(Style::default().dim())
@@ -601,7 +598,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         )
         .bar_width(BAR_WIDTH as u16)
         .bar_gap(1)
-        .bar_style(Style::default().fg(tailwind::BLUE.c900));
+        .bar_style(Style::default().fg(Color::Blue));
 
     let grouped_by_project = model
         .test_results
@@ -634,21 +631,13 @@ fn view(model: &mut Model, frame: &mut Frame) {
                     Bar::default()
                         .value(*success as u64)
                         .text_value(format!("success: {success}"))
-                        .value_style(
-                            Style::new()
-                                .bg(tailwind::BLUE.c900)
-                                .fg(tailwind::SLATE.c900),
-                        )
-                        .style(tailwind::BLUE.c900),
+                        .value_style(Style::new().bg(Color::Green).fg(Color::Black))
+                        .style(Color::Green),
                     Bar::default()
                         .value(*fail as u64)
                         .text_value(format!("fail: {fail}"))
-                        .value_style(
-                            Style::new()
-                                .bg(tailwind::BLUE.c900)
-                                .fg(tailwind::SLATE.c900),
-                        )
-                        .style(tailwind::BLUE.c900),
+                        .value_style(Style::new().bg(Color::Red).fg(Color::Black))
+                        .style(Color::Red),
                 ])
         })
         .collect::<Vec<_>>();

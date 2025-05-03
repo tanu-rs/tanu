@@ -426,10 +426,10 @@ struct TableColors {
 impl TableColors {
     const fn new() -> TableColors {
         TableColors {
-            header_bg: tailwind::BLUE.c900,
-            header_fg: tailwind::SLATE.c950,
-            row_fg: tailwind::SLATE.c400,
-            selected_style_fg: tailwind::BLUE.c400,
+            header_bg: Color::Blue,
+            header_fg: Color::Black,
+            row_fg: Color::Black,
+            selected_style_fg: Color::Blue,
             normal_row_color: tailwind::STONE.c900,
             alt_row_color: tailwind::STONE.c800,
         }
