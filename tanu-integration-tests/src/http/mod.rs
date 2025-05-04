@@ -1,4 +1,8 @@
+pub mod delete;
 pub mod get;
+pub mod head;
+pub mod patch;
+pub mod post;
 
 use tanu::eyre;
 
