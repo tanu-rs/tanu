@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 serde = { workspace = true }
-tanu = { path = "../tanu" }
+serde_json = "1"
+tanu = { path = "../tanu", features = ["json"] }
 tokio = { workspace = true }
 url = { version = "2", features = ["serde"] }

@@ -63,6 +63,7 @@ pub struct Response {
     pub headers: header::HeaderMap,
     pub status: StatusCode,
     pub text: String,
+    pub url: url::Url,
 }
 
 impl Response {
@@ -72,6 +73,10 @@ impl Response {
 
     pub fn headers(&self) -> &header::HeaderMap {
         &self.headers
+    }
+
+    pub fn url(&self) -> &url::Url {
+        &self.url
     }
 
     pub async fn text(self) -> Result<String, Error> {
@@ -86,6 +91,7 @@ impl Response {
         Response {
             headers: res.headers().clone(),
             status: res.status(),
+            url: res.url().clone(),
             text: res.text().await.unwrap_or_default(),
         }
     }
@@ -198,6 +204,12 @@ impl RequestBuilder {
     {
         let inner = self.inner.take().expect("inner missing");
         self.inner = Some(inner.bearer_auth(token));
+        self
+    }
+
+    pub fn body<T: Into<reqwest::Body>>(mut self, body: T) -> RequestBuilder {
+        let inner = self.inner.take().expect("inner missing");
+        self.inner = Some(inner.body(body));
         self
     }
 
