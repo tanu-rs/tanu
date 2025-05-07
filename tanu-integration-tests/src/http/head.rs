@@ -7,8 +7,10 @@ use tanu::{
 #[tanu::test]
 async fn head_request() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
-    let res = http.head("https://httpbin.org/get").send().await?;
+    let res = http.head(format!("{base_url}/get")).send().await?;
 
     assert!(res.status().is_success(), "Non 2xx status received");
     assert_eq!(StatusCode::OK, res.status());
@@ -26,9 +28,11 @@ async fn head_request() -> eyre::Result<()> {
 #[tanu::test]
 async fn head_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
     let res = http
-        .head("https://httpbin.org/get")
+        .head(format!("{base_url}/get"))
         .query(&[("param1", "value1"), ("param2", "value2")])
         .send()
         .await?;
@@ -46,14 +50,16 @@ async fn head_with_query_params() -> eyre::Result<()> {
 #[tanu::test]
 async fn head_status_codes() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
     // Test with 404 Not Found
-    let res = http.head("https://httpbin.org/status/404").send().await?;
+    let res = http.head(format!("{base_url}/status/404")).send().await?;
 
     assert_eq!(StatusCode::NOT_FOUND, res.status());
 
     // Test with 500 Server Error
-    let res = http.head("https://httpbin.org/status/500").send().await?;
+    let res = http.head(format!("{base_url}/status/500")).send().await?;
 
     assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, res.status());
 

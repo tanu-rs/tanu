@@ -1,2 +1,3 @@
 [[projects]]
 name = "default"
+base_url = "https://httpbin.org"

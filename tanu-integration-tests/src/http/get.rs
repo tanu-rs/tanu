@@ -28,22 +28,28 @@ struct BearerAuthPayload {
 #[tanu::test]
 async fn json() -> eyre::Result<()> {
     let http = Client::new();
-    let res = http.get("https://httpbin.org/get").send().await?;
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
+    let res = http.get(format!("{base_url}/get")).send().await?;
     assert!(res.status().is_success(), "Non 2xx satus received");
 
     let payload: Payload = res.json().await?;
     assert!(payload.args.is_empty());
     assert!(!payload.headers.is_empty());
     assert!(!payload.origin.is_empty());
-    assert_eq!("https://httpbin.org/get", payload.url.as_str());
+    assert_eq!(format!("{base_url}/get"), payload.url.as_str());
     Ok(())
 }
 
 #[tanu::test]
 async fn basic_auth() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let res = http
-        .get("https://httpbin.org/basic-auth/user/password")
+        .get(format!("{base_url}/basic-auth/user/password"))
         .basic_auth("user", Some("password"))
         .send()
         .await?;
@@ -58,8 +64,11 @@ async fn basic_auth() -> eyre::Result<()> {
 #[tanu::test]
 async fn basic_auth_error() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let res = http
-        .get("https://httpbin.org/basic-auth/user/password")
+        .get(format!("{base_url}/basic-auth/user/password"))
         .basic_auth("user", Some("wrong-password"))
         .send()
         .await?;
@@ -70,8 +79,11 @@ async fn basic_auth_error() -> eyre::Result<()> {
 #[tanu::test]
 async fn bearer_auth() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let res = http
-        .get("https://httpbin.org/bearer")
+        .get(format!("{base_url}/bearer"))
         .bearer_auth("token")
         .send()
         .await?;
