@@ -22,14 +22,16 @@ struct DeleteResponse {
 #[tanu::test]
 async fn delete_resource() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
-    let res = http.delete("https://httpbin.org/delete").send().await?;
+    let res = http.delete(format!("{base_url}/delete")).send().await?;
 
     assert!(res.status().is_success(), "Non 2xx status received");
     assert_eq!(StatusCode::OK, res.status());
 
     let response: DeleteResponse = res.json().await?;
-    assert_eq!("https://httpbin.org/delete", response.url);
+    assert_eq!(format!("{base_url}/delete"), response.url);
 
     Ok(())
 }
@@ -37,10 +39,13 @@ async fn delete_resource() -> eyre::Result<()> {
 #[tanu::test]
 async fn delete_with_body() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let body = r#"{"resource_id": 123}"#;
 
     let res = http
-        .delete("https://httpbin.org/delete")
+        .delete(format!("{base_url}/delete"))
         .header("Content-Type", "application/json")
         .body(body)
         .send()
@@ -59,9 +64,11 @@ async fn delete_with_body() -> eyre::Result<()> {
 #[tanu::test]
 async fn delete_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
     let res = http
-        .delete("https://httpbin.org/delete")
+        .delete(format!("{base_url}/delete"))
         .query(&[("confirm", "true"), ("cascade", "true")])
         .send()
         .await?;

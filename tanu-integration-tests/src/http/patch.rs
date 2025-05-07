@@ -25,13 +25,16 @@ struct PatchPayload {
 #[tanu::test]
 async fn patch_json() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let payload = PatchPayload {
         id: 1,
         updated_field: "patched value".to_string(),
     };
 
     let res = http
-        .patch("https://httpbin.org/patch")
+        .patch(format!("{base_url}/patch"))
         .json(&payload)
         .send()
         .await?;
@@ -54,10 +57,13 @@ async fn patch_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn patch_with_headers() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let payload = r#"{"partial": true, "data": "partial update"}"#;
 
     let res = http
-        .patch("https://httpbin.org/patch")
+        .patch(format!("{base_url}/patch"))
         .header("X-Custom-Header", "patch-test")
         .header("Content-Type", "application/json")
         .body(payload)

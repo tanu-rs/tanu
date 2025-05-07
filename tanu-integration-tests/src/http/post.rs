@@ -25,13 +25,16 @@ struct JsonPayload {
 #[tanu::test]
 async fn post_json() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let payload = JsonPayload {
         name: "test".to_string(),
         value: 42,
     };
 
     let res = http
-        .post("https://httpbin.org/post")
+        .post(format!("{base_url}/post"))
         .json(&payload)
         .send()
         .await?;
@@ -54,10 +57,12 @@ async fn post_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn post_form() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
 
     let params = [("key1", "value1"), ("key2", "value2")];
     let res = http
-        .post("https://httpbin.org/post")
+        .post(format!("{base_url}/post"))
         .form(&params)
         .send()
         .await?;
@@ -76,10 +81,13 @@ async fn post_form() -> eyre::Result<()> {
 #[tanu::test]
 async fn post_text() -> eyre::Result<()> {
     let http = Client::new();
+    let cfg = tanu::get_config();
+    let base_url = cfg.get_str("base_url")?;
+
     let text = "Plain text payload";
 
     let res = http
-        .post("https://httpbin.org/post")
+        .post(format!("{base_url}/post"))
         .body(text)
         .send()
         .await?;
