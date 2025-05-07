@@ -21,4 +21,4 @@ I tried multiple solutions in the past but encountered significant limitations:
 
 ![](cli.gif)
 <br />
-![](tui.gif )
+![](tui.gif)
