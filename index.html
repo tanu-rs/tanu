@@ -517,15 +517,19 @@
 
 <h2 id="motivation">Motivation</h2>
 <p>As a long time backend engineer, I have always been passionate about building reliable and efficient systems. When working with WebAPIs, ensuring correctness, stability, and performance is crucial, yet I often found existing testing frameworks lacking in speed, flexibility, or Rust-native support. This led me to create a WebAPI testing framework in Rust.</p>
-<p>While some WebAPI testing tools exist for Rust, they often lack ergonomics, are too low-level, or don't integrate well with modern Rust web frameworks. My goal was to create a framework that is:
-* <strong>Fast and lightweight</strong> – Leveraging Rust’s zero-cost abstractions to minimize unnecessary overhead.
-* <strong>Type-safe and ergonomic</strong> – Taking advantage of Rust’s strong type system to prevent common errors at compile time.
-* <strong>Easily extensible</strong> – Allowing developers to integrate custom assertions, mocking, and performance metrics seamlessly.
-* <strong>Concurrency and async-friendly</strong> – Supporting asynchronous requests and concurrent execution to test APIs efficiently.</p>
-<p>I tried multiple solutions in the past but encountered significant limitations:
-* <strong>Postman</strong> - Postman is a great tool but not designed for API end-to-end testing. You need a GUI and have to write assertions in JavaScript, which results in massive JSON files that become difficult to manage.
-* <strong>Playwright</strong> - Playwright is an excellent framework for web end-to-end testing. While it does support API testing, I wanted to use the same language for both API implementation and tests, which Playwright does not offer.
-* <strong>Rust Standard Test Framework</strong> - I attempted multiple times to write API tests using <code>#[test]</code>, along with <a href="https://crates.io/crates/tokio">tokio</a>, <a href="https://crates.io/crates/test-case">test-case</a>, and <a href="https://crates.io/crates/reqwest">reqwest</a> crates. While functional, this approach lacked structure and ergonomics for writing effective tests at scale. I wanted a dedicated framework to simplify and streamline the process.</p>
+<p>While some WebAPI testing tools exist for Rust, they often lack ergonomics, are too low-level, or don't integrate well with modern Rust web frameworks. My goal was to create a framework that is:</p>
+<ul>
+<li><strong>Fast and lightweight</strong> – Leveraging Rust’s zero-cost abstractions to minimize unnecessary overhead.</li>
+<li><strong>Type-safe and ergonomic</strong> – Taking advantage of Rust’s strong type system to prevent common errors at compile time.</li>
+<li><strong>Easily extensible</strong> – Allowing developers to integrate custom assertions, mocking, and performance metrics seamlessly.</li>
+<li><strong>Concurrency and async-friendly</strong> – Supporting asynchronous requests and concurrent execution to test APIs efficiently.</li>
+</ul>
+<p>I tried multiple solutions in the past but encountered significant limitations:</p>
+<ul>
+<li><strong>Postman</strong> - Postman is a great tool but not designed for API end-to-end testing. You need a GUI and have to write assertions in JavaScript, which results in massive JSON files that become difficult to manage.</li>
+<li><strong>Playwright</strong> - Playwright is an excellent framework for web end-to-end testing. While it does support API testing, I wanted to use the same language for both API implementation and tests, which Playwright does not offer.</li>
+<li><strong>Rust Standard Test Framework</strong> - I attempted multiple times to write API tests using <code>#[test]</code>, along with <a href="https://crates.io/crates/tokio">tokio</a>, <a href="https://crates.io/crates/test-case">test-case</a>, and <a href="https://crates.io/crates/reqwest">reqwest</a> crates. While functional, this approach lacked structure and ergonomics for writing effective tests at scale. I wanted a dedicated framework to simplify and streamline the process.</li>
+</ul>
 
 
 
