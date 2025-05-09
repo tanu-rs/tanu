@@ -9,7 +9,6 @@ pub use tanu_derive::{main, test};
 
 pub use anyhow;
 pub use eyre;
-pub use pretty_assertions;
 
 pub type ProjectName = String;
 
