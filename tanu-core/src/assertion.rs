@@ -37,10 +37,10 @@ macro_rules! assert {
 #[macro_export]
 macro_rules! assert_str_eq {
     ($left:expr, $right:expr$(,)?) => ({
-		tanu::pretty_assertions::assert_str_eq!(@ $left, $right, "", "");
+		$crate::assert_str_eq!(@ $left, $right, "", "");
     });
     ($left:expr, $right:expr, $($arg:tt)*) => ({
-        tanu::pretty_assertions::assert_str_eq!(@ $left, $right, ": ", $($arg)+);
+        $crate::assert_str_eq!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)*) => ({
         match (&($left), &($right)) {
@@ -89,10 +89,10 @@ macro_rules! assert_eq {
 #[macro_export]
 macro_rules! assert_ne {
     ($left:expr, $right:expr$(,)?) => ({
-        tanu::pretty_assertions::assert_ne!(@ $left, $right, "", "");
+        $crate::assert_ne!(@ $left, $right, "", "");
     });
     ($left:expr, $right:expr, $($arg:tt)+) => ({
-        tanu::pretty_assertions::assert_ne!(@ $left, $right, ": ", $($arg)+);
+        $crate::assert_ne!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)+) => ({
         match (&($left), &($right)) {
