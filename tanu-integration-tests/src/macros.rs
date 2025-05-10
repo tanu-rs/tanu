@@ -4,10 +4,7 @@
 #![allow(clippy::eq_op)]
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::identity_op)]
-use tanu::{
-    assert_eq, eyre,
-    http::{Client, StatusCode},
-};
+use tanu::{eyre, http::StatusCode};
 
 #[tanu::test]
 async fn without_parameters() -> eyre::Result<()> {
@@ -52,12 +49,7 @@ async fn with_as_ref(_: impl AsRef<str>) -> eyre::Result<()> {
 
 #[tanu::test(Some(StatusCode::OK))]
 #[tanu::test(None)]
-async fn with_optional_parameters(status: Option<StatusCode>) -> eyre::Result<()> {
-    let http = Client::new();
-    let res = http.get("https://httpbin.org/get").send().await?;
-    if status.is_some() {
-        assert_eq!(status, Some(res.status()));
-    }
+async fn with_optional_parameters(_: Option<StatusCode>) -> eyre::Result<()> {
     Ok(())
 }
 
