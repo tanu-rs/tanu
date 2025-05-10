@@ -7,8 +7,7 @@ use tanu::{
 #[tanu::test]
 async fn head_request() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http.head(format!("{base_url}/get")).send().await?;
 
@@ -28,8 +27,7 @@ async fn head_request() -> eyre::Result<()> {
 #[tanu::test]
 async fn head_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http
         .head(format!("{base_url}/get"))
@@ -50,8 +48,7 @@ async fn head_with_query_params() -> eyre::Result<()> {
 #[tanu::test]
 async fn head_status_codes() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     // Test with 404 Not Found
     let res = http.head(format!("{base_url}/status/404")).send().await?;

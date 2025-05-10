@@ -28,8 +28,7 @@ struct BearerAuthPayload {
 #[tanu::test]
 async fn json() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http.get(format!("{base_url}/get")).send().await?;
     assert!(res.status().is_success(), "Non 2xx satus received");
@@ -45,8 +44,7 @@ async fn json() -> eyre::Result<()> {
 #[tanu::test]
 async fn basic_auth() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http
         .get(format!("{base_url}/basic-auth/user/password"))
@@ -64,8 +62,7 @@ async fn basic_auth() -> eyre::Result<()> {
 #[tanu::test]
 async fn basic_auth_error() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http
         .get(format!("{base_url}/basic-auth/user/password"))
@@ -79,8 +76,7 @@ async fn basic_auth_error() -> eyre::Result<()> {
 #[tanu::test]
 async fn bearer_auth() -> eyre::Result<()> {
     let http = Client::new();
-    let cfg = tanu::get_config();
-    let base_url = cfg.get_str("base_url")?;
+    let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http
         .get(format!("{base_url}/bearer"))
