@@ -19,14 +19,17 @@ use crate::{
     Config, ModuleName, ProjectName, TestName,
 };
 
-pub static CHANNEL: Lazy<Mutex<Option<broadcast::Sender<Message>>>> =
-    Lazy::new(|| Mutex::new(Some(broadcast::channel(1000).0)));
+// NOTE: Keep the runner receiver alive here so that sender never fails to send.
+#[allow(clippy::type_complexity)]
+pub static CHANNEL: Lazy<
+    Mutex<Option<(broadcast::Sender<Message>, broadcast::Receiver<Message>)>>,
+> = Lazy::new(|| Mutex::new(Some(broadcast::channel(1000))));
 
 pub fn publish(msg: Message) -> eyre::Result<()> {
     let Ok(guard) = CHANNEL.lock() else {
         eyre::bail!("failed to acquire runner channel lock");
     };
-    let Some(tx) = guard.deref() else {
+    let Some((tx, _)) = guard.deref() else {
         eyre::bail!("runner channel has been already closed");
     };
 
@@ -41,7 +44,7 @@ pub fn subscribe() -> eyre::Result<broadcast::Receiver<Message>> {
     let Ok(guard) = CHANNEL.lock() else {
         eyre::bail!("failed to acquire runner channel lock");
     };
-    let Some(tx) = guard.deref() else {
+    let Some((tx, _)) = guard.deref() else {
         eyre::bail!("runner channel has been already closed");
     };
 
@@ -380,7 +383,8 @@ impl Runner {
             for result in results {
                 match result {
                     Ok(res) => {
-                        if res.is_err() {
+                        if let Err(e) = res {
+                            debug!("test case failed: {e:#}");
                             has_any_error = true;
                         }
                     }
@@ -389,7 +393,6 @@ impl Runner {
                             // Resume the panic on the main task
                             error!("{e}");
                             has_any_error = true;
-                            println!("e={e:?}");
                         }
                     }
                 }
