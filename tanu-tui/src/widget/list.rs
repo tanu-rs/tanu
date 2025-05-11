@@ -218,10 +218,7 @@ impl ExecutionStateController {
                 project_name: module_state.project_name.clone(),
                 module_name: module_state.name.clone(),
                 test: Some(tanu_core::runner::Test {
-                    info: TestInfo {
-                        module: "".into(),
-                        name: "".into(),
-                    },
+                    info: TestInfo::default(),
                     result: if ok {
                         Ok(())
                     } else {
@@ -229,6 +226,7 @@ impl ExecutionStateController {
                             "Execution failed".into(),
                         ))
                     },
+                    request_time: std::time::Duration::from_secs(0),
                 }),
                 ..Default::default()
             });
@@ -266,6 +264,7 @@ impl ExecutionStateController {
                             "Execution failed".into(),
                         ))
                     },
+                    request_time: std::time::Duration::from_secs(0),
                 }),
                 ..Default::default()
             });
@@ -885,6 +884,7 @@ mod test {
                     name: "".into(),
                 },
                 result: Ok(()),
+                request_time: std::time::Duration::from_secs(0),
             }),
             ..Default::default()
         };
@@ -901,6 +901,7 @@ mod test {
                     name: "".into(),
                 },
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),
+                request_time: std::time::Duration::from_secs(0),
             }),
             ..Default::default()
         };

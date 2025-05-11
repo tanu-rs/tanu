@@ -8,6 +8,7 @@ use std::{
     ops::Deref,
     pin::Pin,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::sync::{broadcast, Semaphore};
 use tracing::*;
@@ -69,10 +70,11 @@ pub enum Message {
 #[derive(Debug, Clone)]
 pub struct Test {
     pub info: TestInfo,
+    pub request_time: Duration,
     pub result: Result<(), Error>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TestInfo {
     pub module: String,
     pub name: String,
@@ -312,9 +314,11 @@ impl Runner {
                                     let mut http_rx = http::subscribe()?;
 
                                     let f = || async {factory().await};
+                                    let started = std::time::Instant::now();
                                     let fut = f.retry(project.retry.backoff());
                                     let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
                                     let res = fut.await;
+                                    let request_time = started.elapsed();
 
                                     publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
@@ -353,7 +357,7 @@ impl Runner {
 
                                     let project = get_config();
                                     let is_err = result.is_err();
-                                    publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, result })).wrap_err("failed to send Message::End to the channel")?;
+                                    publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, request_time, result })).wrap_err("failed to send Message::End to the channel")?;
 
                                     eyre::ensure!(!is_err);
                                     eyre::Ok(())
