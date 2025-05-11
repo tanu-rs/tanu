@@ -101,10 +101,16 @@ pub struct NullReporter;
 #[async_trait::async_trait]
 impl Reporter for NullReporter {}
 
+/// Capture current states of the stdout for the test case.
 #[allow(clippy::vec_box)]
+#[derive(Default)]
+struct Buffer {
+    http_logs: Vec<Box<http::Log>>,
+}
+
 pub struct ListReporter {
     terminal: Term,
-    buffer: HashMap<(ProjectName, TestName), Vec<Box<http::Log>>>,
+    buffer: HashMap<(ProjectName, TestName), Buffer>,
     capture_http: bool,
 }
 
@@ -126,7 +132,8 @@ impl Reporter for ListReporter {
         _module_name: String,
         test_name: String,
     ) -> eyre::Result<()> {
-        self.buffer.insert((project_name, test_name), Vec::new());
+        self.buffer
+            .insert((project_name, test_name), Default::default());
         Ok(())
     }
 
@@ -141,6 +148,7 @@ impl Reporter for ListReporter {
             self.buffer
                 .get_mut(&(project_name, test_name.clone()))
                 .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?
+                .http_logs
                 .push(log);
         }
         Ok(())
@@ -153,12 +161,12 @@ impl Reporter for ListReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
-        let http_logs = self
+        let buffer = self
             .buffer
             .remove(&(project_name.clone(), test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
 
-        for log in http_logs {
+        for log in buffer.http_logs {
             write(
                 &self.terminal,
                 format!(" => {} {}", log.request.method, log.request.url),
@@ -189,18 +197,25 @@ impl Reporter for ListReporter {
         }
 
         let status = symbol_test_result(&test);
-        let Test { result, info } = test;
+        let Test {
+            result,
+            info,
+            request_time,
+        } = test;
+        let request_time = style(format!("({request_time:.2?})")).dim();
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {}::{}",
-                    info.module, info.name
+                    "{status} [{project_name}] {module_name}::{test_name} {request_time}",
+                    module_name = info.module,
+                    test_name = info.name
                 ))?;
             }
             Err(e) => {
                 self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {}::{}: {e:#}",
-                    info.module, info.name
+                    "{status} [{project_name}] {module_name}::{test_name} {request_time}: {e:#} ",
+                    module_name = info.module,
+                    test_name = info.name
                 ))?;
             }
         }
