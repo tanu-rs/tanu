@@ -9,7 +9,7 @@ use crate::{Error, Result};
 
 static CONFIG: Lazy<Config> = Lazy::new(|| {
     let _ = dotenv::dotenv();
-    Config::load().expect("failed to load tanu.toml")
+    Config::load().unwrap_or_default()
 });
 
 tokio::task_local! {
@@ -27,12 +27,24 @@ pub fn get_config() -> ProjectConfig {
 }
 
 /// tanu's configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub projects: Vec<ProjectConfig>,
     /// Global tanu configuration
     #[serde(default)]
     pub tui: Tui,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            projects: vec![ProjectConfig {
+                name: "default".to_string(),
+                ..Default::default()
+            }],
+            tui: Tui::default(),
+        }
+    }
 }
 
 /// Global tanu configuration
