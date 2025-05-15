@@ -25,6 +25,7 @@ once_cell = { workspace = true }
 pretty_assertions = "1"
 reqwest = { version = "0.12", optional = true }
 serde = { workspace = true }
+strum = { workspace = true }
 tanu-core = { version = "=0.5.0", path = "../tanu-core" }
 tanu-derive = { version = "=0.5.0", path = "../tanu-derive" }
 tanu-tui = { version = "=0.5.0", path = "../tanu-tui" }

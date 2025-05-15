@@ -2,17 +2,18 @@ use clap::Parser;
 use console::Term;
 use eyre::OptionExt;
 use itertools::Itertools;
+use std::str::FromStr;
 use tanu_core::Filter;
 
 use crate::{get_tanu_config, ListReporter, NullReporter, ReporterType, TableReporter};
 
 /// tanu CLI.
 #[derive(Default)]
-pub struct App {}
+pub struct App;
 
 impl App {
     pub fn new() -> App {
-        App::default()
+        App
     }
 
     /// Parse command-line args and run tanu CLI sub command.
@@ -31,6 +32,7 @@ impl App {
                 tests,
                 reporter,
                 concurrency,
+                color: color_command,
             } => {
                 if capture_http {
                     runner.capture_http();
@@ -47,6 +49,26 @@ impl App {
                     ReporterType::List => runner.add_reporter(ListReporter::new(capture_http)),
                     ReporterType::Null => runner.add_reporter(NullReporter),
                 }
+
+                let color_env = std::env::var("CARGO_TERM_COLOR");
+                let color = match (color_command, color_env) {
+                    (color @ Some(Color::Always), _) => color,
+                    (color @ Some(Color::Never), _) => color,
+                    (None, Ok(color)) => Color::from_str(&color).ok(),
+                    _ => None,
+                };
+                match color {
+                    Some(Color::Always) => {
+                        console::set_colors_enabled(true);
+                        console::set_colors_enabled_stderr(true);
+                    }
+                    Some(Color::Never) => {
+                        console::set_colors_enabled(false);
+                        console::set_colors_enabled_stderr(false);
+                    }
+                    _ => {}
+                }
+
                 runner.run(&projects, &modules, &tests).await
             }
             Command::Tui {
@@ -99,6 +121,15 @@ pub struct Args {
     command: Command,
 }
 
+#[derive(Debug, Clone, Default, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
+pub enum Color {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
     /// Run tests with tanu
@@ -129,6 +160,9 @@ pub enum Command {
         /// Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel.
         #[arg(short, long)]
         concurrency: Option<usize>,
+        /// Produce color output: "auto", "always" and "never". Default is "auto" [env: CARGO_TERM_COLOR]
+        #[arg(long)]
+        color: Option<Color>,
     },
     Tui {
         #[arg(long, default_value = "Info")]
