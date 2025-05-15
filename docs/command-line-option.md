@@ -13,6 +13,7 @@ Run tests with tanu.
 * `-t, --tests <TESTS>`        Run only the specified test cases. This option can be specified multiple times e.g. --tests a ---tests b
 * `--reporter <REPORTER>`  Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null"
 * `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel.
+* `--color <WHEN>`         Control when colored output is used. Possible values are "auto" (default), "always", or "never". Environment variable `CARGO_TERM_COLOR` is also respected.
 
 ### `tui`
 Launch the TUI (Text User Interface) for tanu.
