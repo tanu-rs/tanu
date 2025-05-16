@@ -21,6 +21,7 @@ eyre = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 humantime-serde = "1"
+indexmap = "2"
 itertools = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"

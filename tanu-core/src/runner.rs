@@ -417,7 +417,12 @@ impl Runner {
             eyre::Ok(())
         };
 
-        let (handles, _reporters) = tokio::join!(runner, reporters);
+        let (handles, reporters) = tokio::join!(runner, reporters);
+        for reporter in reporters {
+            if let Err(e) = reporter {
+                error!("reporter failed: {e:#}");
+            }
+        }
 
         debug!("runner stopped");
 
