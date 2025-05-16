@@ -1,5 +1,6 @@
 use console::{style, StyledObject, Term};
 use eyre::WrapErr;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
@@ -24,21 +25,21 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
     let mut rx = runner::subscribe()?;
 
     loop {
-        match rx.recv().await {
+        let res = match rx.recv().await {
             Ok(runner::Message::Start(project_name, module_name, test_name)) => {
                 reporter
                     .on_start(project_name, module_name, test_name)
-                    .await?;
+                    .await
             }
             Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
                 reporter
                     .on_http_call(project_name, module_name, test_name, log)
-                    .await?;
+                    .await
             }
             Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
                 reporter
                     .on_end(project_name, module_name, test_name, test)
-                    .await?;
+                    .await
             }
             Err(broadcast::error::RecvError::Closed) => {
                 debug!("runner channel has been closed");
@@ -48,6 +49,10 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
                 debug!("runner channel recv error");
                 continue;
             }
+        };
+
+        if let Err(e) = res {
+            warn!("reporter error: {e:#}");
         }
     }
 
@@ -105,20 +110,23 @@ impl Reporter for NullReporter {}
 #[allow(clippy::vec_box)]
 #[derive(Default)]
 struct Buffer {
+    test_number: usize,
     http_logs: Vec<Box<http::Log>>,
 }
 
 pub struct ListReporter {
+    test_count: usize,
     terminal: Term,
-    buffer: HashMap<(ProjectName, TestName), Buffer>,
+    buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
     capture_http: bool,
 }
 
 impl ListReporter {
     pub fn new(capture_http: bool) -> ListReporter {
         ListReporter {
+            test_count: 0,
             terminal: Term::stdout(),
-            buffer: HashMap::new(),
+            buffer: IndexMap::new(),
             capture_http,
         }
     }
@@ -129,24 +137,30 @@ impl Reporter for ListReporter {
     async fn on_start(
         &mut self,
         project_name: String,
-        _module_name: String,
+        module_name: String,
         test_name: String,
     ) -> eyre::Result<()> {
-        self.buffer
-            .insert((project_name, test_name), Default::default());
+        self.test_count += 1;
+        self.buffer.insert(
+            (project_name, module_name, test_name),
+            Buffer {
+                test_number: self.test_count,
+                ..Default::default()
+            },
+        );
         Ok(())
     }
 
     async fn on_http_call(
         &mut self,
         project_name: String,
-        _module_name: String,
+        module_name: String,
         test_name: String,
         log: Box<http::Log>,
     ) -> eyre::Result<()> {
         if self.capture_http {
             self.buffer
-                .get_mut(&(project_name, test_name.clone()))
+                .get_mut(&(project_name, module_name, test_name.clone()))
                 .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?
                 .http_logs
                 .push(log);
@@ -157,13 +171,13 @@ impl Reporter for ListReporter {
     async fn on_end(
         &mut self,
         project_name: String,
-        _module_name: String,
+        module_name: String,
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
         let buffer = self
             .buffer
-            .remove(&(project_name.clone(), test_name.clone()))
+            .swap_remove(&(project_name.clone(), module_name, test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
 
         for log in buffer.http_logs {
@@ -202,11 +216,12 @@ impl Reporter for ListReporter {
             info,
             request_time,
         } = test;
+        let test_number = style(buffer.test_number).dim();
         let request_time = style(format!("({request_time:.2?})")).dim();
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {module_name}::{test_name} {request_time}",
+                    "{status} {test_number} [{project_name}] {module_name}::{test_name} {request_time}",
                     module_name = info.module,
                     test_name = info.name
                 ))?;
