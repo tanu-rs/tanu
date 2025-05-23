@@ -1,14 +1,15 @@
 use console::{style, StyledObject, Term};
-use eyre::WrapErr;
+use eyre::{OptionExt, WrapErr};
 use indexmap::IndexMap;
+use indicatif::{MultiProgress, ProgressBar};
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap, time::Duration};
 use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
     get_tanu_config, http,
-    runner::{self, Test},
+    runner::{self, Message, Test},
     ModuleName, ProjectName, TestName,
 };
 
@@ -22,32 +23,75 @@ pub enum ReporterType {
 }
 
 async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> {
+    let term = Term::stdout();
+    term.hide_cursor()?;
     let mut rx = runner::subscribe()?;
 
+    let mut interval = tokio::time::interval(Duration::from_millis(100));
     loop {
-        let res = match rx.recv().await {
-            Ok(runner::Message::Start(project_name, module_name, test_name)) => {
-                reporter
-                    .on_start(project_name, module_name, test_name)
-                    .await
+        let res = tokio::select! {
+            _ = interval.tick() => {
+                reporter.on_update(None, None, None).await?;
+                Ok(())
             }
-            Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
-                reporter
-                    .on_http_call(project_name, module_name, test_name, log)
-                    .await
-            }
-            Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
-                reporter
-                    .on_end(project_name, module_name, test_name, test)
-                    .await
-            }
-            Err(broadcast::error::RecvError::Closed) => {
-                debug!("runner channel has been closed");
-                break;
-            }
-            Err(broadcast::error::RecvError::Lagged(_)) => {
-                debug!("runner channel recv error");
-                continue;
+            msg = rx.recv() => match msg {
+                Ok(Message::Start(project_name, module_name, test_name)) => {
+                    match reporter
+                        .on_start(project_name.clone(), module_name.clone(), test_name.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            reporter
+                                .on_update(Some(project_name), Some(module_name), Some(test_name))
+                                .await
+                        }
+                        e @ Err(_) => e,
+                    }
+                }
+                Ok(Message::HttpLog(project_name, module_name, test_name, log)) => {
+                    match reporter
+                        .on_http_call(
+                            project_name.clone(),
+                            module_name.clone(),
+                            test_name.clone(),
+                            log,
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            reporter
+                                .on_update(Some(project_name), Some(module_name), Some(test_name))
+                                .await
+                        }
+                        e @ Err(_) => e,
+                    }
+                }
+                Ok(Message::End(project_name, module_name, test_name, test)) => {
+                    match reporter
+                        .on_end(
+                            project_name.clone(),
+                            module_name.clone(),
+                            test_name.clone(),
+                            test,
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            reporter
+                                .on_update(Some(project_name), Some(module_name), Some(test_name))
+                                .await
+                        }
+                        e @ Err(_) => e,
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    debug!("runner channel has been closed");
+                    break;
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    debug!("runner channel recv error");
+                    continue;
+                }
             }
         };
 
@@ -56,6 +100,7 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
         }
     }
 
+    term.show_cursor()?;
     Ok(())
 }
 
@@ -89,6 +134,16 @@ pub trait Reporter {
         Ok(())
     }
 
+    /// Called every after on_start, on_http_call, and on_end.
+    async fn on_update(
+        &mut self,
+        _project_name: Option<String>,
+        _module_name: Option<String>,
+        _test_name: Option<String>,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
     /// Called when a test case ends.
     async fn on_end(
         &mut self,
@@ -106,28 +161,104 @@ pub struct NullReporter;
 #[async_trait::async_trait]
 impl Reporter for NullReporter {}
 
+/// Represents the execution state of a test case.
+#[derive(Debug, Clone, Default)]
+pub enum ExecutionState {
+    /// The test case, module, or project is initialized.
+    #[default]
+    Initialized,
+    /// The test case, module, or project is executing.
+    Executing(ProgressBar),
+    /// The test case, module, or project has been executed.
+    Executed(ProgressBar, Test),
+}
+
+impl ExecutionState {
+    fn executed(&mut self, test: Test) {
+        match std::mem::take(self) {
+            ExecutionState::Initialized => {
+                warn!("Expected to be in Executing state, but was in Initialized state");
+                *self = ExecutionState::Initialized;
+            }
+            ExecutionState::Executing(pb) => {
+                *self = ExecutionState::Executed(pb, test);
+            }
+            ExecutionState::Executed(pb, _test) => {
+                *self = ExecutionState::Executed(pb, test);
+            }
+        }
+    }
+
+    fn update_message(&mut self, msg: impl Into<Cow<'static, str>>) {
+        match self {
+            ExecutionState::Initialized => {
+                warn!("Expected to be in Executing state, but was in Initialized state");
+            }
+            ExecutionState::Executing(pb) => {
+                pb.set_message(msg);
+            }
+            ExecutionState::Executed(pb, _test) => {
+                pb.set_message(msg);
+            }
+        }
+    }
+
+    fn progreess_bar(&self) -> Option<&ProgressBar> {
+        match self {
+            ExecutionState::Initialized => None,
+            ExecutionState::Executing(pb) => Some(pb),
+            ExecutionState::Executed(pb, _test) => Some(pb),
+        }
+    }
+
+    fn is_executing(&self) -> bool {
+        matches!(self, ExecutionState::Executing(_))
+    }
+
+    fn is_executed(&self) -> bool {
+        matches!(self, ExecutionState::Executed(_, _))
+    }
+}
+
 /// Capture current states of the stdout for the test case.
 #[allow(clippy::vec_box)]
-#[derive(Default)]
-struct Buffer {
+struct TestState {
     test_number: usize,
-    http_logs: Vec<Box<http::Log>>,
+    call_states: Vec<CallState>,
+    execution_state: ExecutionState,
+}
+
+impl Default for TestState {
+    fn default() -> Self {
+        TestState {
+            test_number: 0,
+            call_states: Vec::new(),
+            execution_state: ExecutionState::Initialized,
+        }
+    }
+}
+
+struct CallState {
+    log: Box<http::Log>,
+    execution_state: ExecutionState,
 }
 
 pub struct ListReporter {
     test_count: usize,
-    terminal: Term,
-    buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
+    states: IndexMap<(ProjectName, ModuleName, TestName), TestState>,
     capture_http: bool,
+    multi_progress: MultiProgress,
 }
 
 impl ListReporter {
     pub fn new(capture_http: bool) -> ListReporter {
+        let multi_progress = MultiProgress::new();
+        multi_progress.set_move_cursor(true);
         ListReporter {
             test_count: 0,
-            terminal: Term::stdout(),
-            buffer: IndexMap::new(),
+            states: IndexMap::new(),
             capture_http,
+            multi_progress,
         }
     }
 }
@@ -141,10 +272,12 @@ impl Reporter for ListReporter {
         test_name: String,
     ) -> eyre::Result<()> {
         self.test_count += 1;
-        self.buffer.insert(
+        let progress_bar = self.multi_progress.add(ProgressBar::new_spinner());
+        self.states.insert(
             (project_name, module_name, test_name),
-            Buffer {
+            TestState {
                 test_number: self.test_count,
+                execution_state: ExecutionState::Executing(progress_bar),
                 ..Default::default()
             },
         );
@@ -159,12 +292,88 @@ impl Reporter for ListReporter {
         log: Box<http::Log>,
     ) -> eyre::Result<()> {
         if self.capture_http {
-            self.buffer
+            let state = self
+                .states
                 .get_mut(&(project_name, module_name, test_name.clone()))
-                .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?
-                .http_logs
-                .push(log);
+                .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
+
+            let url = style(&log.request.url).dim();
+            let test_number = state.test_number;
+            let space = " ".repeat(test_number.to_string().len());
+            let pb = state
+                .execution_state
+                .progreess_bar()
+                .ok_or_eyre("missing progress bar")?;
+            let http_pb = self
+                .multi_progress
+                .insert_after(pb, ProgressBar::new_spinner());
+            http_pb.set_message(format!("  {space} {url}"));
+            http_pb.finish();
+
+            state.call_states.push(CallState {
+                log,
+                execution_state: ExecutionState::Executing(http_pb),
+            });
         }
+        Ok(())
+    }
+
+    async fn on_update(
+        &mut self,
+        project_name: Option<String>,
+        module_name: Option<String>,
+        test_name: Option<String>,
+    ) -> eyre::Result<()> {
+        match (project_name, module_name, test_name) {
+            (Some(project_name), Some(module_name), Some(test_name)) => {
+                let state = self
+                    .states
+                    .get_mut(&(project_name.clone(), module_name.clone(), test_name.clone()))
+                    .ok_or_else(|| {
+                        eyre::eyre!("test case \"{test_name}\" not found in the test state")
+                    })?;
+
+                let status = symbol_test_result(&state.execution_state);
+                let test_number = style(state.test_number).dim();
+                state.execution_state.update_message(format!(
+                    "{status} {test_number} [{project_name}] {module_name}::{test_name}",
+                ));
+            }
+            _ => {
+                for state in self.states.values_mut() {
+                    match &state.execution_state {
+                        ExecutionState::Executing(pb) => {
+                            if !pb.is_finished() {
+                                pb.tick();
+                                for call_state in &state.call_states {
+                                    let pb = call_state
+                                        .execution_state
+                                        .progreess_bar()
+                                        .ok_or_eyre("missing progress bar")?;
+                                    if !pb.is_finished() {
+                                        pb.tick();
+                                    }
+                                }
+                            }
+                        }
+                        ExecutionState::Executed(pb, _test) => {
+                            pb.finish_and_clear();
+                            for call_state in &state.call_states {
+                                call_state
+                                    .execution_state
+                                    .progreess_bar()
+                                    .ok_or_eyre("missing progress bar")?
+                                    .finish();
+                            }
+                            self.multi_progress.remove(pb);
+                        }
+                        _ => {}
+                    }
+                }
+                //self.reorder_progress_bars();
+            }
+        }
+
         Ok(())
     }
 
@@ -175,67 +384,54 @@ impl Reporter for ListReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
-        let buffer = self
-            .buffer
-            .swap_remove(&(project_name.clone(), module_name, test_name.clone()))
+        let state = self
+            .states
+            .get_mut(&(project_name.clone(), module_name, test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
-
-        for log in buffer.http_logs {
-            write(
-                &self.terminal,
-                format!(" => {} {}", log.request.method, log.request.url),
-            )?;
-            write(&self.terminal, "  > request:")?;
-            write(&self.terminal, "    > headers:")?;
-            for key in log.request.headers.keys() {
-                write(
-                    &self.terminal,
-                    format!(
-                        "       > {key}: {}",
-                        log.request.headers.get(key).unwrap().to_str().unwrap()
-                    ),
-                )?;
-            }
-            write(&self.terminal, "  < response")?;
-            write(&self.terminal, "    < headers:")?;
-            for key in log.response.headers.keys() {
-                write(
-                    &self.terminal,
-                    format!(
-                        "       < {key}: {}",
-                        log.response.headers.get(key).unwrap().to_str().unwrap()
-                    ),
-                )?;
-            }
-            write(&self.terminal, format!("    < body: {}", log.response.body))?;
-        }
-
-        let status = symbol_test_result(&test);
-        let Test {
-            result,
-            info,
-            request_time,
-        } = test;
-        let test_number = style(buffer.test_number).dim();
-        let request_time = style(format!("({request_time:.2?})")).dim();
-        match result {
-            Ok(_res) => {
-                self.terminal.write_line(&format!(
-                    "{status} {test_number} [{project_name}] {module_name}::{test_name} {request_time}",
-                    module_name = info.module,
-                    test_name = info.name
-                ))?;
-            }
-            Err(e) => {
-                self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {module_name}::{test_name} {request_time}: {e:#} ",
-                    module_name = info.module,
-                    test_name = info.name
-                ))?;
-            }
-        }
+        state.execution_state.executed(test);
 
         Ok(())
+    }
+}
+
+impl ListReporter {
+    fn reorder_progress_bars(&mut self) {
+        let states_vec: Vec<_> = self.states.values().collect();
+        let mut i = 0;
+
+        // Process each state
+        while i < states_vec.len() {
+            let es = &states_vec[i].execution_state;
+
+            // Only reorder executing progress bars
+            if !es.is_executing() {
+                i += 1;
+                continue;
+            }
+
+            // Look ahead up to 5 states to see if we need to reorder
+            let mut needs_reorder = false;
+            let mut executed_count = 0;
+
+            for j in i + 1..std::cmp::min(i + 6, states_vec.len()) {
+                let next_es = &states_vec[j].execution_state;
+                if next_es.is_executed() {
+                    executed_count += 1;
+                }
+            }
+
+            // If there are executed states after this executing state, it needs reordering
+            needs_reorder = executed_count > 0;
+
+            if needs_reorder {
+                if let Some(pb) = es.progreess_bar() {
+                    self.multi_progress.remove(pb);
+                    self.multi_progress.add(pb.clone());
+                }
+            }
+
+            i += 1;
+        }
     }
 }
 
@@ -245,10 +441,14 @@ fn write(term: &Term, s: impl AsRef<str>) -> eyre::Result<()> {
         .wrap_err("failed to write character on terminal")
 }
 
-fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
-    match test.result {
-        Ok(_) => style("✓").green(),
-        Err(_) => style("✘").red(),
+fn symbol_test_result(execution_state: &ExecutionState) -> StyledObject<&'static str> {
+    match execution_state {
+        ExecutionState::Initialized => style(" "),
+        ExecutionState::Executing(_pb) => style(" "),
+        ExecutionState::Executed(_pb, test) => match test.result {
+            Ok(_) => style("✓").green(),
+            Err(_) => style("✘").red(),
+        },
     }
 }
 

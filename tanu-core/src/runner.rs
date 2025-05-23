@@ -315,12 +315,13 @@ impl Runner {
 
                                     let f = || async {factory().await};
                                     let started = std::time::Instant::now();
+                                    publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
+
                                     let fut = f.retry(project.retry.backoff());
                                     let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
                                     let res = fut.await;
                                     let request_time = started.elapsed();
 
-                                    publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
                                     let result = match res {
                                         Ok(Ok(_)) => {
