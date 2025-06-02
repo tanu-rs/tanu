@@ -7,7 +7,10 @@ use std::{
     collections::HashMap,
     ops::Deref,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tokio::sync::{broadcast, Semaphore};
@@ -64,6 +67,7 @@ pub enum Error {
 pub enum Message {
     Start(ProjectName, ModuleName, TestName),
     HttpLog(ProjectName, ModuleName, TestName, Box<http::Log>),
+    Retry(ProjectName, ModuleName, TestName),
     End(ProjectName, ModuleName, TestName, Test),
 }
 
@@ -310,17 +314,29 @@ impl Runner {
                             http::CHANNEL.scope(
                                 Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
                                 async {
-                                    let test_name = &info.name;
                                     let mut http_rx = http::subscribe()?;
 
-                                    let f = || async {factory().await};
+                                    let project_name = project.name.clone();
+                                    let module_name = info.module.clone();
+                                    let test_name = info.name.clone();
+                                    publish(Message::Start(project_name.clone(), module_name.clone(), test_name.clone())).wrap_err("failed to send Message::Start to the channel")?;
+
+                                    let retry_count = AtomicUsize::new(project.retry.count.unwrap_or(0));
+                                    let f = || async {
+                                        let res = factory().await;
+
+                                        if res.is_err() && retry_count.load(Ordering::SeqCst) > 0 {
+                                            publish(Message::Retry(project_name.clone(), module_name.clone(), test_name.clone())).wrap_err("failed to send Message::Retry to the channel")?;
+                                            retry_count.fetch_sub(1, Ordering::SeqCst);
+                                        };
+                                        res
+                                    };
                                     let started = std::time::Instant::now();
                                     let fut = f.retry(project.retry.backoff());
                                     let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
                                     let res = fut.await;
                                     let request_time = started.elapsed();
 
-                                    publish(Message::Start(project.name.clone(), info.module.clone(), test_name.to_string())).wrap_err("failed to send Message::Start to the channel")?;
 
                                     let result = match res {
                                         Ok(Ok(_)) => {

@@ -36,6 +36,11 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
                     .on_http_call(project_name, module_name, test_name, log)
                     .await
             }
+            Ok(runner::Message::Retry(project_name, module_name, test_name)) => {
+                reporter
+                    .on_retry(project_name, module_name, test_name)
+                    .await
+            }
             Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
                 reporter
                     .on_end(project_name, module_name, test_name, test)
@@ -89,6 +94,16 @@ pub trait Reporter {
         Ok(())
     }
 
+    /// Called when a test case fails but to be retried.
+    async fn on_retry(
+        &mut self,
+        _project: String,
+        _module: String,
+        _test_name: String,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
     /// Called when a test case ends.
     async fn on_end(
         &mut self,
@@ -108,7 +123,7 @@ impl Reporter for NullReporter {}
 
 /// Capture current states of the stdout for the test case.
 #[allow(clippy::vec_box)]
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Buffer {
     test_number: usize,
     http_logs: Vec<Box<http::Log>>,
@@ -165,6 +180,26 @@ impl Reporter for ListReporter {
                 .http_logs
                 .push(log);
         }
+        Ok(())
+    }
+
+    async fn on_retry(
+        &mut self,
+        project: String,
+        module: String,
+        test_name: String,
+    ) -> eyre::Result<()> {
+        let buffer = self
+            .buffer
+            .get(&(project.clone(), module.clone(), test_name.clone()))
+            .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
+
+        let test_number = style(buffer.test_number).dim();
+        self.terminal.write_line(&format!(
+            "{status} {test_number} [{project}] {module}::{test_name}: {retry_message}",
+            status = symbol_error(),
+            retry_message = style("retrying...").blue(),
+        ))?;
         Ok(())
     }
 
@@ -228,7 +263,7 @@ impl Reporter for ListReporter {
             }
             Err(e) => {
                 self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {module_name}::{test_name} {request_time}: {e:#} ",
+                    "{status} [{project_name}] {module_name}::{test_name} {request_time}:\n{e:#} ",
                     module_name = info.module,
                     test_name = info.name
                 ))?;
@@ -247,9 +282,17 @@ fn write(term: &Term, s: impl AsRef<str>) -> eyre::Result<()> {
 
 fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
     match test.result {
-        Ok(_) => style("✓").green(),
-        Err(_) => style("✘").red(),
+        Ok(_) => symbol_success(),
+        Err(_) => symbol_error(),
     }
+}
+
+fn symbol_success() -> StyledObject<&'static str> {
+    style("✓").green()
+}
+
+fn symbol_error() -> StyledObject<&'static str> {
+    style("✘").red()
 }
 
 fn emoji_symbol_test_result(test: &Test) -> char {

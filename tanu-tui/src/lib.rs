@@ -786,6 +786,8 @@ impl Runtime {
                                 // TODO error
                             }
                         },
+                        tanu_core::runner::Message::Retry(_project_name, _module_name, _test_name) => {
+                        }
                         tanu_core::runner::Message::End(project_name, module_name, name, test) => {
                             if let Some(mut test_result) = test_results_buffer.remove(&(project_name.clone(), name.clone())) {
                                 test_result.test = Some(test);
