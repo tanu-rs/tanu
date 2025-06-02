@@ -2,7 +2,10 @@ use console::{style, StyledObject, Term};
 use eyre::WrapErr;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+};
 use tokio::sync::broadcast;
 use tracing::*;
 
@@ -125,12 +128,17 @@ impl Reporter for NullReporter {}
 #[allow(clippy::vec_box)]
 #[derive(Default, Debug)]
 struct Buffer {
-    test_number: usize,
+    test_number: Option<usize>,
     http_logs: Vec<Box<http::Log>>,
 }
 
+fn generate_test_number() -> usize {
+    static TEST_NUMBER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+    let mut test_number = TEST_NUMBER.lock().unwrap();
+    *test_number += 1;
+    *test_number
+}
 pub struct ListReporter {
-    test_count: usize,
     terminal: Term,
     buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
     capture_http: bool,
@@ -139,7 +147,6 @@ pub struct ListReporter {
 impl ListReporter {
     pub fn new(capture_http: bool) -> ListReporter {
         ListReporter {
-            test_count: 0,
             terminal: Term::stdout(),
             buffer: IndexMap::new(),
             capture_http,
@@ -155,14 +162,8 @@ impl Reporter for ListReporter {
         module_name: String,
         test_name: String,
     ) -> eyre::Result<()> {
-        self.test_count += 1;
-        self.buffer.insert(
-            (project_name, module_name, test_name),
-            Buffer {
-                test_number: self.test_count,
-                ..Default::default()
-            },
-        );
+        self.buffer
+            .insert((project_name, module_name, test_name), Buffer::default());
         Ok(())
     }
 
@@ -191,10 +192,10 @@ impl Reporter for ListReporter {
     ) -> eyre::Result<()> {
         let buffer = self
             .buffer
-            .get(&(project.clone(), module.clone(), test_name.clone()))
+            .get_mut(&(project.clone(), module.clone(), test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
-        let test_number = style(buffer.test_number).dim();
+        let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
         self.terminal.write_line(&format!(
             "{status} {test_number} [{project}] {module}::{test_name}: {retry_message}",
             status = symbol_error(),
@@ -210,7 +211,7 @@ impl Reporter for ListReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
-        let buffer = self
+        let mut buffer = self
             .buffer
             .swap_remove(&(project_name.clone(), module_name, test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
@@ -251,7 +252,7 @@ impl Reporter for ListReporter {
             info,
             request_time,
         } = test;
-        let test_number = style(buffer.test_number).dim();
+        let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
         let request_time = style(format!("({request_time:.2?})")).dim();
         match result {
             Ok(_res) => {
