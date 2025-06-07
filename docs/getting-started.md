@@ -43,11 +43,11 @@ you will see the output as follows:
 ```bash
 tanu - High-performance and async-friendly WebAPI testing framework for Rust
 
-Usage: simple <COMMAND>
+Usage: tanu-examples <COMMAND>
 
 Commands:
-  test  Run tests with tanu
-  tui
+  test  Run tests in CLI mode
+  tui   Run tests in TUI mode
   ls    List test cases
   help  Print this message or the help of the given subcommand(s)
 

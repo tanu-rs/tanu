@@ -21,6 +21,5 @@ I tried multiple solutions in the past but encountered significant limitations:
 
 ## Screenshots
 
-![](cli.gif)
-<br />
-![](tui.gif)
+<p><img src="cli.png" width="80%"></p>
+<p><img src="tui.png" width="80%"></p>
