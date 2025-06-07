@@ -132,7 +132,7 @@ pub enum Color {
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
-    /// Run tests with tanu
+    /// Run tests in CLI mode
     Test {
         /// Capture http debug logs.
         #[arg(long)]
@@ -164,6 +164,7 @@ pub enum Command {
         #[arg(long)]
         color: Option<Color>,
     },
+    /// Run tests in TUI mode
     Tui {
         #[arg(long, default_value = "Info")]
         log_level: log::LevelFilter,
