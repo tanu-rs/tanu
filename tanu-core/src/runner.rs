@@ -235,6 +235,10 @@ impl Runner {
         self.reporters.push(Box::new(reporter));
     }
 
+    pub fn add_boxed_reporter(&mut self, reporter: Box<dyn Reporter + 'static + Send>) {
+        self.reporters.push(reporter);
+    }
+
     /// Add a test case to the runner.
     pub fn add_test(&mut self, name: &str, module: &str, factory: TestCaseFactory) {
         self.test_cases.push((

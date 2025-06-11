@@ -15,7 +15,7 @@ use crate::{
     ModuleName, ProjectName, TestName,
 };
 
-#[derive(Debug, Clone, Default, strum::EnumString)]
+#[derive(Debug, Clone, Default, strum::EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ReporterType {
     Null,
