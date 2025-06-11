@@ -2,22 +2,36 @@ use clap::Parser;
 use console::Term;
 use eyre::OptionExt;
 use itertools::Itertools;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 use tanu_core::Filter;
 
-use crate::{get_tanu_config, ListReporter, NullReporter, ReporterType, TableReporter};
+use crate::{get_tanu_config, ListReporter, ReporterType, TableReporter};
 
 /// tanu CLI.
 #[derive(Default)]
-pub struct App;
+pub struct App {
+    third_party_reporters: HashMap<String, Box<dyn tanu_core::reporter::Reporter + 'static + Send>>,
+}
 
 impl App {
     pub fn new() -> App {
-        App
+        App {
+            third_party_reporters: HashMap::new(),
+        }
+    }
+
+    /// Install a third-party reporter.
+    pub fn install_reporter(
+        &mut self,
+        name: impl Into<String>,
+        reporter: impl tanu_core::reporter::Reporter + 'static + Send,
+    ) {
+        self.third_party_reporters
+            .insert(name.into(), Box::new(reporter));
     }
 
     /// Parse command-line args and run tanu CLI sub command.
-    pub async fn run(self, mut runner: crate::Runner) -> eyre::Result<()> {
+    pub async fn run(mut self, mut runner: crate::Runner) -> eyre::Result<()> {
         let args = Args::parse();
         color_eyre::install().unwrap();
 
@@ -30,7 +44,7 @@ impl App {
                 projects,
                 modules,
                 tests,
-                reporter,
+                reporters: reporters_arg,
                 concurrency,
                 color: color_command,
             } => {
@@ -44,10 +58,29 @@ impl App {
                     runner.set_concurrency(concurrency);
                 }
                 runner.terminate_channel();
-                match reporter.unwrap_or_default() {
-                    ReporterType::Table => runner.add_reporter(TableReporter::new(capture_http)),
-                    ReporterType::List => runner.add_reporter(ListReporter::new(capture_http)),
-                    ReporterType::Null => runner.add_reporter(NullReporter),
+
+                let mut reporters = std::mem::take(&mut self.third_party_reporters);
+                reporters.extend([
+                    (
+                        ReporterType::Table.to_string(),
+                        Box::new(TableReporter::new(capture_http)),
+                    ),
+                    (
+                        ReporterType::List.to_string(),
+                        Box::new(ListReporter::new(capture_http)),
+                    ),
+                ]
+                    as [(
+                        String,
+                        Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
+                    ); 2]);
+
+                for reporter in reporters_arg.into_iter().flatten() {
+                    runner.add_boxed_reporter(
+                        reporters
+                            .remove(&reporter)
+                            .ok_or_else(|| eyre::eyre!("Unknown reporter: {reporter}"))?,
+                    );
                 }
 
                 let color_env = std::env::var("CARGO_TERM_COLOR");
@@ -142,21 +175,21 @@ pub enum Command {
         /// 2) you would want to see logs produced from your tests that uses "log" crate.
         #[arg(long)]
         capture_rust: bool,
-        /// Run only the specified projects. This option can be specified multiple times e.g.
+        /// Specify projects to run in comma-separated string.
         /// --projects dev --projects staging
-        #[arg(short, long)]
+        #[arg(short, long, value_delimiter = ',')]
         projects: Vec<String>,
-        /// Run only the specified modules. This option can be specified multiple times e.g.
-        /// --modules foo --modules bar
-        #[arg(short, long)]
+        /// Specify modules to run in comma-separated string.
+        /// --modules foo,bar
+        #[arg(short, long, value_delimiter = ',')]
         modules: Vec<String>,
-        /// Run only the specified test cases. This option can be specified multiple times
-        /// e.g. --tests a --tests b
-        #[arg(short, long)]
+        /// Specify test cases to run in comma-separated string.
+        /// e.g. --tests a,b
+        #[arg(short, long, value_delimiter = ',')]
         tests: Vec<String>,
-        /// Specify the reporter to use. Default is "list". Possible values are "table", "list" and "null".
-        #[arg(long)]
-        reporter: Option<ReporterType>,
+        /// Specify the reporters to use in comma-separated string. Default is "list". Possible values are "table", "list" and "null".
+        #[arg(long, value_delimiter = ',')]
+        reporters: Option<Vec<String>>,
         /// Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel.
         #[arg(short, long)]
         concurrency: Option<usize>,
