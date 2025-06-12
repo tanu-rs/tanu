@@ -23,6 +23,14 @@ use crate::{
     Config, ModuleName, ProjectName, TestName,
 };
 
+tokio::task_local! {
+    pub static TEST_INFO: TestInfo;
+}
+
+pub fn get_test_info() -> TestInfo {
+    TEST_INFO.with(|info| info.clone())
+}
+
 // NOTE: Keep the runner receiver alive here so that sender never fails to send.
 #[allow(clippy::type_complexity)]
 pub static CHANNEL: Lazy<
@@ -64,8 +72,31 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
+pub struct Check {
+    pub result: bool,
+    pub expr: String,
+}
+
+impl Check {
+    pub fn success(expr: impl Into<String>) -> Check {
+        Check {
+            result: true,
+            expr: expr.into(),
+        }
+    }
+
+    pub fn error(expr: impl Into<String>) -> Check {
+        Check {
+            result: false,
+            expr: expr.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Start(ProjectName, ModuleName, TestName),
+    Check(ProjectName, ModuleName, TestName, Box<Check>),
     HttpLog(ProjectName, ModuleName, TestName, Box<http::Log>),
     Retry(ProjectName, ModuleName, TestName),
     End(ProjectName, ModuleName, TestName, Test),
@@ -315,9 +346,8 @@ impl Runner {
                     tokio::spawn(async move {
                         let _permit = semaphore.acquire().await.unwrap();
                         config::PROJECT.scope(project.clone(), async {
-                            http::CHANNEL.scope(
-                                Arc::new(Mutex::new(Some(broadcast::channel(1000).0))),
-                                async {
+                            TEST_INFO.scope(info.clone(), async {
+                                http::CHANNEL.scope(Arc::new(Mutex::new(Some(broadcast::channel(1000).0))), async {
                                     let mut http_rx = http::subscribe()?;
 
                                     let project_name = project.name.clone();
@@ -382,8 +412,8 @@ impl Runner {
                                     eyre::ensure!(!is_err);
                                     eyre::Ok(())
                                 }).await
-                            })
-                            .await
+                            }).await
+                        }).await
                     })
                 })
                 .collect()
