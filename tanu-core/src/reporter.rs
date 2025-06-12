@@ -34,6 +34,11 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
                     .on_start(project_name, module_name, test_name)
                     .await
             }
+            Ok(runner::Message::Check(project_name, module_name, test_name, check)) => {
+                reporter
+                    .on_check(project_name, module_name, test_name, check)
+                    .await
+            }
             Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
                 reporter
                     .on_http_call(project_name, module_name, test_name, log)
@@ -82,6 +87,17 @@ pub trait Reporter {
         _project: String,
         _module: String,
         _test_name: String,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    /// Called when a check macro is used.
+    async fn on_check(
+        &mut self,
+        _project: String,
+        _module: String,
+        _test_name: String,
+        _check: Box<runner::Check>,
     ) -> eyre::Result<()> {
         Ok(())
     }

@@ -779,6 +779,8 @@ impl Runtime {
                                 ..Default::default()
                             });
                         },
+                        tanu_core::runner::Message::Check(_project_name, _module_name, _name, _check) => {
+                        }
                         tanu_core::runner::Message::HttpLog(project_name, _module_name, name, log) => {
                             if let Some(test_result) =  test_results_buffer.get_mut(&(project_name, name)) {
                                 test_result.logs.push(log);
