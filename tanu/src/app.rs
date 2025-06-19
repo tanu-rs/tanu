@@ -133,9 +133,14 @@ impl App {
                     .get_many::<String>("tests")
                     .map(|vals| vals.cloned().collect::<Vec<_>>())
                     .unwrap_or_default();
-                let reporters_arg = test_matches
+                let mut reporters_arg = test_matches
                     .get_many::<String>("reporters")
-                    .map(|vals| vals.cloned().collect::<Vec<_>>());
+                    .into_iter()
+                    .flat_map(|vals| vals.cloned())
+                    .collect::<Vec<_>>();
+                if reporters_arg.is_empty() {
+                    reporters_arg.push(ReporterType::List.to_string());
+                }
                 let concurrency = test_matches.get_one::<usize>("concurrency").cloned();
                 let color_command = test_matches
                     .get_one::<String>("color")
@@ -168,7 +173,7 @@ impl App {
                         Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
                     ); 2]);
 
-                for reporter in reporters_arg.into_iter().flatten() {
+                for reporter in reporters_arg {
                     runner.add_boxed_reporter(
                         reporters
                             .remove(&reporter)
