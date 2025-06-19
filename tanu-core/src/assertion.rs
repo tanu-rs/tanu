@@ -29,17 +29,15 @@ macro_rules! assert {
         $crate::assert!(@ $cond, ":", $($arg)+);
     };
     (@ $cond:expr, $maybe_colon:expr, $($arg:tt)*) => {
-        let __project = tanu::get_config();
-        let __test_info = tanu::get_test_info();
         if !$cond {
             let __message = format!("assertion failed: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
             let __check = tanu::runner::Check::error(&__message);
-            tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+            tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
             tanu::eyre::bail!(__message);
         } else {
             let __message = format!("assertion succeeded: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
             let __check = tanu::runner::Check::success(&__message);
-            tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+            tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
         }
     };
 }
@@ -53,8 +51,6 @@ macro_rules! assert_str_eq {
         $crate::assert_str_eq!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)*) => ({
-        let __project = tanu::get_config();
-        let __test_info = tanu::get_test_info();
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if !(*left_val == *right_val) {
@@ -67,7 +63,7 @@ macro_rules! assert_str_eq {
                        tanu::pretty_assertions::StrComparison::new(left_val, right_val)
                     );
                     let __check = tanu::runner::Check::error(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(Error::StrEq(__message))?;
                 } else {
                     let __message = format!("assertion succeeded: `(left == right)`{}{}\
@@ -79,7 +75,7 @@ macro_rules! assert_str_eq {
                        tanu::pretty_assertions::StrComparison::new(left_val, right_val)
                     );
                     let __check = tanu::runner::Check::success(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                 }
             }
         }
@@ -95,8 +91,6 @@ macro_rules! assert_eq {
         $crate::assert_eq!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)*) => ({
-        let __project = tanu::get_config();
-        let __test_info = tanu::get_test_info();
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if !(*left_val == *right_val) {
@@ -109,7 +103,7 @@ macro_rules! assert_eq {
                        tanu::pretty_assertions::Comparison::new(left_val, right_val)
                     );
                     let __check = tanu::runner::Check::error(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(tanu::assertion::Error::Eq(__message))?;
                 } else {
                     let __message = format!("assertion succeeded: `(left == right)`{}{}\
@@ -121,7 +115,7 @@ macro_rules! assert_eq {
                        tanu::pretty_assertions::Comparison::new(left_val, right_val)
                     );
                     let __check = tanu::runner::Check::success(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                 }
             }
         }
@@ -137,8 +131,6 @@ macro_rules! assert_ne {
         $crate::assert_ne!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)+) => ({
-        let __project = tanu::get_config();
-        let __test_info = tanu::get_test_info();
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if *left_val == *right_val {
@@ -153,7 +145,7 @@ macro_rules! assert_ne {
                         left_val
                     );
                     let __check = tanu::runner::Check::error(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(Error::Ne(__message))?;
                 } else {
                     let __message = format!("assertion succeeded: `(left != right)`{}{}\
@@ -167,7 +159,7 @@ macro_rules! assert_ne {
                         left_val
                     );
                     let __check = tanu::runner::Check::success(&__message);
-                    tanu::runner::publish(tanu::runner::Message::Check(__project.name, __test_info.module, __test_info.name, Box::new(__check)))?;
+                    tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                 }
             }
         }

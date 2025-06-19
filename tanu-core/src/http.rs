@@ -1,31 +1,9 @@
 /// tanu's HTTP client is a wrapper for `reqwest::Client` and offers * exactly same interface as `reqwest::Client`
 /// * to capture reqnest and response logs
-use eyre::{OptionExt, WrapErr};
+use eyre::OptionExt;
 pub use http::{header, Method, StatusCode, Version};
-use std::{
-    ops::Deref,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
-use tokio::sync::broadcast;
+use std::time::{Duration, Instant};
 use tracing::*;
-
-tokio::task_local! {
-    pub static CHANNEL: Arc<Mutex<Option<broadcast::Sender<Log>>>>;
-}
-
-/// Subscribe to the channel to see the real-time network logs.
-pub fn subscribe() -> eyre::Result<broadcast::Receiver<Log>> {
-    let ch = CHANNEL.get();
-    let Ok(guard) = ch.lock() else {
-        eyre::bail!("failed to acquire http channel lock");
-    };
-    let Some(tx) = guard.deref() else {
-        eyre::bail!("http channel has been already closed");
-    };
-
-    Ok(tx.subscribe())
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -262,31 +240,17 @@ impl RequestBuilder {
                     duration_req,
                 };
 
-                let ch = CHANNEL.get();
-                let Ok(guard) = ch.lock() else {
-                    return Err(eyre::eyre!("failed to acquire http channel lock").into());
-                };
-                if let Some(tx) = guard.deref() {
-                    tx.send(Log {
-                        request: log_request,
-                        response: log_response,
-                    })
-                    .wrap_err("failed to send a message to http channel")?;
-                }
+                crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
+                    request: log_request.clone(),
+                    response: log_response,
+                })))?;
                 Ok(res)
             }
             Err(e) => {
-                let ch = CHANNEL.get();
-                let Ok(guard) = ch.lock() else {
-                    return Err(eyre::eyre!("failed to acquire http channel lock").into());
-                };
-                if let Some(tx) = guard.deref() {
-                    tx.send(Log {
-                        request: log_request,
-                        response: LogResponse::default(),
-                    })
-                    .wrap_err("failed to send a message to http channel")?;
-                }
+                crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
+                    request: log_request,
+                    response: Default::default(),
+                })))?;
                 Err(e.into())
             }
         }

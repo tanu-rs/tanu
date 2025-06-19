@@ -17,27 +17,27 @@ use tokio::sync::{broadcast, Semaphore};
 use tracing::*;
 
 use crate::{
-    config::{self, get_config, get_tanu_config, ProjectConfig},
+    config::{self, get_tanu_config, ProjectConfig},
     http,
     reporter::Reporter,
-    Config, ModuleName, ProjectName, TestName,
+    Config, ModuleName, ProjectName,
 };
 
 tokio::task_local! {
-    pub static TEST_INFO: TestInfo;
+    pub(crate) static TEST_INFO: TestInfo;
 }
 
-pub fn get_test_info() -> TestInfo {
+pub(crate) fn get_test_info() -> TestInfo {
     TEST_INFO.with(|info| info.clone())
 }
 
 // NOTE: Keep the runner receiver alive here so that sender never fails to send.
 #[allow(clippy::type_complexity)]
-pub static CHANNEL: Lazy<
-    Mutex<Option<(broadcast::Sender<Message>, broadcast::Receiver<Message>)>>,
+pub(crate) static CHANNEL: Lazy<
+    Mutex<Option<(broadcast::Sender<Event>, broadcast::Receiver<Event>)>>,
 > = Lazy::new(|| Mutex::new(Some(broadcast::channel(1000))));
 
-pub fn publish(msg: Message) -> eyre::Result<()> {
+pub fn publish(e: impl Into<Event>) -> eyre::Result<()> {
     let Ok(guard) = CHANNEL.lock() else {
         eyre::bail!("failed to acquire runner channel lock");
     };
@@ -45,14 +45,14 @@ pub fn publish(msg: Message) -> eyre::Result<()> {
         eyre::bail!("runner channel has been already closed");
     };
 
-    tx.send(msg)
+    tx.send(e.into())
         .wrap_err("failed to publish message to the runner channel")?;
 
     Ok(())
 }
 
 /// Subscribe to the channel to see the real-time test execution events.
-pub fn subscribe() -> eyre::Result<broadcast::Receiver<Message>> {
+pub fn subscribe() -> eyre::Result<broadcast::Receiver<Event>> {
     let Ok(guard) = CHANNEL.lock() else {
         eyre::bail!("failed to acquire runner channel lock");
     };
@@ -93,13 +93,35 @@ impl Check {
     }
 }
 
+/// Runner event represents a test event that is published to the channel.
 #[derive(Debug, Clone)]
-pub enum Message {
-    Start(ProjectName, ModuleName, TestName),
-    Check(ProjectName, ModuleName, TestName, Box<Check>),
-    HttpLog(ProjectName, ModuleName, TestName, Box<http::Log>),
-    Retry(ProjectName, ModuleName, TestName),
-    End(ProjectName, ModuleName, TestName, Test),
+pub struct Event {
+    pub project: ProjectName,
+    pub module: ModuleName,
+    pub test: ModuleName,
+    pub body: EventBody,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventBody {
+    Start,
+    Check(Box<Check>),
+    Http(Box<http::Log>),
+    Retry,
+    End(Test),
+}
+
+impl From<EventBody> for Event {
+    fn from(body: EventBody) -> Self {
+        let project = crate::config::get_config();
+        let test_info = crate::runner::get_test_info();
+        Event {
+            project: project.name,
+            module: test_info.module,
+            test: test_info.name,
+            body,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -325,95 +347,87 @@ impl Runner {
                     };
                     projects
                         .into_iter()
-                        .map(move |project| {
-                            (project.clone(), info.clone(), factory.clone())
-                        })
+                        .map(move |project| (project.clone(), info.clone(), factory.clone()))
                 })
-                .filter(move |(project, info, _)| {
-                    test_name_filter.filter(project, info)
-                })
-                .filter(move |(project, info, _)| {
-                    module_filter.filter(project, info)
-                })
-                .filter(move |(project, info, _)| {
-                    project_filter.filter(project, info)
-                })
-                .filter(move |(project, info, _)| {
-                    test_ignore_filter.filter(project, info)
-                })
+                .filter(move |(project, info, _)| test_name_filter.filter(project, info))
+                .filter(move |(project, info, _)| module_filter.filter(project, info))
+                .filter(move |(project, info, _)| project_filter.filter(project, info))
+                .filter(move |(project, info, _)| test_ignore_filter.filter(project, info))
                 .map(|(project, info, factory)| {
                     let semaphore = semaphore.clone();
                     tokio::spawn(async move {
                         let _permit = semaphore.acquire().await.unwrap();
-                        config::PROJECT.scope(project.clone(), async {
-                            TEST_INFO.scope(info.clone(), async {
-                                http::CHANNEL.scope(Arc::new(Mutex::new(Some(broadcast::channel(1000).0))), async {
-                                    let mut http_rx = http::subscribe()?;
+                        config::PROJECT
+                            .scope(project.clone(), async {
+                                TEST_INFO
+                                    .scope(info.clone(), async {
+                                        let test_name = info.name.clone();
+                                        publish(EventBody::Start)?;
 
-                                    let project_name = project.name.clone();
-                                    let module_name = info.module.clone();
-                                    let test_name = info.name.clone();
-                                    publish(Message::Start(project_name.clone(), module_name.clone(), test_name.clone())).wrap_err("failed to send Message::Start to the channel")?;
+                                        let retry_count =
+                                            AtomicUsize::new(project.retry.count.unwrap_or(0));
+                                        let f = || async {
+                                            let res = factory().await;
 
-                                    let retry_count = AtomicUsize::new(project.retry.count.unwrap_or(0));
-                                    let f = || async {
-                                        let res = factory().await;
-
-                                        if res.is_err() && retry_count.load(Ordering::SeqCst) > 0 {
-                                            publish(Message::Retry(project_name.clone(), module_name.clone(), test_name.clone())).wrap_err("failed to send Message::Retry to the channel")?;
-                                            retry_count.fetch_sub(1, Ordering::SeqCst);
+                                            if res.is_err()
+                                                && retry_count.load(Ordering::SeqCst) > 0
+                                            {
+                                                publish(EventBody::Retry)?;
+                                                retry_count.fetch_sub(1, Ordering::SeqCst);
+                                            };
+                                            res
                                         };
-                                        res
-                                    };
-                                    let started = std::time::Instant::now();
-                                    let fut = f.retry(project.retry.backoff());
-                                    let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
-                                    let res = fut.await;
-                                    let request_time = started.elapsed();
+                                        let started = std::time::Instant::now();
+                                        let fut = f.retry(project.retry.backoff());
+                                        let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
+                                        let res = fut.await;
+                                        let request_time = started.elapsed();
 
-
-                                    let result = match res {
-                                        Ok(Ok(_)) => {
-                                            debug!("{test_name} ok");
-                                            Ok(())
-                                        }
-                                        Ok(Err(e)) => {
-                                            debug!("{test_name} failed: {e:#}");
-                                            Err(Error::ErrorReturned(format!("{e:?}")))
-                                        }
-                                        Err(e) => {
-                                            let panic_message =
-                                                if let Some(panic_message) = e.downcast_ref::<&str>() {
+                                        let result = match res {
+                                            Ok(Ok(_)) => {
+                                                debug!("{test_name} ok");
+                                                Ok(())
+                                            }
+                                            Ok(Err(e)) => {
+                                                debug!("{test_name} failed: {e:#}");
+                                                Err(Error::ErrorReturned(format!("{e:?}")))
+                                            }
+                                            Err(e) => {
+                                                let panic_message = if let Some(panic_message) =
+                                                    e.downcast_ref::<&str>()
+                                                {
                                                     format!(
-                                                    "{test_name} failed with message: {panic_message}"
-                                                )
+                                                "{test_name} failed with message: {panic_message}"
+                                            )
                                                 } else if let Some(panic_message) =
                                                     e.downcast_ref::<String>()
                                                 {
                                                     format!(
-                                                    "{test_name} failed with message: {panic_message}"
-                                                )
+                                                "{test_name} failed with message: {panic_message}"
+                                            )
                                                 } else {
-                                                    format!("{test_name} failed with unknown message")
+                                                    format!(
+                                                        "{test_name} failed with unknown message"
+                                                    )
                                                 };
-                                            let e = eyre::eyre!(panic_message);
-                                            Err(Error::Panicked(format!("{e:?}")))
-                                        }
-                                    };
+                                                let e = eyre::eyre!(panic_message);
+                                                Err(Error::Panicked(format!("{e:?}")))
+                                            }
+                                        };
 
-                                    while let Ok(log) = http_rx.try_recv() {
-                                        publish(Message::HttpLog(project.name.clone(), info.module.clone(), test_name.clone(), Box::new(log))).wrap_err("failed to send Message::HttpLog to the channel")?;
-                                    }
+                                        let is_err = result.is_err();
+                                        publish(EventBody::End(Test {
+                                            info,
+                                            request_time,
+                                            result,
+                                        }))?;
 
-                                    let project = get_config();
-                                    let is_err = result.is_err();
-                                    publish(Message::End(project.name, info.module.clone(), test_name.clone(), Test { info, request_time, result })).wrap_err("failed to send Message::End to the channel")?;
-
-                                    eyre::ensure!(!is_err);
-                                    eyre::Ok(())
-                                }).await
-                            }).await
-                        }).await
+                                        eyre::ensure!(!is_err);
+                                        eyre::Ok(())
+                                    })
+                                    .await
+                            })
+                            .await
                     })
                 })
                 .collect()

@@ -11,7 +11,7 @@ use tracing::*;
 
 use crate::{
     get_tanu_config, http,
-    runner::{self, Test},
+    runner::{self, Event, EventBody, Test},
     ModuleName, ProjectName, TestName,
 };
 
@@ -29,31 +29,36 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
 
     loop {
         let res = match rx.recv().await {
-            Ok(runner::Message::Start(project_name, module_name, test_name)) => {
-                reporter
-                    .on_start(project_name, module_name, test_name)
-                    .await
-            }
-            Ok(runner::Message::Check(project_name, module_name, test_name, check)) => {
-                reporter
-                    .on_check(project_name, module_name, test_name, check)
-                    .await
-            }
-            Ok(runner::Message::HttpLog(project_name, module_name, test_name, log)) => {
-                reporter
-                    .on_http_call(project_name, module_name, test_name, log)
-                    .await
-            }
-            Ok(runner::Message::Retry(project_name, module_name, test_name)) => {
-                reporter
-                    .on_retry(project_name, module_name, test_name)
-                    .await
-            }
-            Ok(runner::Message::End(project_name, module_name, test_name, test)) => {
-                reporter
-                    .on_end(project_name, module_name, test_name, test)
-                    .await
-            }
+            Ok(Event {
+                project,
+                module,
+                test,
+                body: EventBody::Start,
+            }) => reporter.on_start(project, module, test).await,
+            Ok(Event {
+                project,
+                module,
+                test,
+                body: EventBody::Check(check),
+            }) => reporter.on_check(project, module, test, check).await,
+            Ok(Event {
+                project,
+                module,
+                test,
+                body: EventBody::Http(log),
+            }) => reporter.on_http_call(project, module, test, log).await,
+            Ok(Event {
+                project,
+                module,
+                test,
+                body: EventBody::Retry,
+            }) => reporter.on_retry(project, module, test).await,
+            Ok(Event {
+                project,
+                module,
+                test: test_name,
+                body: EventBody::End(test),
+            }) => reporter.on_end(project, module, test_name, test).await,
             Err(broadcast::error::RecvError::Closed) => {
                 debug!("runner channel has been closed");
                 break;

@@ -27,7 +27,11 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     time::Duration,
 };
-use tanu_core::{get_tanu_config, Runner, TestInfo};
+use tanu_core::{
+    get_tanu_config,
+    runner::{self, EventBody},
+    Runner, TestInfo,
+};
 use tokio::sync::mpsc;
 use tracing::{error, info, trace};
 use tracing_subscriber::layer::SubscriberExt;
@@ -771,33 +775,33 @@ impl Runtime {
                 }
                 Ok(msg) = runner_rx.recv() => {
                     match msg {
-                        tanu_core::runner::Message::Start(project_name, module_name, test_name) => {
-                            test_results_buffer.insert((project_name.clone(), test_name.clone()), TestResult {
-                                project_name,
-                                module_name,
-                                name: test_name,
+                        runner::Event {project, module, test, body: EventBody::Start} => {
+                            test_results_buffer.insert((project.clone(), test.clone()), TestResult {
+                                project_name: project,
+                                module_name: module,
+                                name: test,
                                 ..Default::default()
                             });
                         },
-                        tanu_core::runner::Message::Check(_project_name, _module_name, _name, _check) => {
+                        runner::Event {project: _, module: _, test: _, body: EventBody::Check(_)} => {
                         }
-                        tanu_core::runner::Message::HttpLog(project_name, _module_name, name, log) => {
-                            if let Some(test_result) =  test_results_buffer.get_mut(&(project_name, name)) {
+                        runner::Event {project, module: _, test, body: EventBody::Http(log)} => {
+                            if let Some(test_result) = test_results_buffer.get_mut(&(project, test)) {
                                 test_result.logs.push(log);
                             } else {
                                 // TODO error
                             }
                         },
-                        tanu_core::runner::Message::Retry(_project_name, _module_name, _test_name) => {
+                        runner::Event {project: _, module: _, test: _, body: EventBody::Retry} => {
                         }
-                        tanu_core::runner::Message::End(project_name, module_name, name, test) => {
-                            if let Some(mut test_result) = test_results_buffer.remove(&(project_name.clone(), name.clone())) {
+                        runner::Event {project, module, test: test_name, body: EventBody::End(test)} => {
+                            if let Some(mut test_result) = test_results_buffer.remove(&(project.clone(), test_name.clone())) {
                                 test_result.test = Some(test);
                                 ExecutionStateController::on_test_updated(
                                     &mut model.test_cases_list,
-                                    &project_name,
-                                    &module_name,
-                                    &name,
+                                    &project,
+                                    &module,
+                                    &test_name,
                                     test_result.clone(),
                                 );
                                 model.test_results.push(test_result);

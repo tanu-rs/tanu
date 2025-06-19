@@ -1,4 +1,3 @@
-// filepath: /home/yukinari/repos/r/tanu/tanu-integration-tests/src/http/post.rs
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tanu::{assert, assert_eq, eyre, http::Client};
