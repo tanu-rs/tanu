@@ -1,6 +1,6 @@
 extern crate proc_macro;
 
-use eyre::{OptionExt, WrapErr};
+use eyre::WrapErr;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
@@ -369,10 +369,10 @@ fn discover_tests() -> eyre::Result<Vec<TestModule>> {
         source_file.read_to_string(&mut code)?;
 
         let file = syn::parse_file(&code)?;
-        test_modules.extend(extract_module_and_test(
-            &extract_module_path(&source_path).ok_or_eyre("malformed module path")?,
-            file,
-        ));
+        let Some(module) = extract_module_path(&source_path) else {
+            continue;
+        };
+        test_modules.extend(extract_module_and_test(&module, file));
     }
 
     Ok(test_modules)
