@@ -302,7 +302,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     match TEST_CASES.lock() {
         Ok(mut lock) => lock.insert(test_case.clone()),
         Err(e) => {
-            eprintln!("Failed to acquire test case lock: {}", e);
+            eprintln!("Failed to acquire test case lock: {e}");
             return quote! { #input_fn }.into();
         }
     };
@@ -510,7 +510,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
             })
             .multiunzip(),
         Err(e) => {
-            eprintln!("failed to acquire test case lock: {}", e);
+            eprintln!("failed to acquire test case lock: {e}");
             (Vec::new(), Vec::new(), Vec::new())
         }
     };

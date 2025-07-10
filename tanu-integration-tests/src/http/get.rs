@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use tanu::{
-    assert, assert_eq, eyre,
+    check, check_eq, eyre,
     http::{Client, StatusCode},
 };
 
@@ -31,13 +31,13 @@ async fn json() -> eyre::Result<()> {
     let base_url = crate::get_httpbin().await?.get_base_url().await;
 
     let res = http.get(format!("{base_url}/get")).send().await?;
-    assert!(res.status().is_success(), "Non 2xx satus received");
+    check!(res.status().is_success(), "Non 2xx satus received");
 
     let payload: Payload = res.json().await?;
-    assert!(payload.args.is_empty());
-    assert!(!payload.headers.is_empty());
-    assert!(!payload.origin.is_empty());
-    assert_eq!(format!("{base_url}/get"), payload.url.as_str());
+    check!(payload.args.is_empty());
+    check!(!payload.headers.is_empty());
+    check!(!payload.origin.is_empty());
+    check_eq!(format!("{base_url}/get"), payload.url.as_str());
     Ok(())
 }
 
@@ -51,11 +51,11 @@ async fn basic_auth() -> eyre::Result<()> {
         .basic_auth("user", Some("password"))
         .send()
         .await?;
-    assert!(res.status().is_success(), "Non 2xx satus received");
+    check!(res.status().is_success(), "Non 2xx satus received");
 
     let payload: BasicAuthPayload = res.json().await?;
-    assert!(payload.authenticated);
-    assert_eq!("user", payload.user);
+    check!(payload.authenticated);
+    check_eq!("user", payload.user);
     Ok(())
 }
 
@@ -69,7 +69,7 @@ async fn basic_auth_error() -> eyre::Result<()> {
         .basic_auth("user", Some("wrong-password"))
         .send()
         .await?;
-    assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    check_eq!(StatusCode::UNAUTHORIZED, res.status());
     Ok(())
 }
 
@@ -83,11 +83,11 @@ async fn bearer_auth() -> eyre::Result<()> {
         .bearer_auth("token")
         .send()
         .await?;
-    assert!(res.status().is_success(), "Non 2xx satus received");
+    check!(res.status().is_success(), "Non 2xx satus received");
 
     let payload: BearerAuthPayload = res.json().await?;
-    assert!(payload.authenticated);
-    assert_eq!("token", payload.token);
+    check!(payload.authenticated);
+    check_eq!("token", payload.token);
     Ok(())
 }
 

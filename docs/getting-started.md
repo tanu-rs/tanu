@@ -80,13 +80,13 @@ async fn get() -> eyre::Result<()> {
 Now, define the test assertions in the function:
 
 ```rust
-use tanu::{eyre, http::Client};
+use tanu::{check, eyre, http::Client};
 
 #[tanu::test]
 async fn get() -> eyre::Result<()> {
     let http = Client::new();
     let res = http.get("https://httpbin.org/get").send().await?;
-    assert!(res.status().is_success());
+    check!(res.status().is_success());
     Ok(())
 }
 ```

@@ -7,10 +7,12 @@ The `#[tanu::test]` attribute is used to mark functions as test functions in the
 To use the `#[tanu::test]` attribute, simply add it above the function definition:
 
 ```rust
+use tanu::check_eq;
+
 #[tanu::test]
 async fn my_test_function() -> eyre::Result<()> {
     let result = 2 + 2;
-    assert_eq!(result, 4);
+    check_eq!(result, 4);
     Ok(())
 }
 ```
@@ -25,11 +27,13 @@ Notes
 `#[tanu::test]` attribute is inspired by [test_case](https://crates.io/crates/test-case) crate where you can easily parameterize test case by providing parameters in the attribute body as follows.
 
 ```rust
+use tanu::check_eq;
+
 #[tanu::test(10, 10, 20)]
 #[tanu::test(20, 20, 40)]
 async fn my_test_function(a: u32, b: u32, expected: u32) -> eyre::Result<()> {
     let result = a + b;
-    assert_eq!(result, expected);
+    check_eq!(result, expected);
     Ok(())
 }
 ```
@@ -39,11 +43,13 @@ If you run a parameterized test, the test name will be automatically generated b
 Sometimes parameters can't be strigified, in such case, tanu refuse to compile the code. In such cases, tanu refuses to compile the code. If that happens, you can specify your desired name rather than the auto-generated one. Note that a test name is delimited by `;` from the parameters.
 
 ```rust
+use tanu::check_eq;
+
 #[tanu::test(10, 10, 20; "add_10_and_10_equal_20")]
 #[tanu::test(20, 20, 40; "add_20_and_20_equal_40")]
 async fn my_test_function(a: u32, b: u32, expected: u32) -> eyre::Result<()> {
     let result = a + b;
-    assert_eq!(result, expected);
+    check_eq!(result, expected);
     Ok(())
 }
 ```

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tanu::{assert, assert_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client};
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
@@ -37,16 +37,16 @@ async fn post_json() -> eyre::Result<()> {
         .send()
         .await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
+    check!(res.status().is_success(), "Non 2xx status received");
 
     let response: PostResponse = res.json().await?;
 
     // Verify the JSON payload was sent correctly
     if let Some(json) = response.json {
-        assert_eq!("test", json["name"].as_str().unwrap());
-        assert_eq!(42, json["value"].as_i64().unwrap());
+        check_eq!("test", json["name"].as_str().unwrap());
+        check_eq!(42, json["value"].as_i64().unwrap());
     } else {
-        assert!(false, "Expected JSON payload in response");
+        check!(false, "Expected JSON payload in response");
     }
 
     Ok(())
@@ -64,13 +64,13 @@ async fn post_form() -> eyre::Result<()> {
         .send()
         .await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
+    check!(res.status().is_success(), "Non 2xx status received");
 
     let response: PostResponse = res.json().await?;
 
     // Verify form data was sent correctly
-    assert_eq!("value1", response.form.get("key1").unwrap());
-    assert_eq!("value2", response.form.get("key2").unwrap());
+    check_eq!("value1", response.form.get("key1").unwrap());
+    check_eq!("value2", response.form.get("key2").unwrap());
 
     Ok(())
 }
@@ -88,12 +88,12 @@ async fn post_text() -> eyre::Result<()> {
         .send()
         .await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
+    check!(res.status().is_success(), "Non 2xx status received");
 
     let response: PostResponse = res.json().await?;
 
     // Verify text payload was sent correctly
-    assert_eq!(text, response.data);
+    check_eq!(text, response.data);
 
     Ok(())
 }

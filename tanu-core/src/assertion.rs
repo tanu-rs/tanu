@@ -21,21 +21,21 @@ pub enum Error {
 }
 
 #[macro_export]
-macro_rules! assert {
+macro_rules! check {
     ($cond:expr) => {
-        $crate::assert!(@ $cond, "", "");
+        $crate::check!(@ $cond, "", "");
     };
     ($cond:expr, $($arg:tt)+) => {
-        $crate::assert!(@ $cond, ":", $($arg)+);
+        $crate::check!(@ $cond, ":", $($arg)+);
     };
     (@ $cond:expr, $maybe_colon:expr, $($arg:tt)*) => {
         if !$cond {
-            let __message = format!("assertion failed: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
+            let __message = format!("check failed: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
             let __check = tanu::runner::Check::error(&__message);
             tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
             tanu::eyre::bail!(__message);
         } else {
-            let __message = format!("assertion succeeded: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
+            let __message = format!("check succeeded: {}{}{}", stringify!($cond), $maybe_colon, format_args!($($arg)*));
             let __check = tanu::runner::Check::success(&__message);
             tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
         }
@@ -43,18 +43,18 @@ macro_rules! assert {
 }
 
 #[macro_export]
-macro_rules! assert_str_eq {
+macro_rules! check_str_eq {
     ($left:expr, $right:expr$(,)?) => ({
-        $crate::assert_str_eq!(@ $left, $right, "", "");
+        $crate::check_str_eq!(@ $left, $right, "", "");
     });
     ($left:expr, $right:expr, $($arg:tt)*) => ({
-        $crate::assert_str_eq!(@ $left, $right, ": ", $($arg)+);
+        $crate::check_str_eq!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)*) => ({
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if !(*left_val == *right_val) {
-                    let __message = format!("assertion failed: `(left == right)`{}{}\
+                    let __message = format!("check failed: `(left == right)`{}{}\
                        \n\
                        \n{}\
                        \n",
@@ -66,7 +66,7 @@ macro_rules! assert_str_eq {
                     tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(Error::StrEq(__message))?;
                 } else {
-                    let __message = format!("assertion succeeded: `(left == right)`{}{}\
+                    let __message = format!("check succeeded: `(left == right)`{}{}\
                        \n\
                        \n{}\
                        \n",
@@ -83,18 +83,18 @@ macro_rules! assert_str_eq {
 }
 
 #[macro_export]
-macro_rules! assert_eq {
+macro_rules! check_eq {
     ($left:expr, $right:expr$(,)?) => ({
-        $crate::assert_eq!(@ $left, $right, "", "");
+        $crate::check_eq!(@ $left, $right, "", "");
     });
     ($left:expr, $right:expr, $($arg:tt)*) => ({
-        $crate::assert_eq!(@ $left, $right, ": ", $($arg)+);
+        $crate::check_eq!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)*) => ({
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if !(*left_val == *right_val) {
-                    let __message = format!("assertion failed: `(left == right)`{}{}\
+                    let __message = format!("check failed: `(left == right)`{}{}\
                        \n\
                        \n{}\
                        \n",
@@ -106,7 +106,7 @@ macro_rules! assert_eq {
                     tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(tanu::assertion::Error::Eq(__message))?;
                 } else {
-                    let __message = format!("assertion succeeded: `(left == right)`{}{}\
+                    let __message = format!("check succeeded: `(left == right)`{}{}\
                        \n\
                        \n{}\
                        \n",
@@ -123,18 +123,18 @@ macro_rules! assert_eq {
 }
 
 #[macro_export]
-macro_rules! assert_ne {
+macro_rules! check_ne {
     ($left:expr, $right:expr$(,)?) => ({
-        $crate::assert_ne!(@ $left, $right, "", "");
+        $crate::check_ne!(@ $left, $right, "", "");
     });
     ($left:expr, $right:expr, $($arg:tt)+) => ({
-        $crate::assert_ne!(@ $left, $right, ": ", $($arg)+);
+        $crate::check_ne!(@ $left, $right, ": ", $($arg)+);
     });
     (@ $left:expr, $right:expr, $maybe_colon:expr, $($arg:tt)+) => ({
         match (&($left), &($right)) {
             (left_val, right_val) => {
                 if *left_val == *right_val {
-                    let __message = format!("assertion failed: `(left != right)`{}{}\
+                    let __message = format!("check failed: `(left != right)`{}{}\
                         \n\
                         \nBoth sides:\
                         \n{:#?}\
@@ -148,7 +148,7 @@ macro_rules! assert_ne {
                     tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
                     Err(Error::Ne(__message))?;
                 } else {
-                    let __message = format!("assertion succeeded: `(left != right)`{}{}\
+                    let __message = format!("check succeeded: `(left != right)`{}{}\
                         \n\
                         \nBoth sides:\
                         \n{:#?}\

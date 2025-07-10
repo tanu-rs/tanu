@@ -13,5 +13,5 @@ pub use tanu_core::{
     http,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{self, Runner, TestInfo},
-    {assert, assert_eq, assert_ne, assert_str_eq},
+    {check, check_eq, check_ne, check_str_eq},
 };

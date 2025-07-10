@@ -31,6 +31,7 @@ nav:
   - User Guide:
       - Getting Started: getting-started.md
       - Test Attributes: attribute.md
+      - Test Assertions: assertion.md
       - Configuration: configuration.md
       - Command Line Options: command-line-option.md
       - TUI: tui.md
