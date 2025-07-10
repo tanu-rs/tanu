@@ -2,7 +2,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use tanu::{
-    assert, assert_eq, eyre,
+    check, check_eq, eyre,
     http::{Client, StatusCode},
 };
 
@@ -26,11 +26,11 @@ async fn delete_resource() -> eyre::Result<()> {
 
     let res = http.delete(format!("{base_url}/delete")).send().await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
-    assert_eq!(StatusCode::OK, res.status());
+    check!(res.status().is_success(), "Non 2xx status received");
+    check_eq!(StatusCode::OK, res.status());
 
     let response: DeleteResponse = res.json().await?;
-    assert_eq!(format!("{base_url}/delete"), response.url);
+    check_eq!(format!("{base_url}/delete"), response.url);
 
     Ok(())
 }
@@ -49,12 +49,12 @@ async fn delete_with_body() -> eyre::Result<()> {
         .send()
         .await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
+    check!(res.status().is_success(), "Non 2xx status received");
 
     let response: DeleteResponse = res.json().await?;
 
     // Verify the request body was sent correctly
-    assert_eq!(body, response.data);
+    check_eq!(body, response.data);
 
     Ok(())
 }
@@ -70,13 +70,13 @@ async fn delete_with_query_params() -> eyre::Result<()> {
         .send()
         .await?;
 
-    assert!(res.status().is_success(), "Non 2xx status received");
+    check!(res.status().is_success(), "Non 2xx status received");
 
     let response: DeleteResponse = res.json().await?;
 
     // Verify query parameters were sent correctly
-    assert_eq!("true", response.args.get("confirm").unwrap());
-    assert_eq!("true", response.args.get("cascade").unwrap());
+    check_eq!("true", response.args.get("confirm").unwrap());
+    check_eq!("true", response.args.get("cascade").unwrap());
 
     Ok(())
 }

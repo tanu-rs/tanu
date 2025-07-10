@@ -31,9 +31,7 @@ fn main() -> eyre::Result<()> {
                         let const_name = filename_str.replace('-', "_").to_uppercase();
                         writeln!(
                             f,
-                            "    pub const {}: &str = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../vendors/base16-textmate/Themes/{}.tmTheme\"));",
-                            const_name,
-                            filename_str
+                            "    pub const {const_name}: &str = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../vendors/base16-textmate/Themes/{filename_str}.tmTheme\"));"
                         ).wrap_err("Failed to write theme constant")?;
                         theme_names.push((const_name, filename_str.to_string()));
                     }
@@ -54,12 +52,8 @@ fn main() -> eyre::Result<()> {
 
     // Add each theme to the HashMap
     for (const_name, filename) in theme_names {
-        writeln!(
-            f,
-            "        themes.insert(\"{}\", {});",
-            filename, const_name
-        )
-        .context("Failed to write theme entry")?;
+        writeln!(f, "        themes.insert(\"{filename}\", {const_name});")
+            .context("Failed to write theme entry")?;
     }
 
     writeln!(f, "        themes").context("Failed to write return statement")?;
