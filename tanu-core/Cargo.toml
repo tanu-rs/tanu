@@ -16,6 +16,7 @@ async-trait = { workspace = true }
 backon = "1.4"
 chrono = "0.4"
 console = { version = "0.15" }
+cookie = { version = "0.18", optional = true }
 dotenv = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
@@ -25,7 +26,7 @@ indexmap = "2"
 itertools = { workspace = true }
 once_cell = { workspace = true }
 pretty_assertions = "1"
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["gzip", "deflate", "brotli", "zstd", "cookies"] }
 serde = { workspace = true }
 serde_json = "1"
 strum = { workspace = true }
@@ -46,3 +47,4 @@ test-case = { workspace = true }
 default = []
 json = ["reqwest/json"]
 multipart = ["reqwest/multipart"]
+cookies = ["reqwest/cookies", "cookie"]
