@@ -1,4 +1,27 @@
-/// tanu's test runner
+//! # Test Runner Module
+//!
+//! The core test execution engine for tanu. This module provides the `Runner` struct
+//! that orchestrates test discovery, execution, filtering, reporting, and event publishing.
+//! It supports concurrent test execution with retry capabilities and comprehensive
+//! event-driven reporting.
+//!
+//! ## Key Components
+//!
+//! - **`Runner`**: Main test execution engine
+//! - **Event System**: Real-time test execution events via channels
+//! - **Filtering**: Project, module, and test name filtering
+//! - **Reporting**: Pluggable reporter system for test output
+//! - **Retry Logic**: Configurable retry with exponential backoff
+//!
+//! ## Basic Usage
+//!
+//! ```rust,ignore
+//! use tanu_core::Runner;
+//!
+//! let mut runner = Runner::new();
+//! runner.add_test("my_test", "my_module", test_factory);
+//! runner.run(&[], &[], &[]).await?;
+//! ```
 use backon::Retryable;
 use eyre::WrapErr;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
@@ -37,6 +60,31 @@ pub(crate) static CHANNEL: Lazy<
     Mutex<Option<(broadcast::Sender<Event>, broadcast::Receiver<Event>)>>,
 > = Lazy::new(|| Mutex::new(Some(broadcast::channel(1000))));
 
+/// Publishes an event to the runner's event channel.
+///
+/// This function is used throughout the test execution pipeline to broadcast
+/// real-time events including test starts, check results, HTTP logs, retries,
+/// and test completions. All events are timestamped and include test context.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::{publish, EventBody, Check};
+///
+/// // Publish a successful check
+/// let check = Check::success("response.status() == 200");
+/// publish(EventBody::Check(Box::new(check)))?;
+///
+/// // Publish test start
+/// publish(EventBody::Start)?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The channel lock cannot be acquired
+/// - The channel has been closed
+/// - The send operation fails
 pub fn publish(e: impl Into<Event>) -> eyre::Result<()> {
     let Ok(guard) = CHANNEL.lock() else {
         eyre::bail!("failed to acquire runner channel lock");
@@ -63,6 +111,10 @@ pub fn subscribe() -> eyre::Result<broadcast::Receiver<Event>> {
     Ok(tx.subscribe())
 }
 
+/// Test execution errors.
+///
+/// Represents the different ways a test can fail during execution.
+/// These errors are captured and reported by the runner system.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     #[error("panic: {0}")]
@@ -71,6 +123,25 @@ pub enum Error {
     ErrorReturned(String),
 }
 
+/// Represents the result of a check/assertion within a test.
+///
+/// Checks are created by assertion macros (`check!`, `check_eq!`, etc.) and
+/// track both the success/failure status and the original expression that
+/// was evaluated. This information is used for detailed test reporting.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::Check;
+///
+/// // Create a successful check
+/// let check = Check::success("response.status() == 200");
+/// assert!(check.result);
+///
+/// // Create a failed check
+/// let check = Check::error("user_count != 0");
+/// assert!(!check.result);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Check {
     pub result: bool,
@@ -93,7 +164,19 @@ impl Check {
     }
 }
 
-/// Runner event represents a test event that is published to the channel.
+/// A test execution event with full context.
+///
+/// Events are published throughout test execution and include the project,
+/// module, and test name for complete traceability. The event body contains
+/// the specific event data (start, check, HTTP, retry, or end).
+///
+/// # Event Flow
+///
+/// 1. `Start` - Test begins execution
+/// 2. `Check` - Assertion results (can be multiple per test)
+/// 3. `Http` - HTTP request/response logs (can be multiple per test)
+/// 4. `Retry` - Test retry attempts (if configured)
+/// 5. `End` - Test completion with final result
 #[derive(Debug, Clone)]
 pub struct Event {
     pub project: ProjectName,
@@ -102,6 +185,14 @@ pub struct Event {
     pub body: EventBody,
 }
 
+/// The specific event data published during test execution.
+///
+/// Each event type carries different information:
+/// - `Start`: Signals test execution beginning
+/// - `Check`: Contains assertion results with expression details
+/// - `Http`: HTTP request/response logs for debugging
+/// - `Retry`: Indicates a test retry attempt
+/// - `End`: Final test result with timing and outcome
 #[derive(Debug, Clone)]
 pub enum EventBody {
     Start,
@@ -124,6 +215,11 @@ impl From<EventBody> for Event {
     }
 }
 
+/// Final test execution result.
+///
+/// Contains the complete outcome of a test execution including metadata,
+/// execution time, and the final result (success or specific error type).
+/// This is published in the `End` event when a test completes.
 #[derive(Debug, Clone)]
 pub struct Test {
     pub info: TestInfo,
@@ -131,6 +227,11 @@ pub struct Test {
     pub result: Result<(), Error>,
 }
 
+/// Test metadata and identification.
+///
+/// Contains the module and test name for a test case. This information
+/// is used for test filtering, reporting, and event context throughout
+/// the test execution pipeline.
 #[derive(Debug, Clone, Default)]
 pub struct TestInfo {
     pub module: String,
@@ -156,6 +257,21 @@ type TestCaseFactory = Arc<
         + 'static,
 >;
 
+/// Configuration options for test runner behavior.
+///
+/// Controls various aspects of test execution including logging,
+/// concurrency, and channel management. These options can be set
+/// via the builder pattern on the `Runner`.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::Runner;
+///
+/// let mut runner = Runner::new();
+/// runner.capture_http(); // Enable HTTP logging
+/// runner.set_concurrency(4); // Limit to 4 concurrent tests
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub debug: bool,
@@ -165,12 +281,43 @@ pub struct Options {
     pub concurrency: Option<usize>,
 }
 
-/// Test case filter trait.
+/// Trait for filtering test cases during execution.
+///
+/// Filters allow selective test execution based on project configuration
+/// and test metadata. Multiple filters can be applied simultaneously,
+/// and a test must pass all filters to be executed.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::{Filter, TestInfo, ProjectConfig};
+///
+/// struct CustomFilter;
+///
+/// impl Filter for CustomFilter {
+///     fn filter(&self, project: &ProjectConfig, info: &TestInfo) -> bool {
+///         // Only run tests with "integration" in the name
+///         info.name.contains("integration")
+///     }
+/// }
+/// ```
 pub trait Filter {
     fn filter(&self, project: &ProjectConfig, info: &TestInfo) -> bool;
 }
 
-/// Filter test cases by project name.
+/// Filters tests to only run from specified projects.
+///
+/// When project names are provided, only tests from those projects
+/// will be executed. If the list is empty, all projects are included.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::ProjectFilter;
+///
+/// let filter = ProjectFilter { project_names: &["staging".to_string()] };
+/// // Only tests from "staging" project will run
+/// ```
 pub struct ProjectFilter<'a> {
     project_names: &'a [String],
 }
@@ -187,7 +334,20 @@ impl Filter for ProjectFilter<'_> {
     }
 }
 
-/// Filter test cases by module name.
+/// Filters tests to only run from specified modules.
+///
+/// When module names are provided, only tests from those modules
+/// will be executed. If the list is empty, all modules are included.
+/// Module names correspond to Rust module paths.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::ModuleFilter;
+///
+/// let filter = ModuleFilter { module_names: &["api".to_string(), "auth".to_string()] };
+/// // Only tests from "api" and "auth" modules will run
+/// ```
 pub struct ModuleFilter<'a> {
     module_names: &'a [String],
 }
@@ -204,7 +364,22 @@ impl Filter for ModuleFilter<'_> {
     }
 }
 
-/// Filter test cases by test name.
+/// Filters tests to only run specific named tests.
+///
+/// When test names are provided, only those exact tests will be executed.
+/// Test names should include the module (e.g., "api::health_check").
+/// If the list is empty, all tests are included.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::TestNameFilter;
+///
+/// let filter = TestNameFilter {
+///     test_names: &["api::health_check".to_string(), "auth::login".to_string()]
+/// };
+/// // Only the specified tests will run
+/// ```
 pub struct TestNameFilter<'a> {
     test_names: &'a [String],
 }
@@ -221,7 +396,29 @@ impl Filter for TestNameFilter<'_> {
     }
 }
 
-/// Filter test cases by test ignore config.
+/// Filters out tests that are configured to be ignored.
+///
+/// This filter reads the `test_ignore` configuration from each project
+/// and excludes those tests from execution. Tests are matched by their
+/// full name (module::test_name).
+///
+/// # Configuration
+///
+/// In `tanu.toml`:
+/// ```toml
+/// [[projects]]
+/// name = "staging"
+/// test_ignore = ["flaky_test", "slow_integration_test"]
+/// ```
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::TestIgnoreFilter;
+///
+/// let filter = TestIgnoreFilter::default();
+/// // Tests listed in test_ignore config will be skipped
+/// ```
 pub struct TestIgnoreFilter {
     test_ignores: HashMap<String, Vec<String>>,
 }
@@ -250,6 +447,47 @@ impl Filter for TestIgnoreFilter {
     }
 }
 
+/// The main test execution engine for tanu.
+///
+/// `Runner` is responsible for orchestrating the entire test execution pipeline:
+/// test discovery, filtering, concurrent execution, retry handling, event publishing,
+/// and result reporting. It supports multiple projects, configurable concurrency,
+/// and pluggable reporters.
+///
+/// # Features
+///
+/// - **Concurrent Execution**: Tests run in parallel with configurable limits
+/// - **Retry Logic**: Automatic retry with exponential backoff for flaky tests
+/// - **Event System**: Real-time event publishing for UI integration
+/// - **Filtering**: Filter tests by project, module, or test name
+/// - **Reporting**: Support for multiple output formats via reporters
+/// - **HTTP Logging**: Capture and log all HTTP requests/responses
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::{Runner, reporter::TableReporter};
+///
+/// let mut runner = Runner::new();
+/// runner.capture_http();
+/// runner.set_concurrency(8);
+/// runner.add_reporter(TableReporter::new());
+///
+/// // Add tests (typically done by procedural macros)
+/// runner.add_test("health_check", "api", test_factory);
+///
+/// // Run all tests
+/// runner.run(&[], &[], &[]).await?;
+/// ```
+///
+/// # Architecture
+///
+/// Tests are executed in separate tokio tasks with:
+/// - Project-scoped configuration
+/// - Test-scoped context for event publishing  
+/// - Semaphore-based concurrency control
+/// - Panic recovery and error handling
+/// - Automatic retry with configurable backoff
 #[derive(Default)]
 pub struct Runner {
     cfg: Config,
@@ -259,10 +497,35 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// Creates a new runner with the global tanu configuration.
+    ///
+    /// This loads the configuration from `tanu.toml` and sets up
+    /// default options. Use `with_config()` for custom configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::Runner;
+    ///
+    /// let runner = Runner::new();
+    /// ```
     pub fn new() -> Runner {
         Runner::with_config(get_tanu_config().clone())
     }
 
+    /// Creates a new runner with the specified configuration.
+    ///
+    /// This allows for custom configuration beyond what's in `tanu.toml`,
+    /// useful for testing or programmatic setup.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::{Runner, Config};
+    ///
+    /// let config = Config::default();
+    /// let runner = Runner::with_config(config);
+    /// ```
     pub fn with_config(cfg: Config) -> Runner {
         Runner {
             cfg,
@@ -272,22 +535,86 @@ impl Runner {
         }
     }
 
+    /// Enables HTTP request/response logging.
+    ///
+    /// When enabled, all HTTP requests made via tanu's HTTP client
+    /// will be logged and included in test reports. This is useful
+    /// for debugging API tests and understanding request/response flow.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    /// runner.capture_http();
+    /// ```
     pub fn capture_http(&mut self) {
         self.options.capture_http = true;
     }
 
+    /// Enables Rust logging output during test execution.
+    ///
+    /// This initializes the tracing subscriber to capture debug, info,
+    /// warn, and error logs from tests and the framework itself.
+    /// Useful for debugging test execution issues.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    /// runner.capture_rust();
+    /// ```
     pub fn capture_rust(&mut self) {
         self.options.capture_rust = true;
     }
 
+    /// Configures the runner to close the event channel after test execution.
+    ///
+    /// By default, the event channel remains open for continued monitoring.
+    /// This option closes the channel when all tests complete, signaling
+    /// that no more events will be published.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    /// runner.terminate_channel();
+    /// ```
     pub fn terminate_channel(&mut self) {
         self.options.terminate_channel = true;
     }
 
+    /// Adds a reporter for test output formatting.
+    ///
+    /// Reporters receive test events and format them for different output
+    /// destinations (console, files, etc.). Multiple reporters can be added
+    /// to generate multiple output formats simultaneously.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::{Runner, reporter::TableReporter};
+    ///
+    /// let mut runner = Runner::new();
+    /// runner.add_reporter(TableReporter::new());
+    /// ```
     pub fn add_reporter(&mut self, reporter: impl Reporter + 'static + Send) {
         self.reporters.push(Box::new(reporter));
     }
 
+    /// Adds a boxed reporter for test output formatting.
+    ///
+    /// Similar to `add_reporter()` but accepts an already-boxed reporter.
+    /// Useful when working with dynamic reporter selection.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::{Runner, reporter::ListReporter};
+    ///
+    /// let mut runner = Runner::new();
+    /// let reporter: Box<dyn Reporter + Send> = Box::new(ListReporter::new());
+    /// runner.add_boxed_reporter(reporter);
+    /// ```
     pub fn add_boxed_reporter(&mut self, reporter: Box<dyn Reporter + 'static + Send>) {
         self.reporters.push(reporter);
     }
@@ -303,11 +630,56 @@ impl Runner {
         ));
     }
 
+    /// Sets the maximum number of tests to run concurrently.
+    ///
+    /// By default, tests run with unlimited concurrency. This setting
+    /// allows you to limit concurrent execution to reduce resource usage
+    /// or avoid overwhelming external services.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    /// runner.set_concurrency(4); // Max 4 tests at once
+    /// ```
     pub fn set_concurrency(&mut self, concurrency: usize) {
         self.options.concurrency = Some(concurrency);
     }
 
-    /// Run tanu runner.
+    /// Executes all registered tests with optional filtering.
+    ///
+    /// Runs tests concurrently according to the configured options and filters.
+    /// Tests can be filtered by project name, module name, or specific test names.
+    /// Empty filter arrays mean "include all".
+    ///
+    /// # Parameters
+    ///
+    /// - `project_names`: Only run tests from these projects (empty = all projects)
+    /// - `module_names`: Only run tests from these modules (empty = all modules)  
+    /// - `test_names`: Only run these specific tests (empty = all tests)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    ///
+    /// // Run all tests
+    /// runner.run(&[], &[], &[]).await?;
+    ///
+    /// // Run only "staging" project tests
+    /// runner.run(&["staging".to_string()], &[], &[]).await?;
+    ///
+    /// // Run specific test
+    /// runner.run(&[], &[], &["api::health_check".to_string()]).await?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any test fails (unless configured to continue on failure)
+    /// - A test panics and cannot be recovered
+    /// - Reporter setup or execution fails
+    /// - Event channel operations fail
     #[allow(clippy::too_many_lines)]
     pub async fn run(
         &mut self,
@@ -493,6 +865,22 @@ impl Runner {
         handles
     }
 
+    /// Returns a list of all registered test metadata.
+    ///
+    /// This provides access to test information without executing the tests.
+    /// Useful for building test UIs, generating reports, or implementing
+    /// custom filtering logic.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let runner = Runner::new();
+    /// let tests = runner.list();
+    ///
+    /// for test in tests {
+    ///     println!("Test: {}", test.full_name());
+    /// }
+    /// ```
     pub fn list(&self) -> Vec<&TestInfo> {
         self.test_cases
             .iter()

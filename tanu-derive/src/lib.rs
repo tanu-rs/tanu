@@ -1,3 +1,19 @@
+//! # Tanu Derive
+//!
+//! Procedural macros for the tanu WebAPI testing framework.
+//!
+//! This crate provides the `#[tanu::test]` and `#[tanu::main]` procedural macros
+//! that enable the core functionality of tanu's test discovery and execution system.
+//!
+//! ## Macros
+//!
+//! - `#[tanu::test]` - Marks async functions as tanu test cases
+//! - `#[tanu::test(param)]` - Creates parameterized test cases  
+//! - `#[tanu::main]` - Generates the main function for test discovery
+//!
+//! These macros are automatically re-exported by the main `tanu` crate,
+//! so users typically don't need to import this crate directly.
+
 extern crate proc_macro;
 
 use eyre::WrapErr;
@@ -289,8 +305,45 @@ fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
     None
 }
 
-/// #[test] attribute registers the test function in tanu runner.
-/// Without this attribute, tanu can not discover test cases.
+/// Marks an async function as a tanu test case.
+///
+/// This attribute registers the function with tanu's test discovery system,
+/// making it available for execution via the test runner.
+///
+/// # Basic Usage
+///
+/// ```rust,ignore
+/// #[tanu::test]
+/// async fn my_test() -> eyre::Result<()> {
+///     // Test implementation
+///     Ok(())
+/// }
+/// ```
+///
+/// # Parameterized Tests
+///
+/// The macro supports parameterized testing by accepting arguments:
+///
+/// ```rust,ignore
+/// #[tanu::test(200)]
+/// #[tanu::test(404)]
+/// #[tanu::test(500)]
+/// async fn test_status_codes(status: u16) -> eyre::Result<()> {
+///     // Test with different status codes
+///     Ok(())
+/// }
+/// ```
+///
+/// # Requirements
+///
+/// - Function must be `async`
+/// - Function must return a `Result<T, E>` type
+/// - Supported Result types: `eyre::Result`, `anyhow::Result`, `std::result::Result`
+///
+/// # Error Handling
+///
+/// The macro automatically handles different Result types and integrates
+/// with tanu's error reporting system for enhanced error messages and backtraces.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_args = parse_macro_input!(args as Input);
@@ -456,6 +509,43 @@ fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
     test_modules
 }
 
+/// Generates the test discovery and registration code for tanu.
+///
+/// This attribute should be applied to your main function alongside `#[tokio::main]`.
+/// It automatically discovers all functions marked with `#[tanu::test]` and registers
+/// them with the test runner.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// #[tanu::main]
+/// #[tokio::main]
+/// async fn main() -> eyre::Result<()> {
+///     let runner = run();
+///     let app = tanu::App::new();
+///     app.run(runner).await?;
+///     Ok(())
+/// }
+/// ```
+///
+/// # What It Does
+///
+/// The macro performs compile-time test discovery by:
+/// 1. Scanning the codebase for `#[tanu::test]` annotated functions
+/// 2. Generating a `run()` function that returns a configured `Runner`
+/// 3. Registering all discovered tests with the runner
+/// 4. Setting up proper module organization and test metadata
+///
+/// # Requirements
+///
+/// - Must be used with `#[tokio::main]` for async support
+/// - The main function should return a `Result` type
+/// - All test functions must be marked with `#[tanu::test]`
+///
+/// # Generated Code
+///
+/// The macro generates a `run()` function that you can use to obtain
+/// a pre-configured test runner with all your tests registered.
 #[proc_macro_attribute]
 pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     let main_fn = parse_macro_input!(input as ItemFn);

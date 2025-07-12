@@ -70,6 +70,15 @@ No tests have been defined yet.
 
 Next, define your test case. As you can see below, the function has the `#[tanu::test]` attribute. This attribute parses the test function and automatically registers it in the tanu's test runner. The test function has to be "async" and return a `Result<T, E>` type.
 
+!!! note "Supported Error Types"
+    Tanu supports various Result types for flexible error handling:
+
+    - **`eyre::Result<()>`** (recommended) - Provides colored backtraces and seamless integration with tanu's assertion macros
+    - **`anyhow::Result<()>`** - Compatible with existing anyhow-based code
+    - **`std::result::Result<(), E>`** - Standard Rust Result type with custom error types or simple errors like `String`
+
+    For the best experience, we recommend using `eyre::Result` as it integrates perfectly with tanu's `check!` macros and provides excellent error reporting. For more details on error handling best practices, see our [Best Practices](best-practices.md#result-type-flexibility) guide.
+
 ```rust
 #[tanu::test]
 async fn get() -> eyre::Result<()> {

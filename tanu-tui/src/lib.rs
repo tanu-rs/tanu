@@ -945,7 +945,55 @@ impl Runtime {
     }
 }
 
-/// Run tanu-tui app.
+/// Runs the tanu terminal user interface application.
+///
+/// Initializes and runs the interactive TUI for managing and executing tanu tests.
+/// The TUI provides three main panes: test list, test information/console, and logger.
+/// Users can navigate with keyboard shortcuts to select tests, run them individually
+/// or in bulk, and monitor execution in real-time.
+///
+/// # Parameters
+///
+/// - `runner`: The configured test runner containing test cases and configuration
+/// - `log_level`: General logging level for the TUI and external libraries
+/// - `tanu_log_level`: Specific logging level for tanu framework components
+///
+/// # Features
+///
+/// - **Interactive Test Selection**: Browse and select tests with arrow keys
+/// - **Real-time Execution**: Watch tests run with live updates and logs
+/// - **HTTP Request Monitoring**: View detailed HTTP request/response data
+/// - **Concurrent Execution**: Run multiple tests simultaneously
+/// - **Filtering**: Filter tests by project, module, or name
+/// - **Logging**: Integrated logger pane for debugging
+///
+/// # Keyboard Shortcuts
+///
+/// - `↑/↓`: Navigate test list
+/// - `Enter`: Run selected test
+/// - `a`: Run all tests
+/// - `Tab`: Switch between panes
+/// - `q`/`Esc`: Quit application
+/// - `Ctrl+U/D`: Page up/down in test list
+/// - `Home/End`: Go to first/last test
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::Runner;
+/// use tanu_tui::run;
+///
+/// let runner = Runner::new();
+/// run(runner, log::LevelFilter::Info, log::LevelFilter::Debug).await?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Terminal initialization fails
+/// - Logger setup fails
+/// - Test execution encounters unrecoverable errors
+/// - TUI rendering fails
 pub async fn run(
     runner: Runner,
     log_level: log::LevelFilter,

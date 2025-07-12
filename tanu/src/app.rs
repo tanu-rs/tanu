@@ -86,13 +86,60 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
         )
 }
 
-/// tanu CLI.
+/// The main tanu CLI application.
+///
+/// `App` is the entry point for running tanu tests. It handles command-line argument parsing,
+/// configuration management, and test execution coordination.
+///
+/// # Examples
+///
+/// Basic usage:
+///
+/// ```rust,no_run
+/// use tanu::{App, eyre};
+///
+/// #[tanu::main]
+/// #[tokio::main]
+/// async fn main() -> eyre::Result<()> {
+///     let runner = run();
+///     let app = App::new();
+///     app.run(runner).await?;
+///     Ok(())
+/// }
+/// ```
+///
+/// With custom reporters:
+///
+/// ```rust,no_run
+/// use tanu::{App, eyre};
+///
+/// #[tanu::main]
+/// #[tokio::main]
+/// async fn main() -> eyre::Result<()> {
+///     let runner = run();
+///     let mut app = App::new();
+///     // app.install_reporter("custom", MyCustomReporter::new());
+///     app.run(runner).await?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Default)]
 pub struct App {
     third_party_reporters: HashMap<String, Box<dyn tanu_core::reporter::Reporter + 'static + Send>>,
 }
 
 impl App {
+    /// Creates a new tanu application instance.
+    ///
+    /// This initializes the application with default settings and no custom reporters.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tanu::App;
+    ///
+    /// let app = App::new();
+    /// ```
     pub fn new() -> App {
         App {
             third_party_reporters: HashMap::new(),
@@ -100,6 +147,33 @@ impl App {
     }
 
     /// Install a third-party reporter.
+    ///
+    /// Custom reporters allow you to extend tanu's output capabilities beyond the built-in
+    /// `list` and `table` reporters. The reporter will be available via the `--reporters`
+    /// command-line flag.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name that will be used to reference this reporter from the command line
+    /// * `reporter` - A custom reporter implementation that implements the `Reporter` trait
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tanu::{App, reporter::Reporter};
+    ///
+    /// struct MyReporter;
+    /// impl Reporter for MyReporter {
+    ///     // Implementation details...
+    /// #   fn start(&mut self, _: &tanu::TestInfo) -> eyre::Result<()> { Ok(()) }
+    /// #   fn success(&mut self, _: &tanu::TestInfo) -> eyre::Result<()> { Ok(()) }
+    /// #   fn failure(&mut self, _: &tanu::TestInfo, _: &eyre::Report) -> eyre::Result<()> { Ok(()) }
+    /// #   fn finish(&mut self) -> eyre::Result<()> { Ok(()) }
+    /// }
+    ///
+    /// let mut app = App::new();
+    /// app.install_reporter("custom", MyReporter);
+    /// ```
     pub fn install_reporter(
         &mut self,
         name: impl Into<String>,
@@ -109,7 +183,40 @@ impl App {
             .insert(name.into(), Box::new(reporter));
     }
 
-    /// Parse command-line args and run tanu CLI sub command.
+    /// Parse command-line arguments and run the tanu CLI.
+    ///
+    /// This method is the main entry point for executing tanu tests. It parses command-line
+    /// arguments, configures the test runner based on the provided options, and executes
+    /// the appropriate subcommand (test, tui, or ls).
+    ///
+    /// # Arguments
+    ///
+    /// * `runner` - A configured test runner containing all registered test functions
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful execution, or an error if something goes wrong
+    /// during argument parsing, configuration loading, or test execution.
+    ///
+    /// # Supported Commands
+    ///
+    /// - `test` - Run tests in CLI mode with various filtering and reporting options
+    /// - `tui` - Launch the interactive Terminal User Interface
+    /// - `ls` - List all available test cases
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tanu::{App, eyre};
+    ///
+    /// #[tanu::main]
+    /// #[tokio::main]
+    /// async fn main() -> eyre::Result<()> {
+    ///     let runner = run();
+    ///     let app = App::new();
+    ///     app.run(runner).await
+    /// }
+    /// ```
     pub async fn run(mut self, mut runner: crate::Runner) -> eyre::Result<()> {
         let matches = build_cli(self.third_party_reporters.keys()).get_matches();
         color_eyre::install().unwrap();

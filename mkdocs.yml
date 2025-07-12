@@ -1,4 +1,5 @@
 site_name: tanu
+site_description: High-performance, async-friendly WebAPI testing framework for Rust
 site_url: https://tanu-rs.github.io/tanu/
 repo_name: tanu-rs/tanu
 repo_url: https://github.com/tanu-rs/tanu
@@ -10,12 +11,25 @@ theme:
   favicon: assets/tanu.png
   logo: assets/tanu.png
   palette:
-    scheme: slate
-    primary: black
-    accent: black
+    # Palette toggle for dark mode (default)
+    - scheme: slate
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    # Palette toggle for light mode
+    - scheme: default
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
   features:
     - navigation.instant
     - navigation.tracking
+    - navigation.sections
+    - navigation.expand
     - content.code.annotate
     - content.code.copy
     - content.tabs.link
@@ -26,6 +40,11 @@ theme:
     - navigation.top
     - navigation.tabs
     - navigation.footer
+    - search.highlight
+    - search.share
+    - search.suggest
+  icon:
+    repo: fontawesome/brands/github
 nav:
   - Welcome: index.md
   - User Guide:
@@ -35,10 +54,73 @@ nav:
       - Configuration: configuration.md
       - Command Line Options: command-line-option.md
       - TUI: tui.md
-markdown_extensions:
-  - admonition
-  - pymdownx.highlight
-  - pymdownx.superfences
+      - Best Practices: best-practices.md
+      - FAQ: faq.md
 plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - mike
-  - search
+
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      title: On this page
+
+  # Python Markdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  analytics:
+    provider: google
+    property: !ENV GOOGLE_ANALYTICS_KEY
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/tanu-rs/tanu
+    - icon: fontawesome/brands/rust
+      link: https://crates.io/crates/tanu
+  tags:
+    HTTP: http
+    Testing: testing
+    Configuration: config
+    API: api
+    Rust: rust

@@ -1,3 +1,40 @@
+//! # Test Reporter Module
+//!
+//! The reporter system provides pluggable output formatting for test results.
+//! Reporters subscribe to test execution events and format them for different
+//! output destinations (console, files, etc.). Multiple reporters can run
+//! simultaneously to generate multiple output formats.
+//!
+//! ## Built-in Reporters
+//!
+//! - **`NullReporter`**: No output (useful for testing)
+//! - **`ListReporter`**: Real-time streaming output with detailed logs
+//! - **`TableReporter`**: Summary table output after all tests complete
+//!
+//! ## Custom Reporters
+//!
+//! Implement the `Reporter` trait to create custom output formats:
+//!
+//! ```rust,ignore
+//! use tanu_core::reporter::Reporter;
+//!
+//! struct JsonReporter;
+//!
+//! #[async_trait::async_trait]
+//! impl Reporter for JsonReporter {
+//!     async fn on_end(
+//!         &mut self,
+//!         project: String,
+//!         module: String,
+//!         test_name: String,
+//!         test: Test
+//!     ) -> eyre::Result<()> {
+//!         println!("{}", serde_json::to_string(&test)?);
+//!         Ok(())
+//!     }
+//! }
+//! ```
+
 use console::{style, StyledObject, Term};
 use eyre::WrapErr;
 use indexmap::IndexMap;
@@ -15,6 +52,16 @@ use crate::{
     ModuleName, ProjectName, TestName,
 };
 
+/// Available built-in reporter types.
+///
+/// Used for selecting which reporter to use via configuration or CLI arguments.
+/// Each type corresponds to a different output format and behavior.
+///
+/// # Variants
+///
+/// - `Null`: No output, useful for testing or when output is not needed
+/// - `List`: Real-time streaming output with detailed information
+/// - `Table`: Summary table displayed after all tests complete
 #[derive(Debug, Clone, Default, strum::EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ReporterType {
@@ -77,9 +124,55 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
     Ok(())
 }
 
-/// Reporter trait. The trait is based on the "template method" pattern.
-/// You can implement on_xxx methods to hook into the test runner. This way is enough for most usecases.
-/// If you need more control, you can override the "run" method.
+/// Trait for implementing custom test result reporting.
+///
+/// Reporters receive real-time events during test execution and can format
+/// and output results in various ways. The trait uses the template method pattern:
+/// implement the `on_*` methods to handle specific events, or override `run()`
+/// for complete control.
+///
+/// # Event Flow
+///
+/// For each test, events are fired in this order:
+/// 1. `on_start()` - Test begins
+/// 2. `on_check()` - Each assertion (0 or more)
+/// 3. `on_http_call()` - Each HTTP request (0 or more)
+/// 4. `on_retry()` - If test fails and retry is configured
+/// 5. `on_end()` - Test completes with final result
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::reporter::Reporter;
+/// use tanu_core::runner::Test;
+///
+/// struct SimpleReporter;
+///
+/// #[async_trait::async_trait]
+/// impl Reporter for SimpleReporter {
+///     async fn on_start(
+///         &mut self,
+///         project: String,
+///         module: String,
+///         test_name: String,
+///     ) -> eyre::Result<()> {
+///         println!("Starting {project}::{module}::{test_name}");
+///         Ok(())
+///     }
+///
+///     async fn on_end(
+///         &mut self,
+///         project: String,
+///         module: String,
+///         test_name: String,
+///         test: Test,
+///     ) -> eyre::Result<()> {
+///         let status = if test.result.is_ok() { "PASS" } else { "FAIL" };
+///         println!("{status}: {project}::{module}::{test_name}");
+///         Ok(())
+///     }
+/// }
+/// ```
 #[async_trait::async_trait]
 pub trait Reporter {
     async fn run(&mut self) -> eyre::Result<()> {
@@ -140,6 +233,20 @@ pub trait Reporter {
     }
 }
 
+/// A reporter that produces no output.
+///
+/// Useful for testing scenarios where you want to run tests without
+/// any console output, or when implementing custom output handling
+/// outside of the reporter system.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::{Runner, reporter::NullReporter};
+///
+/// let mut runner = Runner::new();
+/// runner.add_reporter(NullReporter);
+/// ```
 pub struct NullReporter;
 
 #[async_trait::async_trait]
@@ -159,6 +266,44 @@ fn generate_test_number() -> usize {
     *test_number += 1;
     *test_number
 }
+/// A real-time streaming reporter that outputs test results as they happen.
+///
+/// This reporter provides immediate feedback during test execution, showing
+/// test results, retry attempts, and optional HTTP request/response details.
+/// Output is formatted with colors and symbols for easy readability.
+///
+/// # Features
+///
+/// - **Real-time output**: Results appear as tests complete
+/// - **HTTP logging**: Optional detailed HTTP request/response logs
+/// - **Retry indication**: Shows when tests are being retried
+/// - **Colored output**: Success/failure indicators with colors
+/// - **Test numbering**: Sequential numbering for easy reference
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::{Runner, reporter::ListReporter};
+///
+/// let mut runner = Runner::new();
+/// runner.add_reporter(ListReporter::new(true)); // Enable HTTP logging
+/// ```
+///
+/// # Output Format
+///
+/// ```text
+/// ✓ 1 [staging] api::health_check (45.2ms)
+/// ✘ 2 [production] auth::login (123.4ms):
+/// Error: Authentication failed
+///   => POST https://api.example.com/auth/login
+///   > request:
+///     > headers:
+///        > content-type: application/json
+///   < response:
+///     < headers:
+///        < content-type: application/json
+///     < body: {"error": "invalid credentials"}
+/// ```
 pub struct ListReporter {
     terminal: Term,
     buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
@@ -166,6 +311,23 @@ pub struct ListReporter {
 }
 
 impl ListReporter {
+    /// Creates a new list reporter.
+    ///
+    /// # Parameters
+    ///
+    /// - `capture_http`: Whether to include HTTP request/response details in output
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::reporter::ListReporter;
+    ///
+    /// // With HTTP logging
+    /// let reporter = ListReporter::new(true);
+    ///
+    /// // Without HTTP logging (faster, less verbose)
+    /// let reporter = ListReporter::new(false);
+    /// ```
     pub fn new(capture_http: bool) -> ListReporter {
         ListReporter {
             terminal: Term::stdout(),
@@ -325,6 +487,39 @@ fn emoji_symbol_test_result(test: &Test) -> char {
 }
 
 #[allow(clippy::vec_box, dead_code)]
+/// A reporter that displays test results in a summary table after all tests complete.
+///
+/// This reporter buffers all test results and displays them in a formatted table
+/// at the end of execution. Useful for getting an overview of all test results
+/// without the noise of real-time output.
+///
+/// # Features
+///
+/// - **Summary table**: Clean tabular output after test completion
+/// - **Project ordering**: Results ordered by project configuration
+/// - **Emoji indicators**: Visual success/failure indicators
+/// - **Modern styling**: Attractive table borders and formatting
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::{Runner, reporter::TableReporter};
+///
+/// let mut runner = Runner::new();
+/// runner.add_reporter(TableReporter::new(false)); // No HTTP details in table
+/// ```
+///
+/// # Output Format
+///
+/// ```text
+/// ┌─────────┬────────┬──────────────┬────────┐
+/// │ Project │ Module │ Test         │ Result │
+/// ├─────────┼────────┼──────────────┼────────┤
+/// │ staging │ api    │ health_check │   🟢   │
+/// │ staging │ auth   │ login        │   🔴   │
+/// │ prod    │ api    │ status       │   🟢   │
+/// └─────────┴────────┴──────────────┴────────┘
+/// ```
 pub struct TableReporter {
     terminal: Term,
     buffer: HashMap<(ProjectName, ModuleName, TestName), Test>,
@@ -332,6 +527,19 @@ pub struct TableReporter {
 }
 
 impl TableReporter {
+    /// Creates a new table reporter.
+    ///
+    /// # Parameters
+    ///
+    /// - `capture_http`: Whether to capture HTTP details (currently unused in table output)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu_core::reporter::TableReporter;
+    ///
+    /// let reporter = TableReporter::new(false);
+    /// ```
     pub fn new(capture_http: bool) -> TableReporter {
         TableReporter {
             terminal: Term::stdout(),
