@@ -62,8 +62,8 @@ async fn patch_with_headers() -> eyre::Result<()> {
 
     let res = http
         .patch(format!("{base_url}/patch"))
-        .header("X-Custom-Header", "patch-test")
-        .header("Content-Type", "application/json")
+        .header("x-custom-header", "patch-test")
+        .header("content-type", "application/json")
         .body(payload)
         .send()
         .await?;

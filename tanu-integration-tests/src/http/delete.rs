@@ -44,7 +44,7 @@ async fn delete_with_body() -> eyre::Result<()> {
 
     let res = http
         .delete(format!("{base_url}/delete"))
-        .header("Content-Type", "application/json")
+        .header("content-type", "application/json")
         .body(body)
         .send()
         .await?;

@@ -42,6 +42,8 @@ pub struct Response {
     pub status: StatusCode,
     pub text: String,
     pub url: url::Url,
+    #[cfg(feature = "cookies")]
+    cookies: Vec<cookie::Cookie<'static>>,
 }
 
 impl Response {
@@ -65,12 +67,33 @@ impl Response {
         Ok(serde_json::from_str(&self.text)?)
     }
 
+    #[cfg(feature = "cookies")]
+    pub fn cookies(&self) -> impl Iterator<Item = &cookie::Cookie<'static>> + '_ {
+        self.cookies.iter()
+    }
+
     async fn from(res: reqwest::Response) -> Self {
+        let headers = res.headers().clone();
+        let status = res.status();
+        let url = res.url().clone();
+        
+        #[cfg(feature = "cookies")]
+        let cookies: Vec<cookie::Cookie<'static>> = res.cookies()
+            .map(|cookie| {
+                cookie::Cookie::build((cookie.name().to_string(), cookie.value().to_string()))
+                    .build()
+            })
+            .collect();
+        
+        let text = res.text().await.unwrap_or_default();
+        
         Response {
-            headers: res.headers().clone(),
-            status: res.status(),
-            url: res.url().clone(),
-            text: res.text().await.unwrap_or_default(),
+            headers,
+            status,
+            url,
+            text,
+            #[cfg(feature = "cookies")]
+            cookies,
         }
     }
 }
@@ -84,7 +107,16 @@ pub struct Client {
 impl Client {
     /// Construct tanu's HTTP client.
     pub fn new() -> Client {
-        Client::default()
+        #[cfg(feature = "cookies")]
+        let inner = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap_or_default();
+        
+        #[cfg(not(feature = "cookies"))]
+        let inner = reqwest::Client::default();
+        
+        Client { inner }
     }
 
     pub fn get(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {

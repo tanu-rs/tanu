@@ -39,3 +39,4 @@ tracing-subscriber = { workspace = true }
 default = []
 json = ["reqwest/json", "tanu-core/json"]
 multipart = ["reqwest/multipart", "tanu-core/multipart"]
+cookies = ["tanu-core/cookies"]
