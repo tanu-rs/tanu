@@ -1,3 +1,41 @@
+//! # Configuration Module
+//!
+//! Handles loading and managing tanu configuration from `tanu.toml` files.
+//! Supports project-specific configurations, environment variables, and
+//! various test execution settings.
+//!
+//! ## Configuration Structure
+//!
+//! Tanu uses TOML configuration files with the following structure:
+//!
+//! ```toml
+//! [[projects]]
+//! name = "staging"
+//! base_url = "https://staging.api.example.com"
+//! timeout = 30000
+//! retry.count = 3
+//! retry.factor = 2.0
+//! test_ignore = ["slow_test", "flaky_test"]
+//!
+//! [[projects]]
+//! name = "production"
+//! base_url = "https://api.example.com"
+//! timeout = 10000
+//! ```
+//!
+//! ## Usage
+//!
+//! ```rust,ignore
+//! use tanu::{get_config, get_tanu_config};
+//!
+//! // Get global configuration
+//! let config = get_tanu_config();
+//!
+//! // Get current project configuration (within test context)
+//! let project_config = get_config();
+//! let base_url = project_config.get_str("base_url").unwrap_or_default();
+//! ```
+
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Deserialize};
@@ -16,6 +54,7 @@ tokio::task_local! {
     pub static PROJECT: ProjectConfig;
 }
 
+#[doc(hidden)]
 pub fn get_tanu_config() -> &'static Config {
     &CONFIG
 }

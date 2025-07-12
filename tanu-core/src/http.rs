@@ -1,5 +1,39 @@
-/// tanu's HTTP client is a wrapper for `reqwest::Client` and offers * exactly same interface as `reqwest::Client`
-/// * to capture reqnest and response logs
+//! # HTTP Client Module
+//!
+//! Tanu's HTTP client provides a wrapper around `reqwest::Client` with enhanced
+//! logging and testing capabilities. It offers the same interface as `reqwest::Client`
+//! while automatically capturing request and response logs for debugging and reporting.
+//!
+//! ## Key Features
+//!
+//! - **Automatic Logging**: Captures all HTTP requests and responses
+//! - **Same API as reqwest**: Drop-in replacement for familiar `reqwest` usage
+//! - **Integration with Assertions**: Works seamlessly with tanu's assertion macros
+//! - **Error Handling**: Enhanced error types with context for better debugging
+//!
+//! ## Basic Usage
+//!
+//! ```rust,ignore
+//! use tanu::{check_eq, http::Client};
+//!
+//! #[tanu::test]
+//! async fn test_api() -> eyre::Result<()> {
+//!     let client = Client::new();
+//!     
+//!     let response = client
+//!         .get("https://api.example.com/users")
+//!         .header("accept", "application/json")
+//!         .send()
+//!         .await?;
+//!     
+//!     check_eq!(200, response.status().as_u16());
+//!     
+//!     let users: serde_json::Value = response.json().await?;
+//!     check!(users.is_array());
+//!     
+//!     Ok(())
+//! }
+//! ```
 use eyre::OptionExt;
 pub use http::{header, Method, StatusCode, Version};
 use std::time::{Duration, Instant};
@@ -36,6 +70,34 @@ pub struct Log {
     pub response: LogResponse,
 }
 
+/// HTTP response wrapper with enhanced testing capabilities.
+///
+/// This struct wraps HTTP response data and provides convenient methods
+/// for accessing response information in tests. All data is captured
+/// for logging and debugging purposes.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu::{check_eq, http::Client};
+///
+/// #[tanu::test]
+/// async fn test_response() -> eyre::Result<()> {
+///     let client = Client::new();
+///     let response = client.get("https://api.example.com").send().await?;
+///     
+///     // Check status
+///     check_eq!(200, response.status().as_u16());
+///     
+///     // Access headers
+///     let content_type = response.headers().get("content-type");
+///     
+///     // Parse JSON
+///     let data: serde_json::Value = response.json().await?;
+///     
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Response {
     pub headers: header::HeaderMap,
@@ -47,22 +109,71 @@ pub struct Response {
 }
 
 impl Response {
+    /// Returns the HTTP status code of the response.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let status = response.status();
+    /// check_eq!(200, status.as_u16());
+    /// check!(status.is_success());
+    /// ```
     pub fn status(&self) -> StatusCode {
         self.status
     }
 
+    /// Returns a reference to the response headers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let headers = response.headers();
+    /// let content_type = headers.get("content-type").unwrap();
+    /// check_str_eq!("application/json", content_type.to_str().unwrap());
+    /// ```
     pub fn headers(&self) -> &header::HeaderMap {
         &self.headers
     }
 
+    /// Returns the final URL of the response, after following redirects.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let url = response.url();
+    /// check!(url.host_str().unwrap().contains("example.com"));
+    /// ```
     pub fn url(&self) -> &url::Url {
         &self.url
     }
 
+    /// Consumes the response and returns the response body as a string.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let body = response.text().await?;
+    /// check!(body.contains("expected content"));
+    /// ```
     pub async fn text(self) -> Result<String, Error> {
         Ok(self.text)
     }
 
+    /// Consumes the response and deserializes the JSON body into the given type.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Parse as serde_json::Value
+    /// let data: serde_json::Value = response.json().await?;
+    /// check_eq!("John", data["name"]);
+    ///
+    /// // Parse into custom struct
+    /// #[derive(serde::Deserialize)]
+    /// struct User { name: String, id: u64 }
+    /// let user: User = response.json().await?;
+    /// check_eq!("John", user.name);
+    /// ```
     pub async fn json<T: serde::de::DeserializeOwned>(self) -> Result<T, Error> {
         Ok(serde_json::from_str(&self.text)?)
     }
@@ -76,17 +187,18 @@ impl Response {
         let headers = res.headers().clone();
         let status = res.status();
         let url = res.url().clone();
-        
+
         #[cfg(feature = "cookies")]
-        let cookies: Vec<cookie::Cookie<'static>> = res.cookies()
+        let cookies: Vec<cookie::Cookie<'static>> = res
+            .cookies()
             .map(|cookie| {
                 cookie::Cookie::build((cookie.name().to_string(), cookie.value().to_string()))
                     .build()
             })
             .collect();
-        
+
         let text = res.text().await.unwrap_or_default();
-        
+
         Response {
             headers,
             status,
@@ -98,24 +210,66 @@ impl Response {
     }
 }
 
-/// tanu's http client that is compatible to `reqwest::Client`.
+/// Tanu's HTTP client that provides enhanced testing capabilities.
+///
+/// This client is a wrapper around `reqwest::Client` that offers the same API
+/// while adding automatic request/response logging, better error handling,
+/// and integration with tanu's test reporting system.
+///
+/// # Features
+///
+/// - **Compatible API**: Drop-in replacement for `reqwest::Client`
+/// - **Automatic Logging**: All requests and responses are captured for debugging
+/// - **Enhanced Errors**: Detailed error context for better test debugging
+/// - **Cookie Support**: Optional cookie handling with the `cookies` feature
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu::{check, http::Client};
+///
+/// #[tanu::test]
+/// async fn test_api() -> eyre::Result<()> {
+///     let client = Client::new();
+///     
+///     let response = client
+///         .get("https://api.example.com/health")
+///         .send()
+///         .await?;
+///     
+///     check!(response.status().is_success());
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Default)]
 pub struct Client {
     pub(crate) inner: reqwest::Client,
 }
 
 impl Client {
-    /// Construct tanu's HTTP client.
+    /// Creates a new HTTP client instance.
+    ///
+    /// This creates a client with default settings, including cookie support
+    /// if the `cookies` feature is enabled. The client is configured for
+    /// optimal testing performance and reliability.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tanu::http::Client;
+    ///
+    /// let client = Client::new();
+    /// ```
     pub fn new() -> Client {
         #[cfg(feature = "cookies")]
         let inner = reqwest::Client::builder()
             .cookie_store(true)
             .build()
             .unwrap_or_default();
-        
+
         #[cfg(not(feature = "cookies"))]
         let inner = reqwest::Client::default();
-        
+
         Client { inner }
     }
 

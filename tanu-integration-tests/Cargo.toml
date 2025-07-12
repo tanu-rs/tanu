@@ -4,6 +4,7 @@ version = "0.7.1"
 edition = "2021"
 
 [dependencies]
+anyhow = { workspace = true }
 base64 = "0.21"
 dtor = "0.0.6"
 serde = { workspace = true }
