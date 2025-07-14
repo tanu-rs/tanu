@@ -1,3 +1,4 @@
+mod assertion;
 mod http;
 mod macros;
 mod misc;

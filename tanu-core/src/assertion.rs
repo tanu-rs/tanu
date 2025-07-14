@@ -137,7 +137,7 @@ macro_rules! check_str_eq {
                     );
                     let __check = tanu::runner::Check::error(&__message);
                     tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
-                    Err(Error::StrEq(__message))?;
+                    Err(tanu::assertion::Error::StrEq(__message))?;
                 } else {
                     let __message = format!("check succeeded: `(left == right)`{}{}\
                        \n\
@@ -298,7 +298,7 @@ macro_rules! check_ne {
                     );
                     let __check = tanu::runner::Check::error(&__message);
                     tanu::runner::publish(tanu::runner::EventBody::Check(Box::new(__check)))?;
-                    Err(Error::Ne(__message))?;
+                    Err(tanu::assertion::Error::Ne(__message))?;
                 } else {
                     let __message = format!("check succeeded: `(left != right)`{}{}\
                         \n\
