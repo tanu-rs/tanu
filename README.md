@@ -34,22 +34,22 @@ use tanu::{check, check_eq, eyre, http::Client};
 #[tanu::test]
 async fn get_user_profile() -> eyre::Result<()> {
     let client = Client::new();
-    
+
     // Make HTTP request
     let response = client
         .get("https://api.example.com/users/123")
         .header("authorization", "Bearer token123")
         .send()
         .await?;
-    
+
     // Verify response
     check!(response.status().is_success(), "Expected successful response");
-    
+
     // Parse and validate JSON
     let user: serde_json::Value = response.json().await?;
     check_eq!(123, user["id"].as_i64().unwrap());
     check_eq!("John Doe", user["name"].as_str().unwrap());
-    
+
     Ok(())
 }
 
@@ -63,7 +63,7 @@ async fn test_status_codes(expected_status: u16) -> eyre::Result<()> {
         .get(&format!("https://httpbin.org/status/{expected_status}"))
         .send()
         .await?;
-    
+
     check_eq!(expected_status, response.status().as_u16());
     Ok(())
 }
@@ -90,8 +90,17 @@ async fn main() -> eyre::Result<()> {
 
 ## Screenshots
 
-<p><img src="cli.png" width="80%"></p>
-<p><img src="tui.png" width="80%"></p>
+CLI allows you to run tests and see results in a terminal easily.
+<p><img src="cli.gif" width="100%"></p>
+
+TUI allows you to run tests and see results in a terminal interactively.
+<p><img src="tui.gif" width="100%"></p>
+
+Beautiful backtrace by color-eyre.
+<p><img src="backtrace.png" width="100%"></p>
+
+Test report with Allure.
+<p><img src="allure.png" width="100%"></p>
 
 ## License
 
