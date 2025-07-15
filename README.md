@@ -90,8 +90,8 @@ async fn main() -> eyre::Result<()> {
 
 ## Screenshots
 
-<p><img src="cli.png" width="80%"></p>
-<p><img src="tui.png" width="80%"></p>
+<p><img src="cli.gif" width="100%"></p>
+<p><img src="tui.gif" width="100%"></p>
 
 ## License
 
