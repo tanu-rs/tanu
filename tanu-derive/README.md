@@ -60,14 +60,14 @@ Add `tanu-derive` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tanu-derive = "0.8.1"
+tanu-derive = "0.8.2"
 ```
 
 However, `tanu-derive` is typically used through the main `tanu` crate, which re-exports these macros:
 
 ```toml
 [dependencies]
-tanu = "0.8.1"
+tanu = "0.8.2"
 ```
 
 ## Macro Details
