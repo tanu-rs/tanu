@@ -29,7 +29,7 @@ Add tanu to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tanu = "0.8.1"
+tanu = "0.8.2"
 tokio = { version = "1", features = ["full"] }
 eyre = "0.6"
 ```
