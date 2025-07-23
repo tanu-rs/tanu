@@ -102,6 +102,45 @@ Beautiful backtrace by color-eyre.
 Test report with Allure.
 <p><img src="allure.png" width="100%"></p>
 
+## Contributors
+
+Thanks to all the amazing people who have contributed to making tanu better! Every contribution, big or small, helps build a more robust and feature-rich testing framework for the Rust community ✨
+
+<a href="https://github.com/tanu-rs/tanu/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=tanu-rs/tanu" />
+</a>
+
+Made with [contrib.rocks](https://contrib.rocks).
+
+## Acknowledgments
+
+We're grateful to our sponsors who support the development of tanu:
+
+<table>
+<tr>
+<td align="center">
+<a href="https://github.com/yuk1ty">
+<img src="https://github.com/yuk1ty.png" width="100px;" alt="yuk1ty"/>
+<br />
+<sub><b>yuk1ty</b></sub>
+</a>
+<br />
+🐶
+</td>
+<td align="center">
+<a href="https://github.com/2323-code">
+<img src="https://github.com/2323-code.png" width="100px;" alt="2323-code"/>
+<br />
+<sub><b>2323-code</b></sub>
+</a>
+<br />
+🥩
+</td>
+</tr>
+</table>
+
+Your support helps make tanu better for everyone. Thank you! 🙏
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

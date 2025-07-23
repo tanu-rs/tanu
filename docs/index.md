@@ -92,9 +92,48 @@ async fn main() -> eyre::Result<()> {
 <p><img src="assets/cli.png" width="80%"></p>
 <p><img src="assets/tui.png" width="80%"></p>
 
+## Contributors
+
+Thanks to all the amazing people who have contributed to making tanu better! Every contribution, big or small, helps build a more robust and feature-rich testing framework for the Rust community ✨
+
+<a href="https://github.com/tanu-rs/tanu/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=tanu-rs/tanu" />
+</a>
+
+Made with [contrib.rocks](https://contrib.rocks).
+
+## Acknowledgments
+
+We're grateful to our sponsors who support the development of tanu:
+
+<table>
+<tr>
+<td align="center">
+<a href="https://github.com/yuk1ty">
+<img src="https://github.com/yuk1ty.png" width="100px;" alt="yuk1ty"/>
+<br />
+<sub><b>yuk1ty</b></sub>
+</a>
+<br />
+🐶
+</td>
+<td align="center">
+<a href="https://github.com/2323-code">
+<img src="https://github.com/2323-code.png" width="100px;" alt="2323-code"/>
+<br />
+<sub><b>2323-code</b></sub>
+</a>
+<br />
+🥩
+</td>
+</tr>
+</table>
+
+Your support helps make tanu better for everyone. Thank you! 🙏
+
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/tanu-rs/tanu/blob/main/LICENSE) file for details.
 
 The Apache License 2.0 is a permissive open source license that allows you to:
 - Use the software for any purpose
