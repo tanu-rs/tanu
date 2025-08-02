@@ -691,7 +691,11 @@ impl Runner {
             tracing_subscriber::fmt::init();
         }
 
-        let mut reporters = std::mem::take(&mut self.reporters);
+        let reporters = std::mem::take(&mut self.reporters);
+        let reporter_handles: Vec<_> = reporters
+            .into_iter()
+            .map(|mut reporter| tokio::spawn(async move { reporter.run().await }))
+            .collect();
 
         let project_filter = ProjectFilter { project_names };
         let module_filter = ModuleFilter { module_names };
@@ -810,9 +814,6 @@ impl Runner {
             start.elapsed().as_secs_f32()
         );
 
-        let reporters =
-            futures::future::join_all(reporters.iter_mut().map(|reporter| reporter.run().boxed()));
-
         let mut has_any_error = false;
         let options = self.options.clone();
         let runner = async move {
@@ -853,16 +854,19 @@ impl Runner {
             eyre::Ok(())
         };
 
-        let (handles, reporters) = tokio::join!(runner, reporters);
-        for reporter in reporters {
-            if let Err(e) = reporter {
-                error!("reporter failed: {e:#}");
+        let runner_result = runner.await;
+
+        for handle in reporter_handles {
+            match handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => error!("reporter failed: {e:#}"),
+                Err(e) => error!("reporter task panicked: {e:#}"),
             }
         }
 
         debug!("runner stopped");
 
-        handles
+        runner_result
     }
 
     /// Returns a list of all registered test metadata.
