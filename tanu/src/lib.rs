@@ -6,12 +6,10 @@
 //!
 //! ## Quick Start
 //!
-//! Add tanu to your `Cargo.toml`:
-//!
-//! ```toml
-//! [dependencies]
-//! tanu = "0.7"
-//! tokio = { version = "1.0", features = ["full"] }
+//! You can install `tanu` and `tokio` by running the following commands in your terminal:
+//! ```bash
+//! cargo add tanu
+//! cargo add tokio --features full
 //! ```
 //!
 //! Write your first test:
@@ -26,7 +24,7 @@
 //!         .get("https://api.example.com/users")
 //!         .send()
 //!         .await?;
-//!     
+//!
 //!     check!(response.status().is_success());
 //!     Ok(())
 //! }
@@ -75,12 +73,12 @@
 //!         .header("accept", "application/json")
 //!         .send()
 //!         .await?;
-//!     
+//!
 //!     check_eq!(200, response.status().as_u16());
-//!     
+//!
 //!     let data: serde_json::Value = response.json().await?;
 //!     check!(data.is_object());
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -99,7 +97,7 @@
 //!         .get(&format!("https://httpbin.org/status/{expected_status}"))
 //!         .send()
 //!         .await?;
-//!     
+//!
 //!     check_eq!(expected_status, response.status().as_u16());
 //!     Ok(())
 //! }

@@ -369,18 +369,18 @@ impl Reporter for ListReporter {
 
     async fn on_retry(
         &mut self,
-        project: String,
-        module: String,
+        project_name: String,
+        module_name: String,
         test_name: String,
     ) -> eyre::Result<()> {
         let buffer = self
             .buffer
-            .get_mut(&(project.clone(), module.clone(), test_name.clone()))
+            .get_mut(&(project_name.clone(), module_name.clone(), test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
         let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
         self.terminal.write_line(&format!(
-            "{status} {test_number} [{project}] {module}::{test_name}: {retry_message}",
+            "{status} {test_number} [{project_name}] {module_name}::{test_name}: {retry_message}",
             status = symbol_error(),
             retry_message = style("retrying...").blue(),
         ))?;
