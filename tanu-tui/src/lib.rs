@@ -792,7 +792,7 @@ impl Runtime {
                                 // TODO error
                             }
                         },
-                        runner::Event {project: _, module: _, test: _, body: EventBody::Retry} => {
+                        runner::Event {project: _, module: _, test: _, body: EventBody::Retry(_)} => {
                         }
                         runner::Event {project, module, test: test_name, body: EventBody::End(test)} => {
                             if let Some(mut test_result) = test_results_buffer.remove(&(project.clone(), test_name.clone())) {
