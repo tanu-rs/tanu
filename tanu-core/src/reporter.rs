@@ -97,9 +97,9 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
             Ok(Event {
                 project,
                 module,
-                test,
-                body: EventBody::Retry,
-            }) => reporter.on_retry(project, module, test).await,
+                test: test_name,
+                body: EventBody::Retry(test),
+            }) => reporter.on_retry(project, module, test_name, test).await,
             Ok(Event {
                 project,
                 module,
@@ -217,6 +217,7 @@ pub trait Reporter {
         _project: String,
         _module: String,
         _test_name: String,
+        _test: Test,
     ) -> eyre::Result<()> {
         Ok(())
     }
@@ -372,6 +373,7 @@ impl Reporter for ListReporter {
         project_name: String,
         module_name: String,
         test_name: String,
+        test: Test,
     ) -> eyre::Result<()> {
         let buffer = self
             .buffer
@@ -379,11 +381,14 @@ impl Reporter for ListReporter {
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
         let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
-        self.terminal.write_line(&format!(
-            "{status} {test_number} [{project_name}] {module_name}::{test_name}: {retry_message}",
-            status = symbol_error(),
-            retry_message = style("retrying...").blue(),
-        ))?;
+
+        if let Err(e) = test.result {
+            self.terminal.write_line(&format!(
+                "{status} {test_number} [{project_name}] {module_name}::{test_name}: {retry_message}\n{e:#}",
+                status = symbol_error(),
+                retry_message = style("retrying...").blue(),
+            ))?;
+        }
         Ok(())
     }
 

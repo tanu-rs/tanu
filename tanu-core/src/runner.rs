@@ -198,7 +198,7 @@ pub enum EventBody {
     Start,
     Check(Box<Check>),
     Http(Box<http::Log>),
-    Retry,
+    Retry(Test),
     End(Test),
 }
 
@@ -743,12 +743,24 @@ impl Runner {
                                         let retry_count =
                                             AtomicUsize::new(project.retry.count.unwrap_or(0));
                                         let f = || async {
+                                            let request_started = std::time::Instant::now();
                                             let res = factory().await;
 
                                             if res.is_err()
                                                 && retry_count.load(Ordering::SeqCst) > 0
                                             {
-                                                publish(EventBody::Retry)?;
+                                                let test_result = match &res {
+                                                    Ok(_) => Ok(()),
+                                                    Err(e) => {
+                                                        Err(Error::ErrorReturned(format!("{e:?}")))
+                                                    }
+                                                };
+                                                let test = Test {
+                                                    result: test_result,
+                                                    info: info.clone(),
+                                                    request_time: request_started.elapsed(),
+                                                };
+                                                publish(EventBody::Retry(test))?;
                                                 retry_count.fetch_sub(1, Ordering::SeqCst);
                                             };
                                             res
