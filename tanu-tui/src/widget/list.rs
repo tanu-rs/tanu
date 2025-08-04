@@ -218,7 +218,7 @@ impl ExecutionStateController {
                 project_name: module_state.project_name.clone(),
                 module_name: module_state.name.clone(),
                 test: Some(tanu_core::runner::Test {
-                    info: TestInfo::default(),
+                    info: Arc::new(TestInfo::default()),
                     result: if ok {
                         Ok(())
                     } else {
@@ -253,10 +253,10 @@ impl ExecutionStateController {
             project_state.execution_state.executed(TestResult {
                 project_name: project_state.name.clone(),
                 test: Some(tanu_core::runner::Test {
-                    info: TestInfo {
+                    info: Arc::new(TestInfo {
                         module: "".into(),
                         name: "".into(),
-                    },
+                    }),
                     result: if ok {
                         Ok(())
                     } else {
@@ -882,10 +882,10 @@ mod test {
         // Test for ExecutionState::Executed with successful result
         let successful_result = TestResult {
             test: Some(tanu_core::runner::Test {
-                info: TestInfo {
+                info: Arc::new(TestInfo {
                     module: "".into(),
                     name: "".into(),
-                },
+                }),
                 result: Ok(()),
                 request_time: std::time::Duration::from_secs(0),
             }),
@@ -899,10 +899,10 @@ mod test {
         // Test for ExecutionState::Executed with failed result
         let failed_result = TestResult {
             test: Some(tanu_core::runner::Test {
-                info: TestInfo {
+                info: Arc::new(TestInfo {
                     module: "".into(),
                     name: "".into(),
-                },
+                }),
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),
                 request_time: std::time::Duration::from_secs(0),
             }),
