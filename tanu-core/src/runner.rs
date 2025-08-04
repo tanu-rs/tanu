@@ -47,10 +47,10 @@ use crate::{
 };
 
 tokio::task_local! {
-    pub(crate) static TEST_INFO: TestInfo;
+    pub(crate) static TEST_INFO: Arc<TestInfo>;
 }
 
-pub(crate) fn get_test_info() -> TestInfo {
+pub(crate) fn get_test_info() -> Arc<TestInfo> {
     TEST_INFO.with(|info| info.clone())
 }
 
@@ -208,8 +208,8 @@ impl From<EventBody> for Event {
         let test_info = crate::runner::get_test_info();
         Event {
             project: project.name.clone(),
-            module: test_info.module,
-            test: test_info.name,
+            module: test_info.module.clone(),
+            test: test_info.name.clone(),
             body,
         }
     }
@@ -222,7 +222,7 @@ impl From<EventBody> for Event {
 /// This is published in the `End` event when a test completes.
 #[derive(Debug, Clone)]
 pub struct Test {
-    pub info: TestInfo,
+    pub info: Arc<TestInfo>,
     pub request_time: Duration,
     pub result: Result<(), Error>,
 }
@@ -492,7 +492,7 @@ impl Filter for TestIgnoreFilter {
 pub struct Runner {
     cfg: Config,
     options: Options,
-    test_cases: Vec<(TestInfo, TestCaseFactory)>,
+    test_cases: Vec<(Arc<TestInfo>, TestCaseFactory)>,
     reporters: Vec<Box<dyn Reporter + Send>>,
 }
 
@@ -622,10 +622,10 @@ impl Runner {
     /// Add a test case to the runner.
     pub fn add_test(&mut self, name: &str, module: &str, factory: TestCaseFactory) {
         self.test_cases.push((
-            TestInfo {
+            Arc::new(TestInfo {
                 name: name.into(),
                 module: module.into(),
-            },
+            }),
             factory,
         ));
     }
@@ -734,10 +734,11 @@ impl Runner {
                     tokio::spawn(async move {
                         let _permit = semaphore.acquire().await.unwrap();
                         let project_for_scope = project.clone();
+                        let info_for_scope = info.clone();
                         config::PROJECT
                             .scope(project_for_scope, async {
                                 TEST_INFO
-                                    .scope(info.clone(), async {
+                                    .scope(info_for_scope, async {
                                         let test_name = info.name.clone();
                                         publish(EventBody::Start)?;
 
@@ -901,7 +902,7 @@ impl Runner {
     pub fn list(&self) -> Vec<&TestInfo> {
         self.test_cases
             .iter()
-            .map(|(meta, _test)| meta)
+            .map(|(meta, _test)| meta.as_ref())
             .collect::<Vec<_>>()
     }
 }
