@@ -207,7 +207,7 @@ impl From<EventBody> for Event {
         let project = crate::config::get_config();
         let test_info = crate::runner::get_test_info();
         Event {
-            project: project.name,
+            project: project.name.clone(),
             module: test_info.module,
             test: test_info.name,
             body,
@@ -714,16 +714,16 @@ impl Runner {
                 .flat_map(|(info, factory)| {
                     let projects = self.cfg.projects.clone();
                     let projects = if projects.is_empty() {
-                        vec![ProjectConfig {
+                        vec![Arc::new(ProjectConfig {
                             name: "default".into(),
                             ..Default::default()
-                        }]
+                        })]
                     } else {
                         projects
                     };
                     projects
                         .into_iter()
-                        .map(move |project| (project.clone(), info.clone(), factory.clone()))
+                        .map(move |project| (project, info.clone(), factory.clone()))
                 })
                 .filter(move |(project, info, _)| test_name_filter.filter(project, info))
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
@@ -733,8 +733,9 @@ impl Runner {
                     let semaphore = semaphore.clone();
                     tokio::spawn(async move {
                         let _permit = semaphore.acquire().await.unwrap();
+                        let project_for_scope = project.clone();
                         config::PROJECT
-                            .scope(project.clone(), async {
+                            .scope(project_for_scope, async {
                                 TEST_INFO
                                     .scope(info.clone(), async {
                                         let test_name = info.name.clone();
@@ -912,24 +913,24 @@ mod test {
 
     fn create_config() -> Config {
         Config {
-            projects: vec![ProjectConfig {
+            projects: vec![Arc::new(ProjectConfig {
                 name: "default".into(),
                 ..Default::default()
-            }],
+            })],
             ..Default::default()
         }
     }
 
     fn create_config_with_retry() -> Config {
         Config {
-            projects: vec![ProjectConfig {
+            projects: vec![Arc::new(ProjectConfig {
                 name: "default".into(),
                 retry: RetryConfig {
                     count: Some(1),
                     ..Default::default()
                 },
                 ..Default::default()
-            }],
+            })],
             ..Default::default()
         }
     }

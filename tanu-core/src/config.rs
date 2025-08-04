@@ -39,7 +39,7 @@
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Deserialize};
-use std::{collections::HashMap, io::Read, path::Path, time::Duration};
+use std::{collections::HashMap, io::Read, path::Path, sync::Arc, time::Duration};
 use toml::Value as TomlValue;
 use tracing::*;
 
@@ -51,7 +51,7 @@ static CONFIG: Lazy<Config> = Lazy::new(|| {
 });
 
 tokio::task_local! {
-    pub static PROJECT: ProjectConfig;
+    pub static PROJECT: Arc<ProjectConfig>;
 }
 
 #[doc(hidden)]
@@ -61,26 +61,25 @@ pub fn get_tanu_config() -> &'static Config {
 
 /// Get configuration for the current project. This function has to be called in the tokio
 /// task created by tanu runner. Otherwise, calling this function will panic.
-pub fn get_config() -> ProjectConfig {
+pub fn get_config() -> Arc<ProjectConfig> {
     PROJECT.get()
 }
 
 /// tanu's configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Config {
-    pub projects: Vec<ProjectConfig>,
+    pub projects: Vec<Arc<ProjectConfig>>,
     /// Global tanu configuration
-    #[serde(default)]
     pub tui: Tui,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
-            projects: vec![ProjectConfig {
+            projects: vec![Arc::new(ProjectConfig {
                 name: "default".to_string(),
                 ..Default::default()
-            }],
+            })],
             tui: Tui::default(),
         }
     }
@@ -109,11 +108,25 @@ impl Config {
         let mut buf = String::new();
         file.read_to_string(&mut buf)
             .map_err(|e| Error::LoadError(e.to_string()))?;
-        let mut cfg: Config = toml::from_str(&buf).map_err(|e| {
+
+        #[derive(Deserialize)]
+        struct ConfigHelper {
+            #[serde(default)]
+            projects: Vec<ProjectConfig>,
+            #[serde(default)]
+            tui: Tui,
+        }
+
+        let helper: ConfigHelper = toml::from_str(&buf).map_err(|e| {
             Error::LoadError(format!(
                 "failed to deserialize tanu.toml into tanu::Config: {e}"
             ))
         })?;
+
+        let mut cfg = Config {
+            projects: helper.projects.into_iter().map(Arc::new).collect(),
+            tui: helper.tui,
+        };
 
         debug!("tanu.toml was successfully loaded: {cfg:#?}");
 
@@ -162,8 +175,8 @@ impl Config {
             .collect();
 
         debug!("Loading project configuration from env");
-        for project in &mut self.projects {
-            let project_prefix = format!("{PREFIX}_{}_", project.name.to_uppercase());
+        for project_arc in &mut self.projects {
+            let project_prefix = format!("{PREFIX}_{}_", project_arc.name.to_uppercase());
             let vars: HashMap<_, _> = std::env::vars()
                 .filter_map(|(k, v)| {
                     k.find(&project_prefix)?;
@@ -173,6 +186,7 @@ impl Config {
                     ))
                 })
                 .collect();
+            let project = Arc::make_mut(project_arc);
             project.data.extend(vars);
             project.data.extend(global_vars.clone());
         }
@@ -314,7 +328,7 @@ mod test {
     }
 
     fn load_test_project_config() -> eyre::Result<ProjectConfig> {
-        Ok(load_test_config()?.projects.remove(0))
+        Ok(Arc::try_unwrap(load_test_config()?.projects.remove(0)).unwrap())
     }
 
     #[test]

@@ -4,7 +4,7 @@ use ratatui::{
     prelude::*,
     widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
 use throbber_widgets_tui::ThrobberState;
 
@@ -464,7 +464,10 @@ pub struct TestListState {
 }
 
 impl TestListState {
-    pub fn new(projects: &[tanu_core::ProjectConfig], test_cases: &[TestInfo]) -> TestListState {
+    pub fn new(
+        projects: &[Arc<tanu_core::ProjectConfig>],
+        test_cases: &[TestInfo],
+    ) -> TestListState {
         let test_ignore_filter = TestIgnoreFilter::default();
         let grouped_by_module = test_cases
             .iter()
@@ -674,14 +677,14 @@ mod test {
     #[test]
     fn expand() {
         let projects = vec![
-            tanu_core::ProjectConfig {
+            Arc::new(tanu_core::ProjectConfig {
                 name: "dev".into(),
                 ..Default::default()
-            },
-            tanu_core::ProjectConfig {
+            }),
+            Arc::new(tanu_core::ProjectConfig {
                 name: "staging".into(),
                 ..Default::default()
-            },
+            }),
         ];
         let test_cases = vec![
             TestInfo {
@@ -752,14 +755,14 @@ mod test {
     #[test]
     fn expand_http_call() -> eyre::Result<()> {
         let projects = vec![
-            tanu_core::ProjectConfig {
+            Arc::new(tanu_core::ProjectConfig {
                 name: "dev".into(),
                 ..Default::default()
-            },
-            tanu_core::ProjectConfig {
+            }),
+            Arc::new(tanu_core::ProjectConfig {
                 name: "staging".into(),
                 ..Default::default()
-            },
+            }),
         ];
         let test_cases = vec![
             TestInfo {
