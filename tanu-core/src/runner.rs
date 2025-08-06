@@ -51,7 +51,7 @@ tokio::task_local! {
 }
 
 pub(crate) fn get_test_info() -> Arc<TestInfo> {
-    TEST_INFO.with(|info| info.clone())
+    TEST_INFO.with(Arc::clone)
 }
 
 // NOTE: Keep the runner receiver alive here so that sender never fails to send.
@@ -723,7 +723,7 @@ impl Runner {
                     };
                     projects
                         .into_iter()
-                        .map(move |project| (project, info.clone(), factory.clone()))
+                        .map(move |project| (project, Arc::clone(info), factory.clone()))
                 })
                 .filter(move |(project, info, _)| test_name_filter.filter(project, info))
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
@@ -733,8 +733,8 @@ impl Runner {
                     let semaphore = semaphore.clone();
                     tokio::spawn(async move {
                         let _permit = semaphore.acquire().await.unwrap();
-                        let project_for_scope = project.clone();
-                        let info_for_scope = info.clone();
+                        let project_for_scope = Arc::clone(&project);
+                        let info_for_scope = Arc::clone(&info);
                         config::PROJECT
                             .scope(project_for_scope, async {
                                 TEST_INFO
@@ -759,7 +759,7 @@ impl Runner {
                                                 };
                                                 let test = Test {
                                                     result: test_result,
-                                                    info: info.clone(),
+                                                    info: Arc::clone(&info),
                                                     request_time: request_started.elapsed(),
                                                 };
                                                 publish(EventBody::Retry(test))?;
