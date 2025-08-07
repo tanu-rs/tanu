@@ -25,6 +25,7 @@
 use backon::Retryable;
 use eyre::WrapErr;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::{
     collections::HashMap,
@@ -709,22 +710,19 @@ impl Runner {
                 self.options.concurrency.unwrap_or(Semaphore::MAX_PERMITS),
             ));
 
+            let projects = self.cfg.projects.clone();
+            let projects = if projects.is_empty() {
+                vec![Arc::new(ProjectConfig {
+                    name: "default".into(),
+                    ..Default::default()
+                })]
+            } else {
+                projects
+            };
             self.test_cases
                 .iter()
-                .flat_map(|(info, factory)| {
-                    let projects = self.cfg.projects.clone();
-                    let projects = if projects.is_empty() {
-                        vec![Arc::new(ProjectConfig {
-                            name: "default".into(),
-                            ..Default::default()
-                        })]
-                    } else {
-                        projects
-                    };
-                    projects
-                        .into_iter()
-                        .map(move |project| (project, Arc::clone(info), factory.clone()))
-                })
+                .cartesian_product(projects.into_iter())
+                .map(|((info, factory), project)| (project, Arc::clone(info), factory.clone()))
                 .filter(move |(project, info, _)| test_name_filter.filter(project, info))
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
                 .filter(move |(project, info, _)| project_filter.filter(project, info))
