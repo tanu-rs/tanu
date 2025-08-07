@@ -809,6 +809,9 @@ impl Runtime {
                                 // TODO error
                             }
                         },
+                        runner::Event {project: _, module: _, test: _, body: EventBody::Summary(_summary)} => {
+                            // Summary events are handled by the reporters, no TUI action needed
+                        },
 
                     }
                 }

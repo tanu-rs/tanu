@@ -106,6 +106,12 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
                 test: test_name,
                 body: EventBody::End(test),
             }) => reporter.on_end(project, module, test_name, test).await,
+            Ok(Event {
+                project: _,
+                module: _,
+                test: _,
+                body: EventBody::Summary(summary),
+            }) => reporter.on_summary(summary).await,
             Err(broadcast::error::RecvError::Closed) => {
                 debug!("runner channel has been closed");
                 break;
@@ -230,6 +236,11 @@ pub trait Reporter {
         _test_name: String,
         _test: Test,
     ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    /// Called when all tests complete with summary statistics.
+    async fn on_summary(&mut self, _summary: runner::TestSummary) -> eyre::Result<()> {
         Ok(())
     }
 }
@@ -461,6 +472,33 @@ impl Reporter for ListReporter {
 
         Ok(())
     }
+
+    async fn on_summary(&mut self, summary: runner::TestSummary) -> eyre::Result<()> {
+        let runner::TestSummary {
+            total_tests,
+            passed_tests,
+            failed_tests,
+            total_time,
+        } = summary;
+
+        self.terminal.write_line("")?;
+        self.terminal.write_line(&format!(
+            "Tests: {} passed, {} failed, {} total",
+            style(passed_tests).green(),
+            if failed_tests > 0 {
+                style(failed_tests).red()
+            } else {
+                style(failed_tests)
+            },
+            total_tests
+        ))?;
+        self.terminal.write_line(&format!(
+            "Time: {}",
+            style(format!("{total_time:.2?}")).dim()
+        ))?;
+
+        Ok(())
+    }
 }
 
 fn write(term: &Term, s: impl AsRef<str>) -> eyre::Result<()> {
@@ -604,6 +642,36 @@ impl Reporter for TableReporter {
     ) -> eyre::Result<()> {
         self.buffer
             .insert((project_name, module_name, test_name), test);
+        Ok(())
+    }
+
+    async fn on_summary(&mut self, summary: runner::TestSummary) -> eyre::Result<()> {
+        let runner::TestSummary {
+            total_tests,
+            passed_tests,
+            failed_tests,
+            total_time,
+        } = summary;
+
+        write(&self.terminal, "")?;
+        write(
+            &self.terminal,
+            format!(
+                "Tests: {} passed, {} failed, {} total",
+                style(passed_tests).green(),
+                if failed_tests > 0 {
+                    style(failed_tests).red()
+                } else {
+                    style(failed_tests)
+                },
+                total_tests
+            ),
+        )?;
+        write(
+            &self.terminal,
+            format!("Time: {}", style(format!("{total_time:.2?}")).dim()),
+        )?;
+
         Ok(())
     }
 }
