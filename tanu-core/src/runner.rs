@@ -194,6 +194,7 @@ pub struct Event {
 /// - `Http`: HTTP request/response logs for debugging
 /// - `Retry`: Indicates a test retry attempt
 /// - `End`: Final test result with timing and outcome
+/// - `Summary`: Overall test execution summary with counts and timing
 #[derive(Debug, Clone)]
 pub enum EventBody {
     Start,
@@ -201,6 +202,7 @@ pub enum EventBody {
     Http(Box<http::Log>),
     Retry(Test),
     End(Test),
+    Summary(TestSummary),
 }
 
 impl From<EventBody> for Event {
@@ -226,6 +228,19 @@ pub struct Test {
     pub info: Arc<TestInfo>,
     pub request_time: Duration,
     pub result: Result<(), Error>,
+}
+
+/// Overall test execution summary.
+///
+/// Contains aggregate information about the entire test run including
+/// total counts, timing, and success/failure statistics.
+/// This is published in the `Summary` event when all tests complete.
+#[derive(Debug, Clone)]
+pub struct TestSummary {
+    pub total_tests: usize,
+    pub passed_tests: usize,
+    pub failed_tests: usize,
+    pub total_time: Duration,
 }
 
 /// Test metadata and identification.
@@ -827,18 +842,22 @@ impl Runner {
         );
 
         let mut has_any_error = false;
+        let total_tests = handles.len();
         let options = self.options.clone();
         let runner = async move {
             let results = handles.collect::<Vec<_>>().await;
             if results.is_empty() {
                 console::Term::stdout().write_line("no test cases found")?;
             }
+
+            let mut failed_tests = 0;
             for result in results {
                 match result {
                     Ok(res) => {
                         if let Err(e) = res {
                             debug!("test case failed: {e:#}");
                             has_any_error = true;
+                            failed_tests += 1;
                         }
                     }
                     Err(e) => {
@@ -846,8 +865,34 @@ impl Runner {
                             // Resume the panic on the main task
                             error!("{e}");
                             has_any_error = true;
+                            failed_tests += 1;
                         }
                     }
+                }
+            }
+
+            let passed_tests = total_tests - failed_tests;
+            let total_time = start.elapsed();
+
+            // Publish summary event
+            let summary = TestSummary {
+                total_tests,
+                passed_tests,
+                failed_tests,
+                total_time,
+            };
+
+            // Create a dummy event for summary (since it doesn't belong to a specific test)
+            let summary_event = Event {
+                project: "".to_string(),
+                module: "".to_string(),
+                test: "".to_string(),
+                body: EventBody::Summary(summary),
+            };
+
+            if let Ok(guard) = CHANNEL.lock() {
+                if let Some((tx, _)) = guard.as_ref() {
+                    let _ = tx.send(summary_event);
                 }
             }
             debug!("all test finished. sending stop signal to the background tasks.");
