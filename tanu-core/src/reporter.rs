@@ -479,6 +479,7 @@ impl Reporter for ListReporter {
             passed_tests,
             failed_tests,
             total_time,
+            test_prep_time,
         } = summary;
 
         self.terminal.write_line("")?;
@@ -493,8 +494,9 @@ impl Reporter for ListReporter {
             total_tests
         ))?;
         self.terminal.write_line(&format!(
-            "Time: {}",
-            style(format!("{total_time:.2?}")).dim()
+            "Time: {} (prep: {})",
+            style(format!("{total_time:.2?}")).dim(),
+            style(format!("{test_prep_time:.2?}")).dim()
         ))?;
 
         Ok(())
@@ -651,6 +653,7 @@ impl Reporter for TableReporter {
             passed_tests,
             failed_tests,
             total_time,
+            test_prep_time,
         } = summary;
 
         write(&self.terminal, "")?;
@@ -669,7 +672,11 @@ impl Reporter for TableReporter {
         )?;
         write(
             &self.terminal,
-            format!("Time: {}", style(format!("{total_time:.2?}")).dim()),
+            format!(
+                "Time: {} (prep: {})",
+                style(format!("{total_time:.2?}")).dim(),
+                style(format!("{test_prep_time:.2?}")).dim()
+            ),
         )?;
 
         Ok(())

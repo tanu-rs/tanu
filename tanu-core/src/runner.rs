@@ -241,6 +241,7 @@ pub struct TestSummary {
     pub passed_tests: usize,
     pub failed_tests: usize,
     pub total_time: Duration,
+    pub test_prep_time: Duration,
 }
 
 /// Test metadata and identification.
@@ -835,10 +836,11 @@ impl Runner {
                 })
                 .collect()
         };
+        let test_prep_time = start.elapsed();
         debug!(
             "created handles for {} test cases; took {}s",
             handles.len(),
-            start.elapsed().as_secs_f32()
+            test_prep_time.as_secs_f32()
         );
 
         let mut has_any_error = false;
@@ -880,6 +882,7 @@ impl Runner {
                 passed_tests,
                 failed_tests,
                 total_time,
+                test_prep_time,
             };
 
             // Create a dummy event for summary (since it doesn't belong to a specific test)
