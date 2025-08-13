@@ -25,8 +25,19 @@ humantime-serde = "1"
 indexmap = "2"
 itertools = { workspace = true }
 once_cell = { workspace = true }
-pretty_assertions = "1"
-reqwest = { workspace = true, features = ["gzip", "deflate", "brotli", "zstd", "cookies"] }
+pretty_assertions = { workspace = true }
+hyper = { version = "1.6", features = ["full"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2"] }
+hyper-tls = "0.6"
+http-body-util = "0.1"
+tokio-util = { workspace = true }
+base64 = "0.22"
+serde_urlencoded = "0.7"
+urlencoding = "2.1"
+flate2 = "1.0"
+brotli = "7.0"
+async-compression = { version = "0.4", features = ["gzip", "deflate", "brotli", "tokio"] }
+tokio-stream = "0.1"
 serde = { workspace = true }
 serde_json = "1"
 strum = { workspace = true }
@@ -37,7 +48,7 @@ tokio = { workspace = true }
 toml = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-url = "2"
+url = { workspace = true }
 
 [dev-dependencies]
 mockito = "1.7"
@@ -45,6 +56,6 @@ test-case = { workspace = true }
 
 [features]
 default = []
-json = ["reqwest/json"]
-multipart = ["reqwest/multipart"]
-cookies = ["reqwest/cookies", "cookie"]
+json = []
+multipart = []
+cookies = ["cookie"]
