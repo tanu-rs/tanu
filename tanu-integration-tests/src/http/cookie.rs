@@ -50,6 +50,13 @@ async fn delete_cookie() -> eyre::Result<()> {
     let http = Client::new();
     let base_url = crate::get_httpbin().await?.get_base_url().await;
 
+    // First, set a cookie
+    let _set_res = http
+        .get(format!("{base_url}/cookies/set/test_cookie/test_value"))
+        .send()
+        .await?;
+
+    // Then delete it
     let res = http
         .get(format!("{base_url}/cookies/delete"))
         .query(&[("test_cookie", "")])
@@ -59,7 +66,16 @@ async fn delete_cookie() -> eyre::Result<()> {
     check!(res.status().is_success(), "Non 2xx status received");
 
     let response: CookieResponse = res.json().await?;
-    check!(!response.cookies.contains_key("test_cookie"));
+
+    // httpbin's /cookies/delete endpoint returns the cookie with an empty value
+    // rather than removing it from the response entirely
+    check_eq!(
+        "",
+        response
+            .cookies
+            .get("test_cookie")
+            .unwrap_or(&String::new())
+    );
 
     Ok(())
 }

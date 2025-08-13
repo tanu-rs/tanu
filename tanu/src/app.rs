@@ -163,12 +163,10 @@ impl App {
     /// use tanu::{App, reporter::Reporter};
     ///
     /// struct MyReporter;
+    /// #[async_trait::async_trait]
     /// impl Reporter for MyReporter {
     ///     // Implementation details...
-    /// #   fn start(&mut self, _: &tanu::TestInfo) -> eyre::Result<()> { Ok(()) }
-    /// #   fn success(&mut self, _: &tanu::TestInfo) -> eyre::Result<()> { Ok(()) }
-    /// #   fn failure(&mut self, _: &tanu::TestInfo, _: &eyre::Report) -> eyre::Result<()> { Ok(()) }
-    /// #   fn finish(&mut self) -> eyre::Result<()> { Ok(()) }
+    ///     // All methods have default implementations
     /// }
     ///
     /// let mut app = App::new();
