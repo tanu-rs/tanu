@@ -577,7 +577,7 @@ mod test {
     //#[test_case("10.." => "foo::10_"; "with range from")]
     fn generate_test_name(args: &str) -> String {
         let input_args: Input = syn::parse_str(args).expect("failed to parse input args");
-        let test_case = TestCase::from_func_name(&input_args, "foo", "crate".to_string());
+        let test_case = TestCase::from_func_name(&input_args, "foo", module_path!().to_string());
         test_case.test_name
     }
 }
