@@ -16,23 +16,19 @@
 
 extern crate proc_macro;
 
-use eyre::WrapErr;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use std::{
-    collections::{HashMap, HashSet},
-    io::Read,
-    path::{Path, PathBuf},
+    collections::HashSet,
     sync::{Arc, Mutex},
 };
 use syn::{
     parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprCall, ExprLit, ExprPath,
-    File, Ident, Item, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Token, Type,
+    Ident, ItemFn, Lit, LitStr, ReturnType, Signature, Token, Type,
 };
-use walkdir::WalkDir;
 
 static TEST_CASES: Lazy<Arc<Mutex<HashSet<TestCase>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
@@ -44,11 +40,13 @@ struct TestCase {
     func_name: String,
     /// Human friendly test case name listed by `cargo run ls`.
     test_name: String,
+    /// Module path where the test is defined.
+    module_path: String,
 }
 
 impl TestCase {
     /// Create a test case where `func`
-    fn from_func_name(input: &Input, org_func_name: &str) -> TestCase {
+    fn from_func_name(input: &Input, org_func_name: &str, module_path: String) -> TestCase {
         let test_name = generate_test_name(org_func_name, input);
         let func_name = format!("tanu_{test_name}").replace("::", "_");
         if syn::parse_str::<Ident>(&func_name).is_err() {
@@ -61,20 +59,11 @@ impl TestCase {
         TestCase {
             func_name,
             test_name,
+            module_path,
         }
     }
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-struct TestModule {
-    /// Module that contains the Rust `func_name` function.
-    module: String,
-    /// Rust function name.
-    func_name: String,
-    /// All the test cases discovered in the module.
-    test_cases: Vec<TestCase>,
-}
 
 /// Represents arguments in the test attribute #[test(a, b; c)].
 struct Input {
@@ -350,7 +339,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
 
     let func_name_inner = &input_fn.sig.ident;
-    let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string());
+    let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string(), "crate".to_string());
 
     match TEST_CASES.lock() {
         Ok(mut lock) => lock.insert(test_case.clone()),
@@ -376,14 +365,18 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let output = if error_crate == ErrorCrate::Eyre {
         quote! {
             #input_fn
-            pub(crate) async fn #func_name() -> tanu::eyre::Result<()> {
+            
+            // Generate the test function with public visibility
+            pub async fn #func_name() -> tanu::eyre::Result<()> {
                 #func_name_inner(#args).await
             }
         }
     } else {
         quote! {
             #input_fn
-            pub(crate) async fn #func_name() -> tanu::eyre::Result<()> {
+            
+            // Generate the test function with public visibility
+            pub async fn #func_name() -> tanu::eyre::Result<()> {
                 #func_name_inner(#args).await.map_err(|e| tanu::eyre::eyre!(Box::new(e)))
             }
         }
@@ -392,122 +385,9 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     output.into()
 }
 
-fn find_crate_root() -> eyre::Result<PathBuf> {
-    let dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    Ok(dir.into())
-}
 
-fn discover_tests() -> eyre::Result<Vec<TestModule>> {
-    let root = find_crate_root()?;
 
-    // Look up all rust source files.
-    let source_paths: Vec<_> = WalkDir::new(root)
-        .into_iter()
-        .filter_map(|entry| {
-            let path = entry.ok()?.into_path();
-            let ext = path.extension()?;
-            if ext.eq_ignore_ascii_case("rs") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
 
-    let mut test_modules = Vec::<TestModule>::new();
-    for source_path in source_paths {
-        let mut source_file = std::fs::File::open(&source_path)
-            .wrap_err_with(|| format!("could not open file: {}", source_path.display()))?;
-        let mut code = String::new();
-        source_file.read_to_string(&mut code)?;
-
-        let file = syn::parse_file(&code)?;
-        let Some(module) = extract_module_path(&source_path) else {
-            continue;
-        };
-        test_modules.extend(extract_module_and_test(&module, file));
-    }
-
-    Ok(test_modules)
-}
-
-// Extract module path "foo::bar::baz" from path "/xxxx/src/foo/bar/baz.rs".
-fn extract_module_path(path: &Path) -> Option<String> {
-    let src_index = path.iter().position(|p| p == "src")?;
-    let module_path: Vec<_> = path.iter().skip(src_index + 1).collect();
-    let module_path_str = module_path
-        .iter()
-        .filter_map(|p| p.to_str())
-        .map(|s| s.strip_suffix(".rs").unwrap_or(s)) // Remove ".rs" extension if present
-        .filter(|s| *s != "mod")
-        .collect::<Vec<_>>()
-        .join("::");
-    Some(module_path_str)
-}
-
-/// Test if the function has #[tanu::test] attribute.
-fn has_test_attribute(path: &syn::Path) -> bool {
-    // The function has #[test].
-    let has_test = path.is_ident("test");
-    // The function has #[tanu::test].
-    let has_tanu_test = match (path.segments.first(), path.segments.last()) {
-        (Some(first), Some(last)) => {
-            path.segments.len() == 2 && first.ident == "tanu" && last.ident == "test"
-        }
-        _ => false,
-    };
-
-    has_test || has_tanu_test
-}
-
-fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
-    let mut test_modules = Vec::new();
-    for item in input.items {
-        if let Item::Fn(item_fn) = item {
-            let mut is_test = false;
-            let mut test_cases = Vec::new();
-            for attr in item_fn.attrs {
-                if has_test_attribute(attr.path()) {
-                    is_test = true;
-
-                    match &attr.meta {
-                        // There is no arguments in test attribute which is #[test]
-                        Meta::Path(_path) => {
-                            let test_case = TestCase {
-                                func_name: format!("tanu_{}", item_fn.sig.ident),
-                                test_name: format!("tanu_{}", item_fn.sig.ident),
-                            };
-                            test_cases.push(test_case);
-                        }
-                        // There is arguments to parse from test attribute which is like #[test(xxx, ...)]
-                        Meta::List(_list) => match attr.parse_args_with(Input::parse) {
-                            Ok(test_case_token) => {
-                                let test_case = TestCase::from_func_name(
-                                    &test_case_token,
-                                    &item_fn.sig.ident.to_string(),
-                                );
-                                test_cases.push(test_case);
-                            }
-                            Err(e) => {
-                                eprintln!("failed to parse attributes in #[test]: {e:#}");
-                            }
-                        },
-                        _ => {}
-                    }
-                }
-            }
-            if is_test {
-                test_modules.push(TestModule {
-                    module: module.to_owned(),
-                    func_name: item_fn.sig.ident.to_string(),
-                    test_cases,
-                });
-            }
-        }
-    }
-
-    test_modules
-}
 
 /// Generates the test discovery and registration code for tanu.
 ///
@@ -550,53 +430,15 @@ fn extract_module_and_test(module: &str, input: File) -> Vec<TestModule> {
 pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     let main_fn = parse_macro_input!(input as ItemFn);
 
-    let test_modules = discover_tests().expect("failed to discover test cases");
-    // Create a HashMap mapping test function names to their module paths.
-    // Using Vec<String> as the value allows multiple test functions with the same name
-    // to exist across different modules.
-    let test_modules: HashMap<String, Vec<String>> = test_modules
-        .iter()
-        .flat_map(|module| {
-            let module_name = module.module.clone();
-            module.test_cases.iter().map(move |test_case| {
-                (
-                    test_case.func_name.clone(),
-                    if module_name == "main" {
-                        "crate".into()
-                    } else {
-                        module_name.clone()
-                    },
-                )
-            })
-        })
-        .fold(HashMap::new(), |mut acc, (func_name, module_name)| {
-            acc.entry(func_name).or_default().push(module_name);
-            acc
-        });
-
-    let (test_mods, test_names, func_names): (Vec<_>, Vec<_>, Vec<_>) = match TEST_CASES.lock() {
+    let (test_names, module_paths, func_names): (Vec<_>, Vec<_>, Vec<_>) = match TEST_CASES.lock() {
         Ok(lock) => lock
             .iter()
-            .flat_map(|f| {
-                test_modules
-                    .get(&f.func_name)
-                    .into_iter() // This safely handles None by returning an empty iterator
-                    .flatten() // Flatten the Vec<String> to String
-                    .filter_map(|module_name| {
-                        let test_module_path = match syn::parse_str::<syn::Path>(module_name) {
-                            Ok(path) => path,
-                            Err(e) => {
-                                eprintln!("failed to parse module path '{module_name}': {e}");
-                                return None;
-                            }
-                        };
-
-                        Some((
-                            test_module_path,
-                            f.test_name.clone(),
-                            Ident::new(&f.func_name, Span::call_site()),
-                        ))
-                    })
+            .map(|f| {
+                (
+                    f.test_name.clone(),
+                    f.module_path.clone(),
+                    Ident::new(&f.func_name, Span::call_site()),
+                )
             })
             .multiunzip(),
         Err(e) => {
@@ -611,8 +453,11 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
             #(
             runner.add_test(
                 #test_names,
-                &stringify!(#test_mods).replace(" ", ""),
-                std::sync::Arc::new(|| Box::pin(#test_mods::#func_names()))
+                #module_paths,
+                std::sync::Arc::new(|| {
+                    // Call test functions directly since they are re-exported at crate level
+                    Box::pin(#func_names())
+                })
             );
             )*
             runner
@@ -628,28 +473,9 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 mod test {
     use crate::Input;
 
-    use super::{ErrorCrate, Expr, Path, TestCase};
+    use super::{ErrorCrate, Expr, TestCase};
     use test_case::test_case;
 
-    #[test_case("test" => true; "test")]
-    #[test_case("tanu::test" => true; "tanu_test")]
-    #[test_case("tanu::foo::test" => false; "not_tanu_test")]
-    #[test_case("foo::test" => false; "also_not_tanu_test")]
-    fn has_test_attribute(s: &str) -> bool {
-        let path: syn::Path = syn::parse_str(s).expect("Failed to parse path");
-        super::has_test_attribute(&path)
-    }
-
-    #[test_case("/home/yukinari/tanu/src/main.rs", "main"; "main")]
-    #[test_case("/home/yukinari/tanu/src/foo.rs", "foo"; "foo")]
-    #[test_case("/home/yukinari/tanu/src/foo/bar.rs", "foo::bar"; "foo::bar")]
-    #[test_case("/home/yukinari/tanu/src/foo/bar/baz.rs", "foo::bar::baz"; "foo::bar::baz")]
-    #[test_case("/home/yukinari/tanu/src/foo/bar/mod.rs", "foo::bar"; "foo::bar::mod")]
-    fn test_extract_module_path(path: &str, module_path: &str) {
-        let path = Path::new(path);
-        let extracted_module = super::extract_module_path(path);
-        assert_eq!(extracted_module, Some(module_path.to_string()));
-    }
 
     #[test_case("fn foo() -> eyre::Result" => ErrorCrate::Eyre; "eyre")]
     #[test_case("fn foo() -> anyhow::Result" => ErrorCrate::AnythingElse; "anyhow")]
@@ -751,7 +577,7 @@ mod test {
     //#[test_case("10.." => "foo::10_"; "with range from")]
     fn generate_test_name(args: &str) -> String {
         let input_args: Input = syn::parse_str(args).expect("failed to parse input args");
-        let test_case = TestCase::from_func_name(&input_args, "foo");
+        let test_case = TestCase::from_func_name(&input_args, "foo", "crate".to_string());
         test_case.test_name
     }
 }
