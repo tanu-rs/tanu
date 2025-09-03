@@ -339,7 +339,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
 
     let func_name_inner = &input_fn.sig.ident;
-    let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string(), "crate".to_string());
+    let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string(), module_path!().to_string());
 
     match TEST_CASES.lock() {
         Ok(mut lock) => lock.insert(test_case.clone()),
