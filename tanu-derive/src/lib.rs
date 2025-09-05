@@ -16,10 +16,8 @@
 
 extern crate proc_macro;
 
-use itertools::Itertools;
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use std::{
     collections::HashSet,
@@ -349,7 +347,6 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
-    let func_name = Ident::new(&test_case.func_name, Span::call_site());
     let args = input_args.args.to_token_stream();
 
     // tanu internally relies on the `eyre` and `color-eyre` crates for error handling.
@@ -362,22 +359,37 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     // - If the test function returns another result type (e.g., `anyhow::Result`),
     //   the macro will automatically wrap the return value in an `eyre::Result`.
     let error_crate = inspect_error_crate(&input_fn.sig);
+    let test_name_str = test_case.test_name.clone();
     let output = if error_crate == ErrorCrate::Eyre {
         quote! {
             #input_fn
             
-            // Generate the test function with public visibility
-            pub async fn #func_name() -> tanu::eyre::Result<()> {
-                #func_name_inner(#args).await
+            // Submit test to inventory for discovery
+            ::tanu::inventory::submit! {
+                ::tanu::TestRegistration {
+                    name: concat!(module_path!(), "::", #test_name_str),
+                    test_fn: || {
+                        Box::pin(async move {
+                            #func_name_inner(#args).await
+                        })
+                    },
+                }
             }
         }
     } else {
         quote! {
             #input_fn
             
-            // Generate the test function with public visibility
-            pub async fn #func_name() -> tanu::eyre::Result<()> {
-                #func_name_inner(#args).await.map_err(|e| tanu::eyre::eyre!(Box::new(e)))
+            // Submit test to inventory for discovery
+            ::tanu::inventory::submit! {
+                ::tanu::TestRegistration {
+                    name: concat!(module_path!(), "::", #test_name_str),
+                    test_fn: || {
+                        Box::pin(async move {
+                            #func_name_inner(#args).await.map_err(|e| ::tanu::eyre::eyre!(Box::new(e)))
+                        })
+                    },
+                }
             }
         }
     };
@@ -430,36 +442,19 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     let main_fn = parse_macro_input!(input as ItemFn);
 
-    let (test_names, module_paths, func_names): (Vec<_>, Vec<_>, Vec<_>) = match TEST_CASES.lock() {
-        Ok(lock) => lock
-            .iter()
-            .map(|f| {
-                (
-                    f.test_name.clone(),
-                    f.module_path.clone(),
-                    Ident::new(&f.func_name, Span::call_site()),
-                )
-            })
-            .multiunzip(),
-        Err(e) => {
-            eprintln!("failed to acquire test case lock: {e}");
-            (Vec::new(), Vec::new(), Vec::new())
-        }
-    };
-
     let output = quote! {
         fn run() -> tanu::Runner {
             let mut runner = tanu::Runner::new();
-            #(
-            runner.add_test(
-                #test_names,
-                #module_paths,
-                std::sync::Arc::new(|| {
-                    // Call test functions directly since they are re-exported at crate level
-                    Box::pin(#func_names())
-                })
-            );
-            )*
+            
+            // Use inventory to discover all registered tests
+            for test in ::tanu::inventory::iter::<::tanu::TestRegistration> {
+                runner.add_test(
+                    test.name,
+                    test.name, // Use the full name as module path for now
+                    std::sync::Arc::new(test.test_fn)
+                );
+            }
+            
             runner
         }
 

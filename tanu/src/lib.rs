@@ -111,6 +111,7 @@ pub use tanu_derive::{main, test};
 // Re-export error handling crates for user convenience
 pub use anyhow;
 pub use eyre;
+pub use inventory;
 pub use pretty_assertions;
 
 // Re-export main application struct
@@ -125,3 +126,14 @@ pub use tanu_core::{
     runner::{self, Runner, TestInfo},
     {check, check_eq, check_ne, check_str_eq},
 };
+
+// Define the test registration structure for inventory
+pub struct TestRegistration {
+    pub name: &'static str,
+    pub test_fn: fn() -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = eyre::Result<()>> + Send + 'static>,
+    >,
+}
+
+// Collect tests using inventory
+inventory::collect!(TestRegistration);

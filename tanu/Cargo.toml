@@ -18,6 +18,7 @@ color-eyre = "0.6"
 console = { version = "0.15" }
 eyre = { workspace = true }
 futures = { workspace = true }
+inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num_cpus = "1"
