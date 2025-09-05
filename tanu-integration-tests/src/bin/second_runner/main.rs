@@ -1,7 +1,7 @@
 // Second test runner demonstrating that tanu works from different entry points
 
 // Import shared modules from the main crate
-#[path = "../assertion.rs"]
+#[path = "../../assertion.rs"]
 mod assertion;
 
 mod subset_tests;
