@@ -127,12 +127,15 @@ pub use tanu_core::{
     {check, check_eq, check_ne, check_str_eq},
 };
 
+// Type alias for the async test function
+pub type AsyncTestFn = fn() -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = eyre::Result<()>> + Send + 'static>,
+>;
+
 // Define the test registration structure for inventory
 pub struct TestRegistration {
     pub name: &'static str,
-    pub test_fn: fn() -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = eyre::Result<()>> + Send + 'static>,
-    >,
+    pub test_fn: AsyncTestFn,
 }
 
 // Collect tests using inventory
