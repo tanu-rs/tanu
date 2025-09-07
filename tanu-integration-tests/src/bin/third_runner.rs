@@ -16,8 +16,8 @@ async fn test_from_third_binary() -> eyre::Result<()> {
 
 #[tanu::test]
 async fn another_test_in_third() -> eyre::Result<()> {
-    check!(2 + 2 == 4);
-    println!("Math still works in third binary!");
+    check!(true);
+    println!("Another test in third binary!");
     Ok(())
 }
 
@@ -25,7 +25,7 @@ async fn another_test_in_third() -> eyre::Result<()> {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     println!("Running tests from third binary (simple .rs file)");
-    
+
     let runner = run();
     let app = tanu::App::new();
     app.run(runner).await?;
