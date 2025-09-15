@@ -134,6 +134,7 @@ pub type AsyncTestFn = fn() -> std::pin::Pin<
 
 // Define the test registration structure for inventory
 pub struct TestRegistration {
+    pub module: &'static str,
     pub name: &'static str,
     pub test_fn: AsyncTestFn,
 }

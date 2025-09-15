@@ -23,24 +23,6 @@ use syn::{
     ItemFn, Lit, LitStr, ReturnType, Signature, Token, Type,
 };
 
-/// Represent one parametrized test case.
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-struct TestCase {
-    /// Human friendly test case name listed by `cargo run ls`.
-    test_name: String,
-}
-
-impl TestCase {
-    /// Create a test case
-    fn from_func_name(input: &Input, org_func_name: &str) -> TestCase {
-        let test_name = generate_test_name(org_func_name, input);
-        TestCase {
-            test_name,
-        }
-    }
-}
-
-
 /// Represents arguments in the test attribute #[test(a, b; c)].
 struct Input {
     /// Test arguments specified in the test attribute.
@@ -315,7 +297,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
 
     let func_name_inner = &input_fn.sig.ident;
-    let test_case = TestCase::from_func_name(&input_args, &func_name_inner.to_string());
+    let test_name_str = generate_test_name(&func_name_inner.to_string(), &input_args);
 
     let args = input_args.args.to_token_stream();
 
@@ -329,15 +311,15 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     // - If the test function returns another result type (e.g., `anyhow::Result`),
     //   the macro will automatically wrap the return value in an `eyre::Result`.
     let error_crate = inspect_error_crate(&input_fn.sig);
-    let test_name_str = test_case.test_name.clone();
     let output = if error_crate == ErrorCrate::Eyre {
         quote! {
             #input_fn
-            
+
             // Submit test to inventory for discovery
             ::tanu::inventory::submit! {
                 ::tanu::TestRegistration {
-                    name: concat!(module_path!(), "::", #test_name_str),
+                    module: module_path!(),
+                    name: #test_name_str,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await
@@ -349,11 +331,12 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     } else {
         quote! {
             #input_fn
-            
+
             // Submit test to inventory for discovery
             ::tanu::inventory::submit! {
                 ::tanu::TestRegistration {
-                    name: concat!(module_path!(), "::", #test_name_str),
+                    module: module_path!(),
+                    name: #test_name_str,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await.map_err(|e| ::tanu::eyre::eyre!(Box::new(e)))
@@ -366,10 +349,6 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     output.into()
 }
-
-
-
-
 
 /// Generates the test discovery and registration code for tanu.
 ///
@@ -415,16 +394,16 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
     let output = quote! {
         fn run() -> tanu::Runner {
             let mut runner = tanu::Runner::new();
-            
+
             // Use inventory to discover all registered tests
             for test in ::tanu::inventory::iter::<::tanu::TestRegistration> {
                 runner.add_test(
                     test.name,
-                    test.name, // Use the full name as module path for now
+                    test.module,
                     std::sync::Arc::new(test.test_fn)
                 );
             }
-            
+
             runner
         }
 
@@ -438,9 +417,8 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
 mod test {
     use crate::Input;
 
-    use super::{ErrorCrate, Expr, TestCase};
+    use super::{ErrorCrate, Expr};
     use test_case::test_case;
-
 
     #[test_case("fn foo() -> eyre::Result" => ErrorCrate::Eyre; "eyre")]
     #[test_case("fn foo() -> anyhow::Result" => ErrorCrate::AnythingElse; "anyhow")]
@@ -542,7 +520,6 @@ mod test {
     //#[test_case("10.." => "foo::10_"; "with range from")]
     fn generate_test_name(args: &str) -> String {
         let input_args: Input = syn::parse_str(args).expect("failed to parse input args");
-        let test_case = TestCase::from_func_name(&input_args, "foo");
-        test_case.test_name
+        super::generate_test_name("foo", &input_args)
     }
 }
