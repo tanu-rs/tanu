@@ -33,4 +33,4 @@ jobs:
     - name: run unit tests
       run: cargo nextest run --retries 3
     - name: run integration tests
-      run: cd tanu-integration-tests; cargo run test ; cargo run --bin second-runner ; cargo run --bin third-runner
+      run: cd tanu-integration-tests ; cargo run test ; cargo run --bin second-runner test ; cargo run --bin third-runner test
