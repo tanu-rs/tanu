@@ -16,6 +16,7 @@ eyre = { version = "0.6", features = ["track-caller"] }
 dotenv = "0.15"
 futures = "0.3"
 http = "1"
+inventory = "0.3"
 itertools = "0.13"
 log = "0.4"
 memoize = "0.5"

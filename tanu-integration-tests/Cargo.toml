@@ -2,6 +2,15 @@
 name = "tanu-integration-tests"
 version = "0.9.0"
 edition = "2021"
+default-run = "tanu-integration-tests"
+
+[[bin]]
+name = "second-runner"
+path = "src/bin/second_runner/main.rs"
+
+[[bin]]
+name = "third-runner"
+path = "src/bin/third_runner.rs"
 
 [dependencies]
 anyhow = { workspace = true }
