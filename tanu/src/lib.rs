@@ -63,7 +63,7 @@
 //! ### Basic HTTP Test
 //!
 //! ```rust,no_run
-//! use tanu::{check_eq, eyre, http::Client};
+//! use tanu::{check, check_eq, eyre, http::Client, serde_json};
 //!
 //! #[tanu::test]
 //! async fn test_api_endpoint() -> eyre::Result<()> {
@@ -110,9 +110,11 @@ pub use tanu_derive::{main, test};
 
 // Re-export error handling crates for user convenience
 pub use anyhow;
+pub use async_trait;
 pub use eyre;
 pub use inventory;
 pub use pretty_assertions;
+pub use serde_json;
 
 // Re-export main application struct
 pub use app::App;
@@ -121,7 +123,7 @@ pub use app::App;
 pub use tanu_core::{
     assertion,
     config::{get_config, get_tanu_config, Config, ProjectConfig},
-    http,
+    http, reporter,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{self, Runner, TestInfo},
     {check, check_eq, check_ne, check_str_eq},
