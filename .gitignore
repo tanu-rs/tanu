@@ -1,3 +1,4 @@
+site/
 debug/
 target/
 **/*.rs.bk
