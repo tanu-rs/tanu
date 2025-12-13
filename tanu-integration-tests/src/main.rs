@@ -1,4 +1,5 @@
 mod assertion;
+mod grpc;
 mod http;
 mod macros;
 mod misc;
