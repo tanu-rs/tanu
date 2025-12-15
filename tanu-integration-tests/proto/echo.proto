@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package tanu.integration.echo;
+
+service Echo {
+  rpc Unary(EchoRequest) returns (EchoResponse);
+  rpc ServerStream(EchoStreamRequest) returns (stream EchoResponse);
+}
+
+message EchoRequest {
+  string message = 1;
+  bool require_metadata = 2;
+}
+
+message EchoStreamRequest {
+  string message = 1;
+  uint32 count = 2;
+}
+
+message EchoResponse {
+  string message = 1;
+  string received_metadata = 2;
+}

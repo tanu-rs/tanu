@@ -1,6 +1,5 @@
 #![allow(clippy::erasing_op)]
 #![allow(clippy::modulo_one)]
-#![allow(clippy::erasing_op)]
 #![allow(clippy::eq_op)]
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::identity_op)]
