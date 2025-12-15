@@ -55,6 +55,33 @@ pub(crate) fn get_test_info() -> Arc<TestInfo> {
     TEST_INFO.with(Arc::clone)
 }
 
+/// Runs a future in the current tanu test context (project + test info), if any.
+///
+/// This is useful when spawning additional Tokio tasks (e.g. via `tokio::spawn`/`JoinSet`)
+/// from inside a `#[tanu::test]`, because Tokio task-locals are not propagated
+/// automatically.
+pub fn scope_current<F>(fut: F) -> impl std::future::Future<Output = F::Output> + Send
+where
+    F: std::future::Future + Send,
+    F::Output: Send,
+{
+    let project = crate::config::PROJECT.try_with(Arc::clone).ok();
+    let test_info = TEST_INFO.try_with(Arc::clone).ok();
+
+    async move {
+        match (project, test_info) {
+            (Some(project), Some(test_info)) => {
+                crate::config::PROJECT
+                    .scope(project, TEST_INFO.scope(test_info, fut))
+                    .await
+            }
+            (Some(project), None) => crate::config::PROJECT.scope(project, fut).await,
+            (None, Some(test_info)) => TEST_INFO.scope(test_info, fut).await,
+            (None, None) => fut.await,
+        }
+    }
+}
+
 // NOTE: Keep the runner receiver alive here so that sender never fails to send.
 #[allow(clippy::type_complexity)]
 pub(crate) static CHANNEL: Lazy<
@@ -957,6 +984,8 @@ impl Runner {
 mod test {
     use super::*;
     use crate::config::RetryConfig;
+    use crate::ProjectConfig;
+    use std::sync::Arc;
 
     fn create_config() -> Config {
         Config {
@@ -1061,5 +1090,51 @@ mod test {
         assert!(result.is_ok());
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn spawned_task_panics_without_task_local_context() {
+        let project = Arc::new(ProjectConfig {
+            name: "default".to_string(),
+            ..Default::default()
+        });
+        let test_info = Arc::new(TestInfo {
+            module: "mod".to_string(),
+            name: "test".to_string(),
+        });
+
+        crate::config::PROJECT
+            .scope(project, TEST_INFO.scope(test_info, async move {
+                let handle = tokio::spawn(async move {
+                    let _ = crate::config::get_config();
+                });
+
+                let join_err = handle.await.expect_err("spawned task should panic");
+                assert!(join_err.is_panic());
+            }))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn scope_current_propagates_task_local_context_into_spawned_task() {
+        let project = Arc::new(ProjectConfig {
+            name: "default".to_string(),
+            ..Default::default()
+        });
+        let test_info = Arc::new(TestInfo {
+            module: "mod".to_string(),
+            name: "test".to_string(),
+        });
+
+        crate::config::PROJECT
+            .scope(project, TEST_INFO.scope(test_info, async move {
+                let handle = tokio::spawn(super::scope_current(async move {
+                    let _ = crate::config::get_config();
+                    let _ = super::get_test_info();
+                }));
+
+                handle.await.expect("spawned task should not panic");
+            }))
+            .await;
     }
 }

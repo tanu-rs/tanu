@@ -3,6 +3,7 @@ mod grpc;
 mod http;
 mod macros;
 mod misc;
+mod task_local;
 
 use std::sync::Arc;
 
