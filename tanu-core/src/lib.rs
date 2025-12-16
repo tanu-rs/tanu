@@ -4,7 +4,7 @@
 //!
 //! This crate provides the fundamental building blocks for tanu, including:
 //! - Test runners and execution logic
-//! - HTTP client functionality  
+//! - HTTP client functionality
 //! - Assertion macros and utilities
 //! - Configuration management
 //! - Test reporting infrastructure

@@ -184,6 +184,24 @@ This opens an interactive terminal interface for running and monitoring tests.
 - Consider timeouts and retry configuration
 - Check if authentication is required
 
+### I see a panic: "cannot access a task-local storage value without setting it first"
+This usually happens when you spawn background tasks (e.g. `tokio::spawn`, `JoinSet::spawn`) from inside a `#[tanu::test]` and the spawned task calls `tanu::get_config()` or uses tanu assertion macros (`check!`, `check_eq!`, etc.).
+
+Tokio task-local context is not propagated automatically into spawned tasks. Wrap the spawned future with `tanu::scope_current(...)`:
+
+```rust
+#[tanu::test]
+async fn spawned_task_uses_tanu_apis() -> eyre::Result<()> {
+    let handle = tokio::spawn(tanu::scope_current(async move {
+        tanu::check!(true);
+        let _cfg = tanu::get_config();
+        eyre::Ok(())
+    }));
+    handle.await??;
+    Ok(())
+}
+```
+
 ### I'm getting "function not found" errors
 Make sure you've added the required features to your Cargo.toml:
 ```toml

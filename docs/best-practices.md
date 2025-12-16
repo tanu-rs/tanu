@@ -354,6 +354,34 @@ async fn update_user_created_above() -> eyre::Result<()> {
 }
 ```
 
+### Spawning Tokio Tasks (`scope_current`)
+
+Tanu stores per-test context (project/test metadata used by `check!`/`check_eq!` and `get_config()`) in Tokio task-local storage. Tokio task-locals are **not automatically propagated** into tasks created with `tokio::spawn` or `JoinSet::spawn`.
+
+If a spawned task calls `tanu::get_config()` or uses tanu assertion macros, it can panic with:
+
+```
+cannot access a task-local storage value without setting it first
+```
+
+Wrap spawned futures with `tanu::scope_current(...)` to propagate the current tanu context:
+
+```rust
+use tanu::{check, eyre};
+
+#[tanu::test]
+async fn concurrent_work_with_spawn() -> eyre::Result<()> {
+    let handle = tokio::spawn(tanu::scope_current(async move {
+        check!(true);
+        let _cfg = tanu::get_config();
+        eyre::Ok(())
+    }));
+
+    handle.await??;
+    Ok(())
+}
+```
+
 ### Use Appropriate Timeouts
 Configure timeouts based on expected response times:
 
