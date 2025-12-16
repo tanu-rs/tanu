@@ -4,6 +4,7 @@ mod http;
 mod macros;
 mod misc;
 mod task_local;
+mod tcp;
 
 use std::sync::Arc;
 
