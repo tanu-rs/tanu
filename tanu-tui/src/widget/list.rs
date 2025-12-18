@@ -4,7 +4,7 @@ use ratatui::{
     prelude::*,
     widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
 use throbber_widgets_tui::ThrobberState;
 
@@ -226,6 +226,8 @@ impl ExecutionStateController {
                             "Execution failed".into(),
                         ))
                     },
+                    started_at: SystemTime::UNIX_EPOCH,
+                    ended_at: SystemTime::UNIX_EPOCH,
                     request_time: std::time::Duration::from_secs(0),
                 }),
                 ..Default::default()
@@ -264,6 +266,8 @@ impl ExecutionStateController {
                             "Execution failed".into(),
                         ))
                     },
+                    started_at: SystemTime::UNIX_EPOCH,
+                    ended_at: SystemTime::UNIX_EPOCH,
                     request_time: std::time::Duration::from_secs(0),
                 }),
                 ..Default::default()
@@ -790,6 +794,8 @@ mod test {
                         status: StatusCode::OK,
                         ..Default::default()
                     },
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    ended_at: std::time::SystemTime::UNIX_EPOCH,
                 }),
                 Box::new(tanu_core::http::Log {
                     request: tanu_core::http::LogRequest {
@@ -801,6 +807,8 @@ mod test {
                         status: StatusCode::OK,
                         ..Default::default()
                     },
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    ended_at: std::time::SystemTime::UNIX_EPOCH,
                 }),
             ],
             test: None,
@@ -887,6 +895,8 @@ mod test {
                     name: "".into(),
                 }),
                 result: Ok(()),
+                started_at: SystemTime::UNIX_EPOCH,
+                ended_at: SystemTime::UNIX_EPOCH,
                 request_time: std::time::Duration::from_secs(0),
             }),
             ..Default::default()
@@ -904,6 +914,8 @@ mod test {
                     name: "".into(),
                 }),
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),
+                started_at: SystemTime::UNIX_EPOCH,
+                ended_at: SystemTime::UNIX_EPOCH,
                 request_time: std::time::Duration::from_secs(0),
             }),
             ..Default::default()

@@ -4,6 +4,7 @@
 //! - Payload: shows the request and response payload
 //! - Error: shows the error message if the test failed
 use ansi_to_tui::IntoText;
+use chrono::{DateTime, Local};
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use ratatui::{
@@ -11,6 +12,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
 };
+use std::time::SystemTime;
 use style::palette::tailwind;
 use syntect::{
     highlighting::{Theme, ThemeSet},
@@ -111,6 +113,15 @@ fn wrap_row(field: impl AsRef<str>, value: impl AsRef<str>, width: u16) -> Row<'
     Row::new(vec![Cell::new(wrapped_field), Cell::new(wrapped_value)]).height(height as u16)
 }
 
+fn format_system_time(ts: SystemTime) -> String {
+    if ts == SystemTime::UNIX_EPOCH {
+        return "-".to_string();
+    }
+
+    let dt: DateTime<Local> = ts.into();
+    dt.format("%Y-%m-%d %H:%M:%S%.3f %:z").to_string()
+}
+
 impl InfoWidget {
     pub fn new(test_results: Vec<TestResult>) -> InfoWidget {
         InfoWidget { test_results }
@@ -148,6 +159,23 @@ impl InfoWidget {
             wrap_row("Project Name", &test_result.project_name, value_width),
             wrap_row("Test Name", &test_result.name, value_width),
         ];
+        if let Some(test) = test_result.test.as_ref() {
+            rows.push(wrap_row(
+                "Test Started",
+                format_system_time(test.started_at),
+                value_width,
+            ));
+            rows.push(wrap_row(
+                "Test Ended",
+                format_system_time(test.ended_at),
+                value_width,
+            ));
+            rows.push(wrap_row(
+                "Test Duration",
+                format!("{:?}", test.request_time),
+                value_width,
+            ));
+        }
         rows.push(wrap_row("Request URL", &http_call.request.url, value_width));
         rows.push(wrap_row("Method", &http_call.request.method, value_width));
         rows.push(wrap_row(

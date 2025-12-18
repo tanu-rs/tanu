@@ -36,7 +36,7 @@
 //! ```
 use eyre::OptionExt;
 pub use http::{header, Method, StatusCode, Version};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +68,8 @@ pub struct LogResponse {
 pub struct Log {
     pub request: LogRequest,
     pub response: LogResponse,
+    pub started_at: SystemTime,
+    pub ended_at: SystemTime,
 }
 
 /// HTTP response wrapper with enhanced testing capabilities.
@@ -411,8 +413,10 @@ impl RequestBuilder {
             headers: req.headers().clone(),
         };
 
+        let started_at = SystemTime::now();
         let time_req = Instant::now();
         let res = self.client.execute(req).await;
+        let ended_at = SystemTime::now();
 
         match res {
             Ok(res) => {
@@ -429,6 +433,8 @@ impl RequestBuilder {
                 crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
                     request: log_request.clone(),
                     response: log_response,
+                    started_at,
+                    ended_at,
                 })))?;
                 Ok(res)
             }
@@ -436,6 +442,8 @@ impl RequestBuilder {
                 crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
                     request: log_request,
                     response: Default::default(),
+                    started_at,
+                    ended_at,
                 })))?;
                 Err(e.into())
             }
