@@ -24,9 +24,7 @@ async fn spawned_task_with_scope_current_does_not_panic() -> eyre::Result<()> {
         eyre::Ok(())
     }));
 
-    handle
-        .await
-        .expect("spawned task should not panic")?;
+    handle.await.expect("spawned task should not panic")?;
 
     Ok(())
 }

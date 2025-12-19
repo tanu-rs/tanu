@@ -1,0 +1,3 @@
+[[projects]]
+name = "default"
+test_ignore = ["tanu_integration_tests::task_local::spawned_task_without_scope_current_panics"]
