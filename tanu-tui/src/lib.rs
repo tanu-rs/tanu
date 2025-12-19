@@ -751,7 +751,7 @@ impl Runtime {
         };
         let mut test_results_buffer = HashMap::<(String, String), TestResult>::new();
 
-        while !self.should_exit {
+        while !self.should_exit && !panic_occurred() {
             tokio::select! {
                 _ = draw_interval.tick() => {
                     model.fps_counter.update();
@@ -760,11 +760,9 @@ impl Runtime {
                     trace!("Took {:?} to draw", start_draw.elapsed());
                 },
                 _ = cmds_interval.tick() => {
-                    let Some(cmd) = cmds.pop_front() else {
-                        continue;
-                    };
-
-                    runner_tx.send(cmd)?;
+                    if let Some(cmd) = cmds.pop_front() {
+                        let _ = runner_tx.send(cmd);
+                    }
                 }
                 _ = scrl_interval.tick() => {
                 }
@@ -843,7 +841,7 @@ impl Runtime {
                     let Some(msg) = msg else {
                         continue;
                     };
-                    if let Some(cmd) = update(&mut model, msg).await? {
+                    if let Ok(Some(cmd)) = update(&mut model, msg).await {
                         cmds.push_back(cmd);
                     }
                     trace!("updated {:?}", model.test_cases_list);
@@ -851,13 +849,8 @@ impl Runtime {
             }
         }
 
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::terminal::LeaveAlternateScreen,
-            crossterm::event::DisableMouseCapture
-        )?;
-        crossterm::terminal::disable_raw_mode()?;
-
+        // Note: Terminal cleanup is handled by restore_terminal() in the run() function
+        // or by the panic hook if a panic occurs
         Ok(())
     }
 
@@ -948,6 +941,37 @@ impl Runtime {
     }
 }
 
+/// Flag to signal that a panic occurred and the TUI should exit.
+static PANIC_OCCURRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn panic_occurred() -> bool {
+    PANIC_OCCURRED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Restores the terminal to its original state.
+fn restore_terminal() {
+    use std::io::Write;
+    let _ = crossterm::terminal::disable_raw_mode();
+    let mut stdout = std::io::stdout().lock();
+    let _ = crossterm::execute!(
+        stdout,
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::cursor::Show,
+    );
+    let _ = stdout.flush();
+}
+
+/// Installs a panic hook that restores the terminal and exits cleanly.
+fn install_panic_hook() {
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        PANIC_OCCURRED.store(true, std::sync::atomic::Ordering::SeqCst);
+        restore_terminal();
+        original_hook(panic_info);
+    }));
+}
+
 /// Runs the tanu terminal user interface application.
 ///
 /// Initializes and runs the interactive TUI for managing and executing tanu tests.
@@ -1028,9 +1052,21 @@ pub async fn run(
     }
 
     dotenv::dotenv().ok();
+
+    install_panic_hook();
+    PANIC_OCCURRED.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // Reset terminal in case a previous run crashed
+    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::cursor::Show
+    );
+
     let mut terminal = ratatui::init();
     terminal.clear()?;
-
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
         std::io::stdout(),
@@ -1040,7 +1076,8 @@ pub async fn run(
 
     let runtime = Runtime::new();
     let result = runtime.run(runner, terminal).await;
-    ratatui::restore();
+    restore_terminal();
+
     println!("tanu-tui terminated with {result:?}");
     result
 }
