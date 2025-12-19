@@ -22,7 +22,7 @@ log = "0.4"
 memoize = "0.5"
 once_cell = "1"
 pretty_assertions = "1"
-reqwest = "0.12"
+tokio-util = { version = "0.7", features = ["codec"] }
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.26", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
