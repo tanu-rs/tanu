@@ -35,7 +35,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::sync::{broadcast, Semaphore};
 use tracing::*;
@@ -253,6 +253,8 @@ impl From<EventBody> for Event {
 #[derive(Debug, Clone)]
 pub struct Test {
     pub info: Arc<TestInfo>,
+    pub started_at: SystemTime,
+    pub ended_at: SystemTime,
     pub request_time: Duration,
     pub result: Result<(), Error>,
 }
@@ -786,8 +788,10 @@ impl Runner {
                                         let retry_count =
                                             AtomicUsize::new(project.retry.count.unwrap_or(0));
                                         let f = || async {
+                                            let started_at = SystemTime::now();
                                             let request_started = std::time::Instant::now();
                                             let res = factory().await;
+                                            let ended_at = SystemTime::now();
 
                                             if res.is_err()
                                                 && retry_count.load(Ordering::SeqCst) > 0
@@ -801,6 +805,8 @@ impl Runner {
                                                 let test = Test {
                                                     result: test_result,
                                                     info: Arc::clone(&info),
+                                                    started_at,
+                                                    ended_at,
                                                     request_time: request_started.elapsed(),
                                                 };
                                                 publish(EventBody::Retry(test))?;
@@ -808,11 +814,13 @@ impl Runner {
                                             };
                                             res
                                         };
+                                        let started_at = SystemTime::now();
                                         let started = std::time::Instant::now();
                                         let fut = f.retry(project.retry.backoff());
                                         let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
                                         let res = fut.await;
                                         let request_time = started.elapsed();
+                                        let ended_at = SystemTime::now();
 
                                         let result = match res {
                                             Ok(Ok(_)) => {
@@ -849,6 +857,8 @@ impl Runner {
                                         let is_err = result.is_err();
                                         publish(EventBody::End(Test {
                                             info,
+                                            started_at,
+                                            ended_at,
                                             request_time,
                                             result,
                                         }))?;
