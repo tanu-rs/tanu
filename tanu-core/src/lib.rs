@@ -9,6 +9,27 @@
 //! - Configuration management
 //! - Test reporting infrastructure
 //!
+//! ## Architecture (block diagram)
+//!
+//! ```text
+//! +---------------------+      +---------------------+      +---------------------+
+//! | test definitions    | ---> | runner (execution) | --->  | reporter (output)   |
+//! | #[tanu::test]       |      | + event channel    |       | List/Null/etc.      |
+//! +---------------------+      +---------------------+      +---------------------+
+//!            |                         ^    ^                         ^
+//!            v                         |    |                         |
+//! +---------------------+              |    |              +---------------------+
+//! | assertion macros    | ---publish---+    +---publish--- | HTTP client + logs  |
+//! | check!, check_eq!   |                              |   | req/res capture     |
+//! +---------------------+                              |   +---------------------+
+//!            ^                                         |
+//!            |                                         v
+//! +---------------------+                       +---------------------+
+//! | config + filters    | <-------------------- | test selection      |
+//! | projects/modules    |                       | (project/module)    |
+//! +---------------------+                       +---------------------+
+//! ```
+//!
 //! Most users should use the main `tanu` crate rather than importing `tanu-core` directly.
 
 #[doc(hidden)]

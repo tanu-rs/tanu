@@ -4,6 +4,28 @@
 //! Supports project-specific configurations, environment variables, and
 //! various test execution settings.
 //!
+//! ## Configuration Loading Flow (block diagram)
+//!
+//! ```text
+//! +-------------------+     +-------------------+     +-------------------+
+//! | tanu.toml file    | --> | TOML parser       | --> | Config struct     |
+//! | (current dir)     |     | (deserialization) |     | projects[]        |
+//! +-------------------+     +-------------------+     +-------------------+
+//!                                                              |
+//!          +---------------------------------------------------+
+//!          v
+//! +-------------------+     +-------------------+     +-------------------+
+//! | Environment vars  | --> | TANU_* prefix     | --> | Merged into       |
+//! | TANU_KEY=value    |     | TANU_PROJECT_*    |     | project.data      |
+//! +-------------------+     +-------------------+     +-------------------+
+//!                                                              |
+//!                                                              v
+//!                           +-------------------+     +-------------------+
+//!                           | Task-local        | <-- | get_config()      |
+//!                           | PROJECT context   |     | per-test access   |
+//!                           +-------------------+     +-------------------+
+//! ```
+//!
 //! ## Configuration Structure
 //!
 //! Tanu uses TOML configuration files with the following structure:

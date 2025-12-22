@@ -1,10 +1,28 @@
-/// `tanu-tui` is a terminal-based user interface application for managing and executing tests
-/// using the `tanu` framework. It is implemented using the ratatui library and follows the
-/// Elm Architecture, which divides the logic into Model, Update, and View components, making it
-/// easier to maintain and scale. The application has three primary panes: a list of tests, a console
-/// for viewing logs, and a logger for tracing runtime messages. It supports asynchronous test execution
-/// and user interaction via keyboard commands, providing an efficient, interactive environment for managing
-/// test cases and monitoring their results.
+//! # Tanu TUI
+//!
+//! `tanu-tui` is a terminal-based user interface application for managing and executing tests
+//! using the `tanu` framework. It is implemented using the ratatui library and follows the
+//! Elm Architecture, which divides the logic into Model, Update, and View components. The
+//! application has three primary panes: a list of tests, an info view for logs/results, and
+//! a logger for runtime messages. It supports asynchronous test execution and user interaction
+//! via keyboard commands.
+//!
+//! ## UI Architecture (block diagram)
+//!
+//! ```text
+//! +-------------------+     +-------------------+     +-------------------+
+//! | Inputs            | --> | Update (Message)  | --> | Model (state)     |
+//! | keys/mouse/events |     | command dispatch  |     | tests/results/log |
+//! +-------------------+     +-------------------+     +-------------------+
+//!          ^                                                   |
+//!          |                                                   v
+//!     +-------------------+ <-------- render/view -------- +-------------------+
+//!     | Terminal frame    |                                | Widgets           |
+//!     | layout/panes      |                                | List/Info/Logger  |
+//!     +-------------------+                                +-------------------+
+//!
+//! Runner events --------> Model (results/logs) -> Info/Logger widgets
+//! ```
 mod widget;
 
 use crossterm::event::KeyModifiers;
