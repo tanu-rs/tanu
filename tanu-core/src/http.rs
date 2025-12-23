@@ -4,6 +4,28 @@
 //! logging and testing capabilities. It offers the same interface as `reqwest::Client`
 //! while automatically capturing request and response logs for debugging and reporting.
 //!
+//! ## Request/Response Flow (block diagram)
+//!
+//! ```text
+//! +-------------------+     +-------------------+     +-------------------+
+//! | Client            | --> | RequestBuilder    | --> | reqwest::Client   |
+//! | get/post/put/...  |     | headers/body/json |     | execute(request)  |
+//! +-------------------+     +-------------------+     +-------------------+
+//!                                                              |
+//!                                                              v
+//! +-------------------+     +-------------------+     +-------------------+
+//! | Response          | <-- | Log (captured)    | <-- | reqwest::Response |
+//! | status/headers/   |     | request + response|     | async response    |
+//! | text/json         |     | timing info       |     |                   |
+//! +-------------------+     +-------------------+     +-------------------+
+//!                                   |
+//!                                   v
+//!                           +-------------------+
+//!                           | Event channel     |
+//!                           | publish(Http log) |
+//!                           +-------------------+
+//! ```
+//!
 //! ## Key Features
 //!
 //! - **Automatic Logging**: Captures all HTTP requests and responses

@@ -13,6 +13,36 @@
 //! - **Reporting**: Pluggable reporter system for test output
 //! - **Retry Logic**: Configurable retry with exponential backoff
 //!
+//! ## Execution Flow (block diagram)
+//!
+//! ```text
+//! +-------------------+     +-------------------+     +---------------------+
+//! | Test registry     | --> | Filter chain      | --> | Semaphore           |
+//! | add_test()        |     | project/module    |     | (concurrency ctrl)  |
+//! +-------------------+     | test name/ignore  |     +---------------------+
+//!                           +-------------------+               |
+//!                                                               v
+//!                                                     +---------------------+
+//!                                                     | Tokio task spawn    |
+//!                                                     | + task-local ctx    |
+//!                                                     +---------------------+
+//!                                                               |
+//!                                                               v
+//!                                                     +---------------------+
+//!                                                     | Test execution      |
+//!                                                     | + panic recovery    |
+//!                                                     | + retry/backoff     |
+//!                                                     +---------------------+
+//!                                                               |
+//!          +----------------------------------------------------+
+//!          v
+//! +-------------------+     +-------------------+     +-------------------+
+//! | Event channel     | --> | Broadcast to all  | --> | Reporter(s)       |
+//! | Start/Check/HTTP  |     | subscribers       |     | List/Table/Null   |
+//! | Retry/End/Summary |     |                   |     | (format output)   |
+//! +-------------------+     +-------------------+     +-------------------+
+//! ```
+//!
 //! ## Basic Usage
 //!
 //! ```rust,ignore
