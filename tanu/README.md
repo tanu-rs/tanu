@@ -29,7 +29,7 @@ Add tanu to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tanu = "0.10.0"
+tanu = "0.11.0"
 tokio = { version = "1", features = ["full"] }
 eyre = "0.6"
 ```
@@ -214,7 +214,7 @@ Enable optional features based on your needs:
 
 ```toml
 [dependencies]
-tanu = { version = "0.10.0", features = ["json", "multipart", "cookies"] }
+tanu = { version = "0.11.0", features = ["json", "multipart", "cookies"] }
 ```
 
 - `json` - JSON request/response support
