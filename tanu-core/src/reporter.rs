@@ -465,7 +465,7 @@ impl Reporter for ListReporter {
             }
             Err(e) => {
                 self.terminal.write_line(&format!(
-                    "{status} [{project_name}] {module_name}::{test_name} {request_time}:\n{e:#} ",
+                    "{status} {test_number} [{project_name}] {module_name}::{test_name} {request_time}:\n{e:#} ",
                     module_name = info.module,
                     test_name = info.name
                 ))?;
