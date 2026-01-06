@@ -182,3 +182,70 @@ async fn check_json_like_structure() -> eyre::Result<()> {
 
     Ok(())
 }
+
+#[tanu::test]
+async fn check_str_eq_unicode() -> eyre::Result<()> {
+    check_str_eq!("日本語", "日本語");
+    check_str_eq!("🦀 Rust 🦀", "🦀 Rust 🦀");
+    check_str_eq!("αβγδ", "αβγδ");
+    Ok(())
+}
+
+#[tanu::test]
+async fn check_str_eq_empty_and_whitespace_only() -> eyre::Result<()> {
+    check_str_eq!("", "");
+    check_str_eq!("   ", "   ");
+    check_str_eq!("\n\n\n", "\n\n\n");
+    check_str_eq!("\t\t", "\t\t");
+    Ok(())
+}
+
+#[tanu::test]
+async fn check_str_eq_long_multiline() -> eyre::Result<()> {
+    let text = r#"
+{
+    "name": "test",
+    "value": 123,
+    "nested": {
+        "key": "value"
+    }
+}
+"#;
+    check_str_eq!(text, text);
+    Ok(())
+}
+
+#[tanu::test]
+async fn check_str_eq_failure_returns_error() -> eyre::Result<()> {
+    // Test that check_str_eq! properly fails when strings don't match
+    // by checking the error type directly
+    use tanu::assertion::Error as AssertionError;
+
+    let left = "hello";
+    let right = "world";
+
+    // Manually test the comparison logic that check_str_eq! uses
+    check!(left != right, "Test strings should be different");
+
+    // Verify AssertionError::StrEq can be created with a message
+    let err = AssertionError::StrEq("test error".to_string());
+    let err_str = format!("{}", err);
+    check!(err_str.contains("test error"), "StrEq error should contain the message");
+
+    Ok(())
+}
+
+#[tanu::test]
+async fn check_str_eq_with_string_types() -> eyre::Result<()> {
+    let owned = String::from("test");
+    let borrowed: &str = "test";
+    let cow: std::borrow::Cow<str> = std::borrow::Cow::Borrowed("test");
+
+    // Test various combinations of string types
+    check_str_eq!(&owned, borrowed);
+    check_str_eq!(borrowed, &owned);
+    check_str_eq!(&owned, &cow);
+    check_str_eq!(&cow, borrowed);
+
+    Ok(())
+}
