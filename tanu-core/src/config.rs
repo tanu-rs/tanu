@@ -8,8 +8,14 @@
 //!
 //! ```text
 //! +-------------------+     +-------------------+     +-------------------+
+//! | TANU_CONFIG env   | --> | Path resolution   | --> | tanu.toml file    |
+//! | (optional)        |     | or default ./     |     |                   |
+//! +-------------------+     +-------------------+     +-------------------+
+//!                                                              |
+//!                                                              v
+//! +-------------------+     +-------------------+     +-------------------+
 //! | tanu.toml file    | --> | TOML parser       | --> | Config struct     |
-//! | (current dir)     |     | (deserialization) |     | projects[]        |
+//! |                   |     | (deserialization) |     | projects[]        |
 //! +-------------------+     +-------------------+     +-------------------+
 //!                                                              |
 //!          +---------------------------------------------------+
@@ -25,6 +31,25 @@
 //!                           | PROJECT context   |     | per-test access   |
 //!                           +-------------------+     +-------------------+
 //! ```
+//!
+//! ## Config File Location
+//!
+//! The configuration file is loaded in the following order:
+//!
+//! 1. If `TANU_CONFIG` environment variable is set, load from that path
+//! 2. Otherwise, load from `tanu.toml` in the current directory
+//!
+//! ```bash
+//! # Use custom config file location
+//! TANU_CONFIG=/path/to/my-config.toml cargo run
+//!
+//! # Or use default ./tanu.toml
+//! cargo run
+//! ```
+//!
+//! **Note:** `TANU_CONFIG` is reserved for specifying the config file path.
+//! Do not use it as a config value key. If tanu detects misuse (e.g.,
+//! `TANU_CONFIG=true`), it will error with a helpful message.
 //!
 //! ## Configuration Structure
 //!
@@ -66,6 +91,9 @@ use toml::Value as TomlValue;
 use tracing::*;
 
 use crate::{Error, Result};
+
+/// Environment variable name for specifying the config file path.
+const TANU_CONFIG_ENV: &str = "TANU_CONFIG";
 
 static CONFIG: Lazy<Config> = Lazy::new(|| {
     let _ = dotenv::dotenv();
@@ -157,9 +185,40 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Load tanu configuration from tanu.toml in the current directory.
+    /// Load tanu configuration.
+    ///
+    /// Loading order:
+    /// 1. If `TANU_CONFIG` env var is set, load from that path
+    /// 2. Otherwise, load from `tanu.toml` in the current directory
     fn load() -> Result<Config> {
-        Config::load_from(Path::new("tanu.toml"))
+        match std::env::var(TANU_CONFIG_ENV) {
+            Ok(path) => {
+                let path = Path::new(&path);
+
+                // Detect misuse: if it doesn't look like a file path, error out
+                if path.extension().is_none_or(|ext| ext != "toml")
+                    && !path.to_string_lossy().contains(std::path::MAIN_SEPARATOR)
+                    && !path.to_string_lossy().contains('/')
+                {
+                    return Err(Error::LoadError(format!(
+                        "{TANU_CONFIG_ENV} should be a path to a config file, not a config value. \
+                         Got: {:?}. Use TANU_<KEY>=value for config values instead.",
+                        path
+                    )));
+                }
+
+                if !path.exists() {
+                    return Err(Error::LoadError(format!(
+                        "Config file specified by {TANU_CONFIG_ENV} not found: {:?}",
+                        path
+                    )));
+                }
+
+                debug!("Loading config from {TANU_CONFIG_ENV}={:?}", path);
+                Config::load_from(path)
+            }
+            Err(_) => Config::load_from(Path::new("tanu.toml")),
+        }
     }
 
     /// Load tanu configuration from environment variables.
@@ -183,6 +242,23 @@ impl Config {
         debug!("Loading global configuration from env");
         let global_vars: HashMap<_, _> = std::env::vars()
             .filter_map(|(k, v)| {
+                // Skip TANU_CONFIG as it's used for config file path, not a config value
+                if k == TANU_CONFIG_ENV {
+                    // Log error if it looks like misuse (value doesn't look like a file path)
+                    let path = Path::new(&v);
+                    if path.extension().is_none_or(|ext| ext != "toml")
+                        && !v.contains(std::path::MAIN_SEPARATOR)
+                        && !v.contains('/')
+                    {
+                        error!(
+                            "{TANU_CONFIG_ENV} is reserved for specifying the config file path, \
+                             not a config value. Use TANU_<KEY>=value for config values instead. \
+                             Got: {TANU_CONFIG_ENV}={v:?}"
+                        );
+                    }
+                    return None;
+                }
+
                 let is_project_var = project_prefixes.iter().any(|pp| k.contains(pp));
                 if is_project_var {
                     return None;
@@ -446,5 +522,68 @@ mod test {
         let obj: Foo = project.get_object("object_key")?;
         assert_eq!(obj.foo, vec!["bar", "baz"]);
         Ok(())
+    }
+
+    mod tanu_config_env {
+        use super::{Config, Path, TANU_CONFIG_ENV};
+        use pretty_assertions::assert_eq;
+        use test_case::test_case;
+
+        #[test]
+        fn load_from_tanu_config_env() {
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let config_path = Path::new(manifest_dir).join("../tanu-sample.toml");
+
+            std::env::set_var(TANU_CONFIG_ENV, config_path.to_str().unwrap());
+            let cfg = Config::load().unwrap();
+            std::env::remove_var(TANU_CONFIG_ENV);
+
+            assert_eq!(cfg.projects.len(), 1);
+            assert_eq!(cfg.projects[0].name, "default");
+        }
+
+        #[test]
+        fn error_when_file_not_found() {
+            std::env::set_var(TANU_CONFIG_ENV, "/nonexistent/path/tanu.toml");
+            let result = Config::load();
+            std::env::remove_var(TANU_CONFIG_ENV);
+
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("not found"), "error should mention file not found: {err}");
+        }
+
+        #[test_case("true"; "boolean value")]
+        #[test_case("123"; "numeric value")]
+        #[test_case("some_value"; "string value")]
+        fn error_when_value_looks_like_config_value(value: &str) {
+            std::env::set_var(TANU_CONFIG_ENV, value);
+            let result = Config::load();
+            std::env::remove_var(TANU_CONFIG_ENV);
+
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("should be a path"),
+                "error should guide user: {err}"
+            );
+        }
+
+        #[test_case("config.toml"; "toml extension")]
+        #[test_case("./tanu.toml"; "relative path with dot")]
+        #[test_case("configs/tanu.toml"; "path with separator")]
+        fn accepts_valid_path_patterns(value: &str) {
+            std::env::set_var(TANU_CONFIG_ENV, value);
+            let result = Config::load();
+            std::env::remove_var(TANU_CONFIG_ENV);
+
+            // These should fail with "not found", not "should be a path"
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("not found"),
+                "valid path pattern should fail with 'not found', not path validation: {err}"
+            );
+        }
     }
 }

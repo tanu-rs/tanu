@@ -82,7 +82,34 @@ If the value is not string, you can use other methods to retrieve it:
 
 ## Environment variables
 
-Tanu also allows you to set user-defined settings in a `.env` file. Secret settings like API keys should not be stored in plain text; instead, environment variables should be used. Any environment variable prefixed with `TANU_{PROJECT}_{NAME}` will be exposed as a configuration. For example, an API key set in the `TANU_STAGING_API_KEY` environment variable can be accessed using `tanu::get_config().get_str("api_key")`.
+### Config file location
+
+By default, tanu looks for `tanu.toml` in the current directory. You can specify a custom config file path using the `TANU_CONFIG` environment variable:
+
+```bash
+# Use a custom config file
+TANU_CONFIG=/path/to/my-config.toml tanu test
+
+# Or export it
+export TANU_CONFIG=/path/to/my-config.toml
+tanu test
+```
+
+!!! warning
+    `TANU_CONFIG` is reserved for specifying the config file path. Do not use it as a config value key (e.g., `TANU_CONFIG=true`). Tanu will error if it detects misuse.
+
+### User-defined config values
+
+Tanu also allows you to set user-defined settings in a `.env` file. Secret settings like API keys should not be stored in plain text; instead, environment variables should be used.
+
+**Global config values:** Any environment variable prefixed with `TANU_` will be exposed as a configuration value accessible from all projects.
+
+```bash
+# Accessible as get_config().get_str("api_key") in all projects
+export TANU_API_KEY=secret123
+```
+
+**Project-specific config values:** Any environment variable prefixed with `TANU_{PROJECT}_` will be exposed as a configuration for that specific project. For example, an API key set in the `TANU_STAGING_API_KEY` environment variable can be accessed using `tanu::get_config().get_str("api_key")` when running the "staging" project.
 
 ## Theme
 

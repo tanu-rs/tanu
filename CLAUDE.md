@@ -124,7 +124,8 @@ max_delay = "60s"
 ```
 
 ### Environment Variable Support
-- Global: `TANU_<KEY>=value`
+- Config file path: `TANU_CONFIG=/path/to/tanu.toml`
+- Global config values: `TANU_<KEY>=value`
 - Project-specific: `TANU_<PROJECT>_<KEY>=value`
 
 ## Architecture Notes
