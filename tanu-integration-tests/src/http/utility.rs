@@ -14,7 +14,7 @@ struct UuidResponse {
 #[tanu::test]
 async fn ip_address() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/ip")).send().await?;
 
@@ -29,7 +29,7 @@ async fn ip_address() -> eyre::Result<()> {
 #[tanu::test]
 async fn uuid_generation() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/uuid")).send().await?;
 
@@ -45,7 +45,7 @@ async fn uuid_generation() -> eyre::Result<()> {
 #[tanu::test]
 async fn html_response() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/html")).send().await?;
 
@@ -69,7 +69,7 @@ async fn html_response() -> eyre::Result<()> {
 #[tanu::test]
 async fn robots_txt() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/robots.txt")).send().await?;
 
@@ -84,7 +84,7 @@ async fn robots_txt() -> eyre::Result<()> {
 #[tanu::test]
 async fn anything_endpoint() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .post(format!("{base_url}/anything"))

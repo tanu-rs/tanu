@@ -3,7 +3,7 @@ use tanu::{check, check_eq, eyre, http::Client};
 //#[tanu::test]
 //async fn stream_bytes() -> eyre::Result<()> {
 //    let http = Client::new();
-//    let base_url = crate::get_httpbin().await?.get_base_url().await;
+//    let base_url = crate::get_base_url().await?;
 //
 //    let res = http
 //        .get(format!("{base_url}/stream-bytes/1024"))
@@ -21,7 +21,7 @@ use tanu::{check, check_eq, eyre, http::Client};
 #[tanu::test]
 async fn stream_json() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/stream/5")).send().await?;
 
@@ -43,7 +43,7 @@ async fn stream_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn range_request() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/range/1024"))
@@ -62,7 +62,7 @@ async fn range_request() -> eyre::Result<()> {
 #[tanu::test]
 async fn drip_endpoint() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/drip"))

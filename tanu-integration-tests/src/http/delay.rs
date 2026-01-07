@@ -16,7 +16,7 @@ struct DelayResponse {
 #[tanu::test(2)]
 async fn delay_seconds(seconds: u64) -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let start = Instant::now();
     let res = http
@@ -40,7 +40,7 @@ async fn delay_seconds(seconds: u64) -> eyre::Result<()> {
 #[tanu::test]
 async fn delay_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let start = Instant::now();
     let res = http
@@ -66,7 +66,7 @@ async fn delay_with_query_params() -> eyre::Result<()> {
 #[tanu::test]
 async fn delay_with_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let start = Instant::now();
     let res = http
@@ -91,7 +91,7 @@ async fn delay_with_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn delay_post_request() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let start = Instant::now();
     let res = http

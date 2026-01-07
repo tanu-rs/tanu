@@ -6,7 +6,7 @@ use tanu::{check, check_eq, eyre, http::Client};
 #[tanu::test("Simple test")]
 async fn base64_decode(text: &str) -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let encoded = general_purpose::STANDARD.encode(text);
     let res = http
@@ -25,7 +25,7 @@ async fn base64_decode(text: &str) -> eyre::Result<()> {
 #[tanu::test]
 async fn utf8_content() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/encoding/utf8")).send().await?;
 
@@ -40,7 +40,7 @@ async fn utf8_content() -> eyre::Result<()> {
 #[tanu::test]
 async fn json_utf8() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .post(format!("{base_url}/post"))
@@ -67,7 +67,7 @@ async fn json_utf8() -> eyre::Result<()> {
 #[tanu::test]
 async fn xml_content() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let xml_data = r#"<?xml version="1.0" encoding="UTF-8"?>
 <test>

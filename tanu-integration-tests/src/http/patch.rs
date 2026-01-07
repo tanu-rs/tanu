@@ -25,7 +25,7 @@ struct PatchPayload {
 #[tanu::test]
 async fn patch_json() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let payload = PatchPayload {
         id: 1,
@@ -56,7 +56,7 @@ async fn patch_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn patch_with_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let payload = r#"{"partial": true, "data": "partial update"}"#;
 

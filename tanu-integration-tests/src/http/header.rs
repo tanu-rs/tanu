@@ -10,7 +10,7 @@ struct HeadersResponse {
 #[tanu::test]
 async fn response_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/response-headers"))
@@ -38,7 +38,7 @@ async fn response_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn request_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/headers"))
@@ -70,7 +70,7 @@ async fn request_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn cache_control_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/cache"))
@@ -93,7 +93,7 @@ async fn cache_control_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn etag_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/etag/test-etag"))
@@ -112,7 +112,7 @@ async fn etag_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn multiple_headers() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/headers"))
@@ -136,7 +136,7 @@ async fn multiple_headers() -> eyre::Result<()> {
 #[tanu::test]
 async fn user_agent_header() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let custom_ua = "Custom-User-Agent/2.0 (Testing)";
 

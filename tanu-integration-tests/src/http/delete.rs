@@ -22,7 +22,7 @@ struct DeleteResponse {
 #[tanu::test]
 async fn delete_resource() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.delete(format!("{base_url}/delete")).send().await?;
 
@@ -38,7 +38,7 @@ async fn delete_resource() -> eyre::Result<()> {
 #[tanu::test]
 async fn delete_with_body() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let body = r#"{"resource_id": 123}"#;
 
@@ -62,7 +62,7 @@ async fn delete_with_body() -> eyre::Result<()> {
 #[tanu::test]
 async fn delete_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .delete(format!("{base_url}/delete"))

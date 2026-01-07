@@ -9,7 +9,7 @@ async fn same_test_name_in_different_modules() -> eyre::Result<()> {
 #[tanu::test]
 async fn test_with_eyre_result() -> eyre::Result<()> {
     let client = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let response = client
         .get(format!("{base_url}/get"))
@@ -32,11 +32,9 @@ async fn test_with_eyre_result() -> eyre::Result<()> {
 #[tanu::test]
 async fn test_with_anyhow_result() -> anyhow::Result<()> {
     let client = Client::new();
-    let base_url = crate::get_httpbin()
+    let base_url = crate::get_base_url()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get httpbin: {}", e))?
-        .get_base_url()
-        .await;
+        .map_err(|e| anyhow::anyhow!("Failed to get base_url: {}", e))?;
 
     let response = client
         .get(format!("{base_url}/get"))
@@ -92,11 +90,9 @@ impl std::error::Error for CustomError {}
 #[tanu::test]
 async fn test_with_custom_result() -> Result<(), CustomError> {
     let client = Client::new();
-    let base_url = crate::get_httpbin()
+    let base_url = crate::get_base_url()
         .await
-        .map_err(|e| CustomError::Http(format!("Failed to get httpbin: {e}")))?
-        .get_base_url()
-        .await;
+        .map_err(|e| CustomError::Http(format!("Failed to get base_url: {e}")))?;
 
     let response = client
         .get(format!("{base_url}/get"))
@@ -134,11 +130,9 @@ async fn test_with_custom_result() -> Result<(), CustomError> {
 #[tanu::test]
 async fn test_with_string_error() -> Result<(), String> {
     let client = Client::new();
-    let base_url = crate::get_httpbin()
+    let base_url = crate::get_base_url()
         .await
-        .map_err(|e| format!("Failed to get httpbin: {e}"))?
-        .get_base_url()
-        .await;
+        .map_err(|e| format!("Failed to get base_url: {e}"))?;
 
     let response = client
         .get(format!("{base_url}/status/200"))
@@ -159,7 +153,7 @@ async fn test_with_string_error() -> Result<(), String> {
 #[tanu::test("custom")]
 async fn test_result_types_parameterized(test_type: &str) -> eyre::Result<()> {
     let client = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let response = client
         .get(format!("{base_url}/get"))
@@ -190,11 +184,7 @@ impl std::error::Error for SimpleError {}
 #[tanu::test]
 async fn test_with_simple_result() -> Result<(), SimpleError> {
     let client = Client::new();
-    let base_url = crate::get_httpbin()
-        .await
-        .map_err(|_| SimpleError)?
-        .get_base_url()
-        .await;
+    let base_url = crate::get_base_url().await.map_err(|_| SimpleError)?;
 
     let response = client
         .get(format!("{base_url}/status/200"))
