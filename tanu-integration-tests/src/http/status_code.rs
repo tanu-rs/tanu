@@ -6,7 +6,7 @@ use tanu::{
 #[tanu::test]
 async fn status_200_ok() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/200")).send().await?;
 
@@ -18,7 +18,7 @@ async fn status_200_ok() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_201_created() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/201")).send().await?;
 
@@ -30,7 +30,7 @@ async fn status_201_created() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_204_no_content() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/204")).send().await?;
 
@@ -45,7 +45,7 @@ async fn status_204_no_content() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_400_bad_request() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/400")).send().await?;
 
@@ -57,7 +57,7 @@ async fn status_400_bad_request() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_401_unauthorized() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/401")).send().await?;
 
@@ -69,7 +69,7 @@ async fn status_401_unauthorized() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_403_forbidden() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/403")).send().await?;
 
@@ -81,7 +81,7 @@ async fn status_403_forbidden() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_404_not_found() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/404")).send().await?;
 
@@ -93,7 +93,7 @@ async fn status_404_not_found() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_500_internal_server_error() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/500")).send().await?;
 
@@ -105,7 +105,7 @@ async fn status_500_internal_server_error() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_502_bad_gateway() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/502")).send().await?;
 
@@ -117,7 +117,7 @@ async fn status_502_bad_gateway() -> eyre::Result<()> {
 #[tanu::test]
 async fn status_503_service_unavailable() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/status/503")).send().await?;
 
@@ -129,7 +129,7 @@ async fn status_503_service_unavailable() -> eyre::Result<()> {
 #[tanu::test]
 async fn random_status_codes() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let test_codes = [200, 201, 300, 400, 401, 500, 502];
 

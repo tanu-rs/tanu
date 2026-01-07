@@ -24,7 +24,7 @@ struct JsonPayload {
 #[tanu::test]
 async fn post_json() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let payload = JsonPayload {
         name: "test".to_string(),
@@ -55,7 +55,7 @@ async fn post_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn post_form() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let params = [("key1", "value1"), ("key2", "value2")];
     let res = http
@@ -78,7 +78,7 @@ async fn post_form() -> eyre::Result<()> {
 #[tanu::test]
 async fn post_text() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let text = "Plain text payload";
 

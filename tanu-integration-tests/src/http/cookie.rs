@@ -10,7 +10,7 @@ struct CookieResponse {
 #[tanu::test]
 async fn set_cookie() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/cookies/set/test_cookie/test_value"))
@@ -28,7 +28,7 @@ async fn set_cookie() -> eyre::Result<()> {
 #[tanu::test]
 async fn set_multiple_cookies() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/cookies/set"))
@@ -48,7 +48,7 @@ async fn set_multiple_cookies() -> eyre::Result<()> {
 #[tanu::test]
 async fn delete_cookie() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/cookies/delete"))
@@ -67,7 +67,7 @@ async fn delete_cookie() -> eyre::Result<()> {
 #[tanu::test]
 async fn get_cookies() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/cookies"))

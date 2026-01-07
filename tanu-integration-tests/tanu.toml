@@ -1,5 +1,5 @@
 [[projects]]
-name = "default"
+name = "docker"
 test_ignore = ["tanu_integration_tests::task_local::spawned_task_without_scope_current_panics"]
 retry.count = 3
 retry.min_delay = "100ms"

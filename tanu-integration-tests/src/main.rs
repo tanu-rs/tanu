@@ -63,6 +63,21 @@ pub async fn get_httpbin() -> eyre::Result<Arc<HttpBin>> {
     Ok(httpbin.clone())
 }
 
+/// Get the base URL for HTTP tests.
+///
+/// If `base_url` is configured in the project, use it directly.
+/// Otherwise, start a Docker httpbin container and use its URL.
+pub async fn get_base_url() -> eyre::Result<String> {
+    let config = tanu::get_config();
+    if let Ok(base_url) = config.get_str("base_url") {
+        if !base_url.is_empty() {
+            return Ok(base_url.to_string());
+        }
+    }
+    // Fall back to Docker container
+    Ok(get_httpbin().await?.get_base_url().await)
+}
+
 #[tanu::main]
 #[tokio::main]
 async fn main() -> eyre::Result<()> {

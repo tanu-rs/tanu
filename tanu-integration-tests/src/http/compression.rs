@@ -16,7 +16,7 @@ struct CompressionResponse {
 #[tanu::test]
 async fn gzip_compression() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/gzip"))
@@ -36,7 +36,7 @@ async fn gzip_compression() -> eyre::Result<()> {
 #[tanu::test]
 async fn deflate_compression() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/deflate"))
@@ -56,7 +56,7 @@ async fn deflate_compression() -> eyre::Result<()> {
 #[tanu::test]
 async fn brotli_compression() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/brotli"))
@@ -76,7 +76,7 @@ async fn brotli_compression() -> eyre::Result<()> {
 #[tanu::test]
 async fn multiple_compression_formats() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/gzip"))

@@ -25,7 +25,7 @@ struct PutPayload {
 #[tanu::test]
 async fn put_json() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let payload = PutPayload {
         id: 1,
@@ -57,7 +57,7 @@ async fn put_json() -> eyre::Result<()> {
 #[tanu::test]
 async fn put_form_data() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let params = [("name", "resource"), ("status", "active")];
     let res = http
@@ -79,7 +79,7 @@ async fn put_form_data() -> eyre::Result<()> {
 #[tanu::test]
 async fn put_text_data() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let text_data = "This is plain text data for PUT request";
 
@@ -102,7 +102,7 @@ async fn put_text_data() -> eyre::Result<()> {
 #[tanu::test]
 async fn put_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let payload = PutPayload {
         id: 42,

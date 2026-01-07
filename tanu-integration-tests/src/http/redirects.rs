@@ -14,7 +14,7 @@ struct RedirectResponse {
 #[tanu::test]
 async fn redirect_to_get() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/redirect-to"))
@@ -33,7 +33,7 @@ async fn redirect_to_get() -> eyre::Result<()> {
 #[tanu::test]
 async fn relative_redirect() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/relative-redirect/3"))
@@ -51,7 +51,7 @@ async fn relative_redirect() -> eyre::Result<()> {
 #[tanu::test]
 async fn absolute_redirect() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/absolute-redirect/2"))
@@ -69,7 +69,7 @@ async fn absolute_redirect() -> eyre::Result<()> {
 #[tanu::test]
 async fn redirect_with_status_codes() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http.get(format!("{base_url}/redirect/5")).send().await?;
 
@@ -84,7 +84,7 @@ async fn redirect_with_status_codes() -> eyre::Result<()> {
 #[tanu::test]
 async fn redirect_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
-    let base_url = crate::get_httpbin().await?.get_base_url().await;
+    let base_url = crate::get_base_url().await?;
 
     let res = http
         .get(format!("{base_url}/redirect-to"))
