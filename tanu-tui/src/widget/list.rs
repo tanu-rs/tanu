@@ -2,7 +2,7 @@ use http::StatusCode;
 use itertools::Itertools;
 use ratatui::{
     prelude::*,
-    widgets::{block::BorderType, Block, HighlightSpacing, List, ListState},
+    widgets::{Block, BorderType, HighlightSpacing, List, ListState},
 };
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};

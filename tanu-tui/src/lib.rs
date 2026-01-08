@@ -25,19 +25,18 @@
 //! ```
 mod widget;
 
-use crossterm::event::KeyModifiers;
+use crossterm::event::{EventStream, KeyModifiers};
 use eyre::WrapErr;
 use futures::StreamExt;
 use itertools::Itertools;
 use ratatui::{
-    crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
+    crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind},
     layout::Position,
     prelude::*,
     style::{Modifier, Style},
     text::Line,
     widgets::{
-        block::{BorderType, Padding},
-        Bar, BarChart, BarGroup, Block, Borders, LineGauge, Paragraph, Tabs,
+        Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph, Tabs,
     },
     Frame,
 };
@@ -1058,7 +1057,7 @@ pub async fn run(
     tui_logger::set_level_for_target("tanu_tui::widget::info", tanu_log_level);
     tui_logger::set_level_for_target("tanu_tui::widget::list", tanu_log_level);
     let subscriber =
-        tracing_subscriber::Registry::default().with(tui_logger::tracing_subscriber_layer());
+        tracing_subscriber::Registry::default().with(tui_logger::TuiTracingSubscriberLayer);
     tracing::subscriber::set_global_default(subscriber)
         .wrap_err("failed to set global default subscriber")?;
 
