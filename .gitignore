@@ -4,3 +4,4 @@ target/
 **/*.rs.bk
 *.pdb
 Cargo.lock
+.claude/settings.local.json
