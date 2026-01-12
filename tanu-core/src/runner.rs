@@ -1070,7 +1070,8 @@ mod test {
         let factory: TestCaseFactory = Arc::new(move || {
             let url = server.url();
             Box::pin(async move {
-                let res = reqwest::get(url).await?;
+                let client = crate::http::Client::new();
+                let res = client.get(&url).send().await?;
                 if res.status().is_success() {
                     Ok(())
                 } else {
@@ -1110,7 +1111,8 @@ mod test {
         let factory: TestCaseFactory = Arc::new(move || {
             let url = server.url();
             Box::pin(async move {
-                let res = reqwest::get(url).await?;
+                let client = crate::http::Client::new();
+                let res = client.get(&url).send().await?;
                 if res.status().is_success() {
                     Ok(())
                 } else {

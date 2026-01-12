@@ -45,7 +45,7 @@
 //! - **Type-Safe**: Leverage Rust's type system for robust API testing
 //! - **Ergonomic Assertions**: Use `check!`, `check_eq!`, and other assertion macros
 //! - **Parameterized Testing**: Test multiple scenarios with different inputs
-//! - **Built-in HTTP Client**: No need to set up reqwest or other HTTP clients manually
+//! - **Built-in HTTP Client**: High-performance HTTP client built on hyper
 //! - **Flexible Error Handling**: Supports `eyre::Result`, `anyhow::Result`, and custom error types
 //! - **TUI Support**: Interactive terminal interface for test execution
 //! - **Concurrent Execution**: Run tests in parallel for better performance
@@ -63,7 +63,7 @@
 //! ### Basic HTTP Test
 //!
 //! ```rust,no_run
-//! use tanu::{check_eq, eyre, http::Client};
+//! use tanu::{check, check_eq, eyre, http::Client};
 //!
 //! #[tanu::test]
 //! async fn test_api_endpoint() -> eyre::Result<()> {
@@ -110,6 +110,7 @@ pub use tanu_derive::{main, test};
 
 // Re-export error handling crates for user convenience
 pub use anyhow;
+pub use async_trait;
 pub use eyre;
 pub use inventory;
 pub use pretty_assertions;
@@ -121,7 +122,7 @@ pub use app::App;
 pub use tanu_core::{
     assertion,
     config::{get_config, get_tanu_config, Config, ProjectConfig},
-    http,
+    http, reporter,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{self, scope_current, Runner, TestInfo},
     {check, check_eq, check_ne, check_str_eq},
