@@ -1,4 +1,7 @@
-use clap::{value_parser, Arg, ArgAction, Command as ClapCommand};
+use clap::{
+    builder::styling::{AnsiColor, Effects, Styles},
+    value_parser, Arg, ArgAction, Command as ClapCommand,
+};
 use console::Term;
 use eyre::OptionExt;
 use itertools::Itertools;
@@ -10,12 +13,25 @@ use tanu_core::Filter;
 
 use crate::{get_tanu_config, ListReporter, ReporterType, TableReporter};
 
+/// Define CLI color styles
+fn cli_styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Green.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Yellow.on_default())
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
+        .valid(AnsiColor::Green.on_default())
+        .invalid(AnsiColor::Red.on_default())
+}
+
 /// Build the CLI with clap's builder pattern
 fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> ClapCommand {
     let mut reporter_choices: VecDeque<_> = third_party_reporters.map(|s| s.to_string()).collect();
     reporter_choices.push_front(ReporterType::Table.to_string());
     reporter_choices.push_front(ReporterType::List.to_string());
     ClapCommand::new("tanu")
+        .styles(cli_styles())
         .about("tanu CLI offers various commands, including listing and executing test cases")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
@@ -327,11 +343,17 @@ impl App {
                 tanu_tui::run(runner, log_level, tanu_log_level).await
             }
             Some(("ls", _)) => {
+                use console::style;
+
                 let filter = tanu_core::runner::TestIgnoreFilter::default();
                 let list = runner.list();
                 let test_case_by_module = list.iter().into_group_map_by(|test| test.module.clone());
                 for module in test_case_by_module.keys() {
-                    term.write_line(&format!("* {module}"))?;
+                    term.write_line(&format!(
+                        "{} {}",
+                        style("*").green().bold(),
+                        style(module).bold()
+                    ))?;
                     for project in &cfg.projects {
                         for test_case in test_case_by_module
                             .get(module)
@@ -341,8 +363,9 @@ impl App {
                                 continue;
                             }
                             term.write_line(&format!(
-                                "  - [{}] {}",
-                                project.name,
+                                "  {} {} {}",
+                                style("-").dim(),
+                                style(format!("[{}]", project.name)).cyan(),
                                 test_case.full_name()
                             ))?;
                         }

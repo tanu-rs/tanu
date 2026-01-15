@@ -395,9 +395,12 @@ impl Reporter for ListReporter {
 
         if let Err(e) = test.result {
             self.terminal.write_line(&format!(
-                "{status} {test_number} [{project_name}] {module_name}::{test_name}: {retry_message}\n{e:#}",
+                "{status} {test_number} {project} {path}: {retry_message}\n{error}",
                 status = symbol_error(),
+                project = style_project(&project_name),
+                path = style_module_path(&module_name, &test_name),
                 retry_message = style("retrying...").blue(),
+                error = style(format!("{e:#}")).dim(),
             ))?;
         }
         Ok(())
@@ -416,33 +419,55 @@ impl Reporter for ListReporter {
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
 
         for log in buffer.http_logs {
-            write(
-                &self.terminal,
-                format!(" => {} {}", log.request.method, log.request.url),
-            )?;
-            write(&self.terminal, "  > request:")?;
-            write(&self.terminal, "    > headers:")?;
+            // Request line with colored method
+            self.terminal.write_line(&format!(
+                " {} {} {}",
+                style("=>").cyan(),
+                style_http_method(log.request.method.as_ref()),
+                style(&log.request.url.to_string()).underlined()
+            ))?;
+            // Request section
+            self.terminal
+                .write_line(&format!("  {} {}", style(">").cyan(), style("request:").cyan()))?;
+            self.terminal.write_line(&format!(
+                "    {} {}",
+                style(">").cyan(),
+                style("headers:").dim()
+            ))?;
             for key in log.request.headers.keys() {
-                write(
-                    &self.terminal,
-                    format!(
-                        "       > {key}: {}",
-                        log.request.headers.get(key).unwrap().to_str().unwrap()
-                    ),
-                )?;
+                self.terminal.write_line(&format!(
+                    "       {} {}: {}",
+                    style(">").cyan(),
+                    style(key.as_str()).bold(),
+                    style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
+                ))?;
             }
-            write(&self.terminal, "  < response")?;
-            write(&self.terminal, "    < headers:")?;
+            // Response section with status code
+            self.terminal.write_line(&format!(
+                "  {} {} {}",
+                style("<").yellow(),
+                style("response:").yellow(),
+                style_status_code(log.response.status.as_u16())
+            ))?;
+            self.terminal.write_line(&format!(
+                "    {} {}",
+                style("<").yellow(),
+                style("headers:").dim()
+            ))?;
             for key in log.response.headers.keys() {
-                write(
-                    &self.terminal,
-                    format!(
-                        "       < {key}: {}",
-                        log.response.headers.get(key).unwrap().to_str().unwrap()
-                    ),
-                )?;
+                self.terminal.write_line(&format!(
+                    "       {} {}: {}",
+                    style("<").yellow(),
+                    style(key.as_str()).bold(),
+                    style(log.response.headers.get(key).unwrap().to_str().unwrap()).dim()
+                ))?;
             }
-            write(&self.terminal, format!("    < body: {}", log.response.body))?;
+            self.terminal.write_line(&format!(
+                "    {} {} {}",
+                style("<").yellow(),
+                style("body:").dim(),
+                style(&log.response.body).dim()
+            ))?;
         }
 
         let status = symbol_test_result(&test);
@@ -456,19 +481,18 @@ impl Reporter for ListReporter {
         } = test;
         let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
         let request_time = style(format!("({request_time:.2?})")).dim();
+        let project = style_project(&project_name);
+        let path = style_module_path(&info.module, &info.name);
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} [{project_name}] {module_name}::{test_name} {request_time}",
-                    module_name = info.module,
-                    test_name = info.name
+                    "{status} {test_number} {project} {path} {request_time}"
                 ))?;
             }
             Err(e) => {
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} [{project_name}] {module_name}::{test_name} {request_time}:\n{e:#} ",
-                    module_name = info.module,
-                    test_name = info.name
+                    "{status} {test_number} {project} {path} {request_time}:\n{error}",
+                    error = style(format!("{e:#}")).red()
                 ))?;
             }
         }
@@ -487,18 +511,28 @@ impl Reporter for ListReporter {
 
         self.terminal.write_line("")?;
         self.terminal.write_line(&format!(
-            "Tests: {} passed, {} failed, {} total",
-            style(passed_tests).green(),
+            "{}: {} {}, {} {}, {} {}",
+            style("Tests").bold(),
+            style(passed_tests).green().bold(),
+            style("passed").green(),
             if failed_tests > 0 {
-                style(failed_tests).red()
+                style(failed_tests).red().bold()
             } else {
-                style(failed_tests)
+                style(failed_tests).bold()
             },
-            total_tests
+            if failed_tests > 0 {
+                style("failed").red()
+            } else {
+                style("failed")
+            },
+            style(total_tests).bold(),
+            style("total").dim()
         ))?;
         self.terminal.write_line(&format!(
-            "Time: {} (prep: {})",
-            style(format!("{total_time:.2?}")).dim(),
+            "{}: {} ({}: {})",
+            style("Time").bold(),
+            style(format!("{total_time:.2?}")).cyan(),
+            style("prep").dim(),
             style(format!("{test_prep_time:.2?}")).dim()
         ))?;
 
@@ -532,6 +566,43 @@ fn emoji_symbol_test_result(test: &Test) -> char {
         Ok(_) => '🟢',
         Err(_) => '🔴',
     }
+}
+
+/// Color HTTP methods for visual distinction
+fn style_http_method(method: &str) -> StyledObject<&str> {
+    match method.to_uppercase().as_str() {
+        "GET" => style(method).green(),
+        "POST" => style(method).yellow(),
+        "PUT" => style(method).blue(),
+        "DELETE" => style(method).red(),
+        "PATCH" => style(method).magenta(),
+        "HEAD" => style(method).cyan(),
+        "OPTIONS" => style(method).white(),
+        _ => style(method),
+    }
+}
+
+/// Color HTTP status codes by category
+fn style_status_code(status: u16) -> StyledObject<String> {
+    let s = status.to_string();
+    match status {
+        100..=199 => style(s).cyan(),        // Informational
+        200..=299 => style(s).green(),       // Success
+        300..=399 => style(s).yellow(),      // Redirection
+        400..=499 => style(s).red(),         // Client error
+        500..=599 => style(s).red().bold(),  // Server error
+        _ => style(s),
+    }
+}
+
+/// Style project name with cyan color
+fn style_project(name: &str) -> StyledObject<String> {
+    style(format!("[{name}]")).cyan()
+}
+
+/// Style module path with bold
+fn style_module_path(module: &str, test: &str) -> StyledObject<String> {
+    style(format!("{module}::{test}")).bold()
 }
 
 #[allow(clippy::vec_box, dead_code)]
@@ -659,28 +730,32 @@ impl Reporter for TableReporter {
             test_prep_time,
         } = summary;
 
-        write(&self.terminal, "")?;
-        write(
-            &self.terminal,
-            format!(
-                "Tests: {} passed, {} failed, {} total",
-                style(passed_tests).green(),
-                if failed_tests > 0 {
-                    style(failed_tests).red()
-                } else {
-                    style(failed_tests)
-                },
-                total_tests
-            ),
-        )?;
-        write(
-            &self.terminal,
-            format!(
-                "Time: {} (prep: {})",
-                style(format!("{total_time:.2?}")).dim(),
-                style(format!("{test_prep_time:.2?}")).dim()
-            ),
-        )?;
+        self.terminal.write_line("")?;
+        self.terminal.write_line(&format!(
+            "{}: {} {}, {} {}, {} {}",
+            style("Tests").bold(),
+            style(passed_tests).green().bold(),
+            style("passed").green(),
+            if failed_tests > 0 {
+                style(failed_tests).red().bold()
+            } else {
+                style(failed_tests).bold()
+            },
+            if failed_tests > 0 {
+                style("failed").red()
+            } else {
+                style("failed")
+            },
+            style(total_tests).bold(),
+            style("total").dim()
+        ))?;
+        self.terminal.write_line(&format!(
+            "{}: {} ({}: {})",
+            style("Time").bold(),
+            style(format!("{total_time:.2?}")).cyan(),
+            style("prep").dim(),
+            style(format!("{test_prep_time:.2?}")).dim()
+        ))?;
 
         Ok(())
     }
