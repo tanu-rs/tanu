@@ -67,7 +67,7 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
@@ -283,6 +283,7 @@ impl From<EventBody> for Event {
 #[derive(Debug, Clone)]
 pub struct Test {
     pub info: Arc<TestInfo>,
+    pub worker_id: isize,
     pub started_at: SystemTime,
     pub ended_at: SystemTime,
     pub request_time: Duration,
@@ -323,6 +324,61 @@ impl TestInfo {
     /// Unique test name including project and module names
     pub fn unique_name(&self, project: &str) -> String {
         format!("{project}::{}::{}", self.module, self.name)
+    }
+}
+
+/// Pool of reusable worker IDs for timeline visualization.
+///
+/// Worker IDs are assigned to tests when they start executing and returned
+/// to the pool when they complete. This allows timeline visualization tools
+/// to display tests in lanes based on which worker executed them.
+#[derive(Debug)]
+pub struct WorkerIds {
+    enabled: bool,
+    ids: Mutex<Vec<isize>>,
+}
+
+impl WorkerIds {
+    /// Creates a new worker ID pool with IDs from 0 to concurrency-1.
+    ///
+    /// If `concurrency` is `None`, the pool is disabled and `acquire()` always returns -1.
+    pub fn new(concurrency: Option<usize>) -> Self {
+        match concurrency {
+            Some(c) => Self {
+                enabled: true,
+                ids: Mutex::new((0..c as isize).collect()),
+            },
+            None => Self {
+                enabled: false,
+                ids: Mutex::new(Vec::new()),
+            },
+        }
+    }
+
+    /// Acquires a worker ID from the pool.
+    ///
+    /// Returns -1 if the pool is disabled, empty, or the mutex is poisoned.
+    pub fn acquire(&self) -> isize {
+        if !self.enabled {
+            return -1;
+        }
+        self.ids
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.pop())
+            .unwrap_or(-1)
+    }
+
+    /// Returns a worker ID to the pool.
+    ///
+    /// Does nothing if the pool is disabled, the mutex is poisoned, or id is negative.
+    pub fn release(&self, id: isize) {
+        if !self.enabled || id < 0 {
+            return;
+        }
+        if let Ok(mut guard) = self.ids.lock() {
+            guard.push(id);
+        }
     }
 }
 
@@ -780,10 +836,14 @@ impl Runner {
 
         let start = std::time::Instant::now();
         let handles: FuturesUnordered<_> = {
-            // Create a semaphore to limit concurrency if specified
+            // Create a semaphore to limit concurrency
+            let concurrency = self.options.concurrency;
             let semaphore = Arc::new(tokio::sync::Semaphore::new(
-                self.options.concurrency.unwrap_or(Semaphore::MAX_PERMITS),
+                concurrency.unwrap_or(tokio::sync::Semaphore::MAX_PERMITS),
             ));
+
+            // Worker ID pool for timeline visualization (only when concurrency is specified)
+            let worker_ids = Arc::new(WorkerIds::new(concurrency));
 
             let projects = self.cfg.projects.clone();
             let projects = if projects.is_empty() {
@@ -804,11 +864,19 @@ impl Runner {
                 .filter(move |(project, info, _)| test_ignore_filter.filter(project, info))
                 .map(|(project, info, factory)| {
                     let semaphore = semaphore.clone();
+                    let worker_ids = worker_ids.clone();
                     tokio::spawn(async move {
-                        let _permit = semaphore.acquire().await.unwrap();
+                        let _permit = semaphore
+                            .acquire()
+                            .await
+                            .map_err(|e| eyre::eyre!("failed to acquire semaphore: {e}"))?;
+
+                        // Acquire worker ID from pool
+                        let worker_id = worker_ids.acquire();
+
                         let project_for_scope = Arc::clone(&project);
                         let info_for_scope = Arc::clone(&info);
-                        config::PROJECT
+                        let result = config::PROJECT
                             .scope(project_for_scope, async {
                                 TEST_INFO
                                     .scope(info_for_scope, async {
@@ -835,6 +903,7 @@ impl Runner {
                                                 let test = Test {
                                                     result: test_result,
                                                     info: Arc::clone(&info),
+                                                    worker_id,
                                                     started_at,
                                                     ended_at,
                                                     request_time: request_started.elapsed(),
@@ -887,6 +956,7 @@ impl Runner {
                                         let is_err = result.is_err();
                                         publish(EventBody::End(Test {
                                             info,
+                                            worker_id,
                                             started_at,
                                             ended_at,
                                             request_time,
@@ -898,7 +968,12 @@ impl Runner {
                                     })
                                     .await
                             })
-                            .await
+                            .await;
+
+                        // Return worker ID to pool
+                        worker_ids.release(worker_id);
+
+                        result
                     })
                 })
                 .collect()
