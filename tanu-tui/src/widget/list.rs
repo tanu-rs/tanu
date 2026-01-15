@@ -219,6 +219,7 @@ impl ExecutionStateController {
                 module_name: module_state.name.clone(),
                 test: Some(tanu_core::runner::Test {
                     info: Arc::new(TestInfo::default()),
+                    worker_id: 0,
                     result: if ok {
                         Ok(())
                     } else {
@@ -259,6 +260,7 @@ impl ExecutionStateController {
                         module: "".into(),
                         name: "".into(),
                     }),
+                    worker_id: 0,
                     result: if ok {
                         Ok(())
                     } else {
@@ -894,6 +896,7 @@ mod test {
                     module: "".into(),
                     name: "".into(),
                 }),
+                worker_id: 0,
                 result: Ok(()),
                 started_at: SystemTime::UNIX_EPOCH,
                 ended_at: SystemTime::UNIX_EPOCH,
@@ -913,6 +916,7 @@ mod test {
                     module: "".into(),
                     name: "".into(),
                 }),
+                worker_id: 0,
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),
                 started_at: SystemTime::UNIX_EPOCH,
                 ended_at: SystemTime::UNIX_EPOCH,

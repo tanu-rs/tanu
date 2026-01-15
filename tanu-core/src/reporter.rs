@@ -452,6 +452,7 @@ impl Reporter for ListReporter {
             request_time,
             started_at: _,
             ended_at: _,
+            worker_id: _,
         } = test;
         let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
         let request_time = style(format!("({request_time:.2?})")).dim();
