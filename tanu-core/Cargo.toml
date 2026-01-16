@@ -25,8 +25,17 @@ humantime-serde = "1"
 indexmap = "2"
 itertools = { workspace = true }
 once_cell = { workspace = true }
-pretty_assertions = "1"
-reqwest = { workspace = true, features = ["gzip", "deflate", "brotli", "zstd", "cookies"] }
+pretty_assertions = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+hyper-tls = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
+base64 = "0.22"
+serde_urlencoded = "0.7"
+flate2 = "1.1"
+brotli = "8.0"
+zstd = "0.13"
 serde = { workspace = true }
 serde_json = "1"
 strum = { workspace = true }
@@ -45,6 +54,6 @@ test-case = { workspace = true }
 
 [features]
 default = []
-json = ["reqwest/json"]
-multipart = ["reqwest/multipart"]
-cookies = ["reqwest/cookies", "cookie"]
+json = []
+multipart = []
+cookies = ["cookie"]

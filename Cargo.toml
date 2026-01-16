@@ -22,7 +22,11 @@ log = "0.4"
 memoize = "0.5"
 once_cell = "1"
 pretty_assertions = "1"
-reqwest = "0.12"
+hyper = { version = "1.8", features = ["full"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
+hyper-tls = "0.6"
+http-body-util = "0.1"
+bytes = "1"
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.26", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
