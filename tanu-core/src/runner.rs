@@ -295,15 +295,24 @@ pub struct Event {
 /// Each event type carries different information:
 /// - `Start`: Signals test execution beginning
 /// - `Check`: Contains assertion results with expression details
-/// - `Http`: HTTP request/response logs for debugging
+/// - `Call`: HTTP/gRPC request/response logs for debugging
 /// - `Retry`: Indicates a test retry attempt
 /// - `End`: Final test result with timing and outcome
 /// - `Summary`: Overall test execution summary with counts and timing
+///
+/// A log from a call (HTTP, gRPC, etc.)
+#[derive(Debug, Clone)]
+pub enum CallLog {
+    Http(Box<http::Log>),
+    #[cfg(feature = "grpc")]
+    Grpc(Box<crate::grpc::Log>),
+}
+
 #[derive(Debug, Clone)]
 pub enum EventBody {
     Start,
     Check(Box<Check>),
-    Http(Box<http::Log>),
+    Call(CallLog),
     Retry(Test),
     End(Test),
     Summary(TestSummary),

@@ -716,21 +716,25 @@ impl RequestBuilder {
                     duration_req,
                 };
 
-                crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
-                    request: log_request,
-                    response: log_response,
-                    started_at,
-                    ended_at,
-                })))?;
+                crate::runner::publish(crate::runner::EventBody::Call(
+                    crate::runner::CallLog::Http(Box::new(Log {
+                        request: log_request,
+                        response: log_response,
+                        started_at,
+                        ended_at,
+                    })),
+                ))?;
                 Ok(response)
             }
             Err(e) => {
-                crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
-                    request: log_request,
-                    response: Default::default(),
-                    started_at,
-                    ended_at,
-                })))?;
+                crate::runner::publish(crate::runner::EventBody::Call(
+                    crate::runner::CallLog::Http(Box::new(Log {
+                        request: log_request,
+                        response: Default::default(),
+                        started_at,
+                        ended_at,
+                    })),
+                ))?;
                 Err(e.into())
             }
         }
@@ -779,12 +783,14 @@ impl RequestBuilder {
                     duration_req,
                 };
 
-                crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
-                    request: original_request,
-                    response: log_response,
-                    started_at,
-                    ended_at,
-                })))?;
+                crate::runner::publish(crate::runner::EventBody::Call(
+                    crate::runner::CallLog::Http(Box::new(Log {
+                        request: original_request,
+                        response: log_response,
+                        started_at,
+                        ended_at,
+                    })),
+                ))?;
 
                 return Ok(final_response);
             }
@@ -838,12 +844,14 @@ impl RequestBuilder {
                         duration_req,
                     };
 
-                    crate::runner::publish(crate::runner::EventBody::Http(Box::new(Log {
-                        request: original_request,
-                        response: log_response,
-                        started_at,
-                        ended_at,
-                    })))?;
+                    crate::runner::publish(crate::runner::EventBody::Call(
+                        crate::runner::CallLog::Http(Box::new(Log {
+                            request: original_request,
+                            response: log_response,
+                            started_at,
+                            ended_at,
+                        })),
+                    ))?;
 
                     return Ok(final_response);
                 }
