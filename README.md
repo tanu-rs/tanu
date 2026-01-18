@@ -86,6 +86,7 @@ async fn main() -> eyre::Result<()> {
 - **Ergonomic Assertions**: Use `check!`, `check_eq!`, and other assertion macros for clear test validation
 - **Parameterized Testing**: Test multiple scenarios with different inputs using multiple `#[tanu::test(param)]` attributes
 - **Built-in HTTP Client**: No need to set up reqwest or other HTTP clients manually
+- **Automatic Sensitive Data Masking**: API keys, tokens, and passwords in HTTP logs are automatically masked with `*****` for security
 - **Error Handling**: Clean error propagation with `eyre::Result`
 
 ## Screenshots

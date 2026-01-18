@@ -404,13 +404,29 @@ type TestCaseFactory = Arc<
 /// runner.capture_http(); // Enable HTTP logging
 /// runner.set_concurrency(4); // Limit to 4 concurrent tests
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Options {
     pub debug: bool,
     pub capture_http: bool,
     pub capture_rust: bool,
     pub terminate_channel: bool,
     pub concurrency: Option<usize>,
+    /// Whether to mask sensitive data (API keys, tokens) in HTTP logs.
+    /// Defaults to `true` (masked). Set to `false` with `--show-sensitive` flag.
+    pub mask_sensitive: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            debug: false,
+            capture_http: false,
+            capture_rust: false,
+            terminate_channel: false,
+            concurrency: None,
+            mask_sensitive: true, // Masked by default for security
+        }
+    }
 }
 
 /// Trait for filtering test cases during execution.
@@ -778,6 +794,23 @@ impl Runner {
         self.options.concurrency = Some(concurrency);
     }
 
+    /// Disables sensitive data masking in HTTP logs.
+    ///
+    /// By default, sensitive data (Authorization headers, API keys in URLs, etc.)
+    /// is masked with `*****` when HTTP logging is enabled. Call this method
+    /// to show the actual values instead.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut runner = Runner::new();
+    /// runner.capture_http(); // Enable HTTP logging
+    /// runner.show_sensitive(); // Show actual values instead of *****
+    /// ```
+    pub fn show_sensitive(&mut self) {
+        self.options.mask_sensitive = false;
+    }
+
     /// Executes all registered tests with optional filtering.
     ///
     /// Runs tests concurrently according to the configured options and filters.
@@ -819,6 +852,9 @@ impl Runner {
         module_names: &[String],
         test_names: &[String],
     ) -> eyre::Result<()> {
+        // Set masking configuration for HTTP logs
+        crate::masking::set_mask_sensitive(self.options.mask_sensitive);
+
         if self.options.capture_rust {
             tracing_subscriber::fmt::init();
         }
@@ -1221,14 +1257,17 @@ mod test {
         });
 
         crate::config::PROJECT
-            .scope(project, TEST_INFO.scope(test_info, async move {
-                let handle = tokio::spawn(async move {
-                    let _ = crate::config::get_config();
-                });
+            .scope(
+                project,
+                TEST_INFO.scope(test_info, async move {
+                    let handle = tokio::spawn(async move {
+                        let _ = crate::config::get_config();
+                    });
 
-                let join_err = handle.await.expect_err("spawned task should panic");
-                assert!(join_err.is_panic());
-            }))
+                    let join_err = handle.await.expect_err("spawned task should panic");
+                    assert!(join_err.is_panic());
+                }),
+            )
             .await;
     }
 
@@ -1244,14 +1283,217 @@ mod test {
         });
 
         crate::config::PROJECT
-            .scope(project, TEST_INFO.scope(test_info, async move {
-                let handle = tokio::spawn(super::scope_current(async move {
-                    let _ = crate::config::get_config();
-                    let _ = super::get_test_info();
-                }));
+            .scope(
+                project,
+                TEST_INFO.scope(test_info, async move {
+                    let handle = tokio::spawn(super::scope_current(async move {
+                        let _ = crate::config::get_config();
+                        let _ = super::get_test_info();
+                    }));
 
-                handle.await.expect("spawned task should not panic");
-            }))
+                    handle.await.expect("spawned task should not panic");
+                }),
+            )
             .await;
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_masks_sensitive_query_params_in_http_logs() -> eyre::Result<()> {
+        use crate::masking;
+
+        // Ensure masking is enabled
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                // Make request with sensitive query param embedded in URL
+                let _res = client
+                    .get(format!("{url}?access_token=secret_token_123&user=john"))
+                    .send()
+                    .await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.add_test("masking_query_test", "masking_module", factory);
+
+        runner.run(&[], &[], &[]).await?;
+
+        // Collect HTTP events for this specific test
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            // Filter to only our test's events
+            if event.test != "masking_query_test" {
+                continue;
+            }
+            if let EventBody::Http(log) = event.body {
+                found_http_event = true;
+                let url_str = log.request.url.to_string();
+
+                // Verify sensitive param is masked
+                assert!(
+                    url_str.contains("access_token=*****"),
+                    "access_token should be masked, got: {url_str}"
+                );
+                // Non-sensitive params should not be masked
+                assert!(
+                    url_str.contains("user=john"),
+                    "user should not be masked, got: {url_str}"
+                );
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_masks_sensitive_headers_in_http_logs() -> eyre::Result<()> {
+        use crate::masking;
+
+        // Ensure masking is enabled
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                // Make request with sensitive headers
+                let _res = client
+                    .get(&url)
+                    .header("authorization", "Bearer secret_bearer_token")
+                    .header("x-api-key", "my_secret_api_key")
+                    .header("content-type", "application/json")
+                    .send()
+                    .await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.add_test("masking_headers_test", "masking_module", factory);
+
+        runner.run(&[], &[], &[]).await?;
+
+        // Collect HTTP events for this specific test
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            // Filter to only our test's events
+            if event.test != "masking_headers_test" {
+                continue;
+            }
+            if let EventBody::Http(log) = event.body {
+                found_http_event = true;
+
+                // Verify sensitive headers are masked
+                if let Some(auth) = log.request.headers.get("authorization") {
+                    assert_eq!(
+                        auth.to_str().unwrap(),
+                        "*****",
+                        "authorization header should be masked"
+                    );
+                }
+                if let Some(api_key) = log.request.headers.get("x-api-key") {
+                    assert_eq!(
+                        api_key.to_str().unwrap(),
+                        "*****",
+                        "x-api-key header should be masked"
+                    );
+                }
+                // Non-sensitive headers should not be masked
+                if let Some(content_type) = log.request.headers.get("content-type") {
+                    assert_eq!(
+                        content_type.to_str().unwrap(),
+                        "application/json",
+                        "content-type header should not be masked"
+                    );
+                }
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_show_sensitive_disables_masking_in_http_logs() -> eyre::Result<()> {
+        use crate::masking;
+
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                let _res = client
+                    .get(format!("{url}?access_token=secret_token_123"))
+                    .header("authorization", "Bearer secret_bearer_token")
+                    .send()
+                    .await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.capture_http();
+        runner.show_sensitive();
+        runner.add_test("show_sensitive_test", "masking_module", factory);
+
+        runner.run(&[], &[], &[]).await?;
+
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.test != "show_sensitive_test" {
+                continue;
+            }
+            if let EventBody::Http(log) = event.body {
+                found_http_event = true;
+                let url_str = log.request.url.to_string();
+                assert!(
+                    url_str.contains("access_token=secret_token_123"),
+                    "access_token should not be masked when show_sensitive is enabled"
+                );
+                if let Some(auth) = log.request.headers.get("authorization") {
+                    assert_eq!(
+                        auth.to_str().unwrap(),
+                        "Bearer secret_bearer_token",
+                        "authorization header should not be masked when show_sensitive is enabled"
+                    );
+                }
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
     }
 }

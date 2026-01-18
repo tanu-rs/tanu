@@ -50,6 +50,7 @@ url = "2"
 
 [dev-dependencies]
 mockito = "1.7"
+serial_test = "3"
 test-case = { workspace = true }
 
 [features]

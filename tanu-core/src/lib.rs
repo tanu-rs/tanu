@@ -37,6 +37,7 @@ pub mod assertion;
 pub mod config;
 pub mod error;
 pub mod http;
+pub mod masking;
 pub mod reporter;
 #[doc(hidden)]
 pub mod runner;

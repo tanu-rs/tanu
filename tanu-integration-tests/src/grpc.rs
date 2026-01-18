@@ -47,10 +47,7 @@ struct EchoSvc;
 
 #[tonic::async_trait]
 impl Echo for EchoSvc {
-    async fn unary(
-        &self,
-        request: Request<EchoRequest>,
-    ) -> Result<Response<EchoResponse>, Status> {
+    async fn unary(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
         let required = request.get_ref().require_metadata;
         if required && !request.metadata().contains_key("x-required") {
             return Err(Status::invalid_argument("missing x-required metadata"));

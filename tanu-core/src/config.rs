@@ -550,7 +550,10 @@ mod test {
 
             assert!(result.is_err());
             let err = result.unwrap_err().to_string();
-            assert!(err.contains("not found"), "error should mention file not found: {err}");
+            assert!(
+                err.contains("not found"),
+                "error should mention file not found: {err}"
+            );
         }
 
         #[test_case("true"; "boolean value")]
