@@ -128,6 +128,10 @@ pub use tanu_core::{
     {check, check_eq, check_ne, check_str_eq},
 };
 
+// Re-export gRPC module when feature is enabled
+#[cfg(feature = "grpc")]
+pub use tanu_core::grpc;
+
 // Type alias for the async test function
 pub type AsyncTestFn =
     fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = eyre::Result<()>> + Send + 'static>>;
