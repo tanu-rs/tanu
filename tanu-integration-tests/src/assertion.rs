@@ -230,7 +230,10 @@ async fn check_str_eq_failure_returns_error() -> eyre::Result<()> {
     // Verify AssertionError::StrEq can be created with a message
     let err = AssertionError::StrEq("test error".to_string());
     let err_str = format!("{}", err);
-    check!(err_str.contains("test error"), "StrEq error should contain the message");
+    check!(
+        err_str.contains("test error"),
+        "StrEq error should contain the message"
+    );
 
     Ok(())
 }

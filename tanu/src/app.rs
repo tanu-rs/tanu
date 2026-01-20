@@ -42,6 +42,10 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                     .long("capture-http")
                     .help("Capture http debug logs")
                     .action(ArgAction::SetTrue))
+                .arg(Arg::new("show-sensitive")
+                    .long("show-sensitive")
+                    .help("Show sensitive data (API keys, tokens) in HTTP logs instead of masking them with *****")
+                    .action(ArgAction::SetTrue))
                 .arg(Arg::new("capture-rust")
                     .long("capture-rust")
                     .help("Capture Rust \"log\" crate based logs. This is usefull in the following two cases\n1) tanu failed unexpectedly and you would want to see the tanu's internal logs.\n2) you would want to see logs produced from your tests that uses \"log\" crate")
@@ -242,6 +246,7 @@ impl App {
             Some(("test", test_matches)) => {
                 let capture_http = test_matches.get_flag("capture-http");
                 let capture_rust = test_matches.get_flag("capture-rust");
+                let show_sensitive = test_matches.get_flag("show-sensitive");
                 let projects = test_matches
                     .get_many::<String>("projects")
                     .map(|vals| vals.cloned().collect::<Vec<_>>())
@@ -272,6 +277,9 @@ impl App {
                 }
                 if capture_rust {
                     runner.capture_rust();
+                }
+                if show_sensitive {
+                    runner.show_sensitive();
                 }
                 if let Some(concurrency) = concurrency {
                     runner.set_concurrency(concurrency);

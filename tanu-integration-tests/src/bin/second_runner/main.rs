@@ -12,7 +12,7 @@ use tanu::eyre;
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     println!("Running tests from second binary entry point");
-    
+
     let runner = run();
     let app = tanu::App::new();
     app.run(runner).await?;

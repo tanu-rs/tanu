@@ -6,6 +6,7 @@ pub mod encoding;
 pub mod get;
 pub mod head;
 pub mod header;
+pub mod masking;
 pub mod patch;
 pub mod post;
 pub mod put;

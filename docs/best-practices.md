@@ -436,11 +436,132 @@ let response = client
     .await?;
 ```
 
+!!! tip "Automatic HTTP Log Masking"
+    Tanu automatically masks sensitive data (API keys, tokens, passwords) in HTTP logs when using `--capture-http`. See the [Automatic Sensitive Data Masking](#automatic-sensitive-data-masking) section for details.
+
 ### Validate SSL Certificates
 Ensure your tests validate SSL certificates in production environments (this is the default behavior).
 
 ### Use HTTPS in Production Tests
 Always use HTTPS endpoints when testing production or staging environments.
+
+### Automatic Sensitive Data Masking
+
+Tanu automatically masks sensitive data in HTTP logs when using the `--capture-http` flag to prevent accidental credential leakage. This feature helps you debug HTTP requests safely without exposing API keys, tokens, or passwords in your terminal output or CI/CD logs.
+
+**What Gets Masked:**
+
+Sensitive query parameters (case-insensitive):
+- `api_key`
+- `apikey`
+- `access_token`
+- `token`
+- `secret`
+- `password`
+- `key`
+- `auth`
+
+Sensitive headers (case-insensitive):
+- `authorization`
+- `x-api-key`
+- `x-auth-token`
+- `cookie`
+
+**How It Works:**
+
+```bash
+# Run tests with HTTP logging - sensitive data will be masked
+cargo run -- test --capture-http
+
+# Example output (masked):
+# => GET https://api.example.com/users?api_key=*****&user=alice
+#   > request:
+#     > headers:
+#        > authorization: *****
+#        > content-type: application/json
+```
+
+The actual HTTP requests sent to the server contain the real values - only the logs are masked. This means your tests work correctly while keeping your logs secure.
+
+**Show Sensitive Data for Debugging:**
+
+During local development or debugging, you may want to see the actual values:
+
+```bash
+# Show sensitive data in logs (use with caution)
+cargo run -- test --capture-http --show-sensitive
+
+# Example output (unmasked):
+# => GET https://api.example.com/users?api_key=sk-1234567890&user=alice
+#   > request:
+#     > headers:
+#        > authorization: Bearer my-secret-token
+#        > content-type: application/json
+```
+
+**Best Practices:**
+
+1. **Never use `--show-sensitive` in CI/CD**: Always use the default masked mode in continuous integration environments to prevent credential leaks in build logs.
+
+2. **Review logs before sharing**: Even with masking enabled, review captured HTTP logs before sharing them publicly to ensure no sensitive data is exposed.
+
+3. **Use environment variables**: Store credentials in environment variables rather than hardcoding them:
+
+```rust
+#[tanu::test]
+async fn api_call_with_credentials() -> eyre::Result<()> {
+    let api_key = std::env::var("API_KEY")
+        .map_err(|_| eyre::eyre!("API_KEY not set"))?;
+
+    let response = client
+        .get("https://api.example.com/protected")
+        .query(&[("api_key", api_key)])
+        .send()
+        .await?;
+
+    check!(response.status().is_success());
+    Ok(())
+}
+```
+
+4. **URL encoding is preserved**: The masking feature preserves URL encoding in query parameters, so `name=john%20doe` remains properly encoded even after masking nearby sensitive params.
+
+5. **Test your integrations safely**: With automatic masking, you can capture HTTP logs even when testing against real APIs with actual credentials, making debugging production issues much safer.
+
+**Example Test:**
+
+```rust
+use tanu::{check, check_eq, eyre, http::Client};
+
+#[tanu::test]
+async fn test_authenticated_api_call() -> eyre::Result<()> {
+    let api_key = std::env::var("API_KEY")?;
+
+    let client = Client::new();
+    let response = client
+        .get("https://api.example.com/data")
+        .header("x-api-key", api_key)
+        .query(&[
+            ("access_token", "secret_token_123"),
+            ("user_id", "alice"),
+        ])
+        .send()
+        .await?;
+
+    check!(response.status().is_success());
+
+    // When run with --capture-http, the logs will show:
+    // => GET https://api.example.com/data?access_token=*****&user_id=alice
+    //   > request:
+    //     > headers:
+    //        > x-api-key: *****
+    //        > content-type: application/json
+
+    Ok(())
+}
+```
+
+This automatic masking feature ensures you can debug HTTP requests safely without compromising security, making it ideal for both local development and CI/CD environments.
 
 ## Error Handling
 

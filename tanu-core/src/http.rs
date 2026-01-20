@@ -68,6 +68,8 @@ use std::io::Read;
 use std::time::{Duration, Instant, SystemTime};
 use tracing::*;
 
+use crate::masking;
+
 #[cfg(feature = "cookies")]
 use std::collections::HashMap;
 
@@ -344,12 +346,10 @@ impl Response {
                     Err(_) => String::from_utf8_lossy(body_bytes).to_string(),
                 }
             }
-            Some("zstd") => {
-                match zstd::decode_all(body_bytes.as_ref()) {
-                    Ok(decompressed) => String::from_utf8_lossy(&decompressed).to_string(),
-                    Err(_) => String::from_utf8_lossy(body_bytes).to_string(),
-                }
-            }
+            Some("zstd") => match zstd::decode_all(body_bytes.as_ref()) {
+                Ok(decompressed) => String::from_utf8_lossy(&decompressed).to_string(),
+                Err(_) => String::from_utf8_lossy(body_bytes).to_string(),
+            },
             _ => String::from_utf8_lossy(body_bytes).to_string(),
         }
     }
@@ -643,9 +643,17 @@ impl RequestBuilder {
         let req = req_builder.body(body)?;
 
         let log_request = LogRequest {
-            url: parsed_url.clone(),
+            url: if masking::should_mask_sensitive() {
+                masking::mask_url(&parsed_url)
+            } else {
+                parsed_url.clone()
+            },
             method: self.method.clone(),
-            headers: self.headers.clone(),
+            headers: if masking::should_mask_sensitive() {
+                masking::mask_headers(&self.headers)
+            } else {
+                self.headers.clone()
+            },
         };
 
         let started_at = SystemTime::now();
@@ -653,10 +661,12 @@ impl RequestBuilder {
 
         // Apply timeout if specified
         let res = match self.timeout {
-            Some(timeout) => match tokio::time::timeout(timeout, self.client.inner.request(req)).await {
-                Ok(result) => result,
-                Err(_) => return Err(Error::Timeout(timeout)),
-            },
+            Some(timeout) => {
+                match tokio::time::timeout(timeout, self.client.inner.request(req)).await {
+                    Ok(result) => result,
+                    Err(_) => return Err(Error::Timeout(timeout)),
+                }
+            }
             None => self.client.inner.request(req).await,
         };
         let ended_at = SystemTime::now();
@@ -696,7 +706,11 @@ impl RequestBuilder {
                 }
 
                 let log_response = LogResponse {
-                    headers: response.headers.clone(),
+                    headers: if masking::should_mask_sensitive() {
+                        masking::mask_headers(&response.headers)
+                    } else {
+                        response.headers.clone()
+                    },
                     body: response.text.clone(),
                     status: response.status(),
                     duration_req,
@@ -755,7 +769,11 @@ impl RequestBuilder {
                 }
 
                 let log_response = LogResponse {
-                    headers: final_response.headers.clone(),
+                    headers: if masking::should_mask_sensitive() {
+                        masking::mask_headers(&final_response.headers)
+                    } else {
+                        final_response.headers.clone()
+                    },
                     body: final_response.text.clone(),
                     status: final_response.status(),
                     duration_req,
@@ -810,7 +828,11 @@ impl RequestBuilder {
                     let duration_req = start_time.elapsed();
 
                     let log_response = LogResponse {
-                        headers: final_response.headers.clone(),
+                        headers: if masking::should_mask_sensitive() {
+                            masking::mask_headers(&final_response.headers)
+                        } else {
+                            final_response.headers.clone()
+                        },
                         body: final_response.text.clone(),
                         status: final_response.status(),
                         duration_req,

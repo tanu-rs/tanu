@@ -427,8 +427,11 @@ impl Reporter for ListReporter {
                 style(&log.request.url.to_string()).underlined()
             ))?;
             // Request section
-            self.terminal
-                .write_line(&format!("  {} {}", style(">").cyan(), style("request:").cyan()))?;
+            self.terminal.write_line(&format!(
+                "  {} {}",
+                style(">").cyan(),
+                style("request:").cyan()
+            ))?;
             self.terminal.write_line(&format!(
                 "    {} {}",
                 style(">").cyan(),
@@ -586,11 +589,11 @@ fn style_http_method(method: &str) -> StyledObject<&str> {
 fn style_status_code(status: u16) -> StyledObject<String> {
     let s = status.to_string();
     match status {
-        100..=199 => style(s).cyan(),        // Informational
-        200..=299 => style(s).green(),       // Success
-        300..=399 => style(s).yellow(),      // Redirection
-        400..=499 => style(s).red(),         // Client error
-        500..=599 => style(s).red().bold(),  // Server error
+        100..=199 => style(s).cyan(),       // Informational
+        200..=299 => style(s).green(),      // Success
+        300..=399 => style(s).yellow(),     // Redirection
+        400..=499 => style(s).red(),        // Client error
+        500..=599 => style(s).red().bold(), // Server error
         _ => style(s),
     }
 }
