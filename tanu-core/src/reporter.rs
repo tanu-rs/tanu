@@ -606,14 +606,14 @@ fn style_status_code(status: u16) -> StyledObject<String> {
     }
 }
 
-/// Style project name with cyan color
+/// Style project name with bold magenta color
 fn style_project(name: &str) -> StyledObject<String> {
-    style(format!("[{name}]")).cyan()
+    style(format!("[{name}]")).magenta().bold()
 }
 
-/// Style module path with bold
-fn style_module_path(module: &str, test: &str) -> StyledObject<String> {
-    style(format!("{module}::{test}")).bold()
+/// Style module path with cyan color and test name in bold blue
+fn style_module_path(module: &str, test: &str) -> String {
+    format!("{}::{}", style(module).cyan(), style(test).blue().bold())
 }
 
 #[allow(clippy::vec_box, dead_code)]

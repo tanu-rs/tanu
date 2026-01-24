@@ -88,15 +88,16 @@ async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
 - Format: `<emoji> <imperative summary> (#<issue-or-pr>)` (omit the issue/PR suffix if none).
 - Common emojis in this repo:
 
-| Emoji | Meaning            |
-| ----- | ------------------ |
-|   🐶  | New feature        |
-|   🐛  | Bug fix            |
-|   🧪  | Tests              |
-|   ✨  | Refactoring        |
-|   📚  | Documentation      |
-|   🔖  | Release/versioning |
-|   🔧  | Dependencies       |
+| Emoji | Meaning              |
+| ----- | -------------------- |
+|   🐶  | New feature          |
+|   🐛  | Bug fix              |
+|   🧪  | Tests                |
+|   ✨  | Refactoring          |
+|   📚  | Documentation        |
+|   🔖  | Release/versioning   |
+|   🔧  | Dependencies/Tooling |
+|   🧹  | Cleanup/Sweeper      |
 - PRs should include a brief summary, testing notes, and links to related issues.
 - When modifying code, run `cargo clippy --workspace --all-targets --all-features` and `cargo build --workspace --all-targets --all-features`, and note results in the PR.
 - Include screenshots or GIFs for user-facing CLI/TUI changes and doc updates that affect visuals.
