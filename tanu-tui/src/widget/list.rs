@@ -28,6 +28,11 @@ impl<'a> TestListWidget<'a> {
                         BorderType::Thick
                     } else {
                         BorderType::Plain
+                    })
+                    .border_style(if focused {
+                        Style::default().fg(Color::Blue).bold()
+                    } else {
+                        Style::default().fg(Color::Blue)
                     }),
             )
             .highlight_style(SELECTED_STYLE)

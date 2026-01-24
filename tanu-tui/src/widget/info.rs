@@ -103,14 +103,27 @@ impl StatefulWidget for InfoWidget {
 
 /// Wrap the strings so that they can be displayed nicely in the table.
 fn wrap_row(field: impl AsRef<str>, value: impl AsRef<str>, width: u16) -> Row<'static> {
-    let opt = textwrap::Options::new(width as usize)
+    // Account for padding (2 spaces total: 1 before and 1 after)
+    let opt = textwrap::Options::new((width.saturating_sub(2)) as usize)
         .break_words(true)
         .word_splitter(textwrap::WordSplitter::NoHyphenation);
     let wrapped_field = textwrap::fill(field.as_ref(), &opt);
     let wrapped_value = textwrap::fill(value.as_ref(), &opt);
 
-    let height = wrapped_value.matches('\n').count() + 1;
-    Row::new(vec![Cell::new(wrapped_field), Cell::new(wrapped_value)]).height(height as u16)
+    // Add padding to each line
+    let padded_field = wrapped_field
+        .lines()
+        .map(|line| format!(" {} ", line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let padded_value = wrapped_value
+        .lines()
+        .map(|line| format!(" {} ", line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let height = padded_value.matches('\n').count() + 1;
+    Row::new(vec![Cell::new(padded_field), Cell::new(padded_value)]).height(height as u16)
 }
 
 fn format_system_time(ts: SystemTime) -> String {
@@ -189,6 +202,19 @@ impl InfoWidget {
             value_width,
         ));
 
+        // Apply alternating row colors
+        let rows: Vec<Row> = rows
+            .into_iter()
+            .enumerate()
+            .map(|(n, row)| {
+                let color = match n % 2 {
+                    0 => colors.normal_row_color,
+                    _ => colors.alt_row_color,
+                };
+                row.bg(color)
+            })
+            .collect();
+
         let widths = [
             Constraint::Percentage(FIELD_PERCENTAGE),
             Constraint::Percentage(VALUE_PERCENTAGE),
@@ -196,9 +222,18 @@ impl InfoWidget {
         let table = Table::new(rows, widths)
             .style(Style::new().fg(colors.row_fg))
             .row_highlight_style(Style::default().fg(colors.selected_style_fg))
+            .header(
+                Row::new(vec![" Field ", " Value "]).style(
+                    Style::default()
+                        .fg(colors.header_fg)
+                        .bg(colors.header_bg)
+                        .bold(),
+                ),
+            )
             .block(
                 Block::new()
                     .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Blue))
                     .title("Request")
                     .padding(Padding::uniform(1)),
             )
@@ -272,6 +307,7 @@ impl InfoWidget {
                 .block(
                     Block::new()
                         .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Blue))
                         .title("Request")
                         .padding(Padding::uniform(1)),
                 )
@@ -336,6 +372,7 @@ impl InfoWidget {
                 .block(
                     Block::new()
                         .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Blue))
                         .title("Response")
                         .padding(Padding::uniform(1)),
                 )
@@ -399,7 +436,11 @@ impl InfoWidget {
         let visible_text = visible_lines.join("\n");
 
         let paragraph = Paragraph::new(visible_text.into_text().unwrap())
-            .block(Block::bordered().padding(Padding::uniform(1)))
+            .block(
+                Block::bordered()
+                    .border_style(Style::default().fg(Color::Blue))
+                    .padding(Padding::uniform(1)),
+            )
             .scroll((0, 0)); // Reset scroll since we're slicing manually
         let paragraph = if let Some(theme_bg) = theme_bg {
             paragraph.bg(Color::Rgb(theme_bg.r, theme_bg.g, theme_bg.b))
@@ -425,7 +466,7 @@ impl InfoWidget {
 
         let text: Text = e.to_string().into_text().unwrap();
         let paragraph = Paragraph::new(text)
-            .block(Block::bordered())
+            .block(Block::bordered().border_style(Style::default().fg(Color::Blue)))
             .scroll((state.error_state.scroll_offset, 0));
 
         paragraph.render(area, buf);
@@ -455,7 +496,7 @@ impl TableColors {
     const fn new() -> TableColors {
         TableColors {
             header_bg: Color::Blue,
-            header_fg: Color::Black,
+            header_fg: Color::White,
             row_fg: Color::Black,
             selected_style_fg: Color::Blue,
             normal_row_color: tailwind::STONE.c900,

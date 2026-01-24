@@ -28,7 +28,6 @@ mod widget;
 use crossterm::event::{EventStream, KeyModifiers};
 use eyre::WrapErr;
 use futures::StreamExt;
-use itertools::Itertools;
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind},
     layout::Position,
@@ -36,7 +35,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
     widgets::{
-        Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph, Tabs,
+        Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph,
     },
     Frame,
 };
@@ -62,6 +61,7 @@ const SELECTED_STYLE: Style = Style::new().bg(Color::Black).add_modifier(Modifie
 use crate::widget::{
     info::{InfoState, InfoWidget, Tab},
     list::{ExecutionStateController, TestCaseSelector, TestListState, TestListWidget},
+    tabbed_block::CustomTabs,
 };
 
 /// Represents result of a test case.
@@ -391,8 +391,13 @@ fn view(model: &mut Model, frame: &mut Frame) {
         Constraint::Percentage(50),
     ])
     .areas(layout_left);
-    let [layout_logo, layout_fps] =
+    let [layout_logo, layout_fps_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(9)]).areas(layout_logo);
+    let [layout_fps, layout_version] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(layout_fps_area);
     let layout_menu_items = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -445,8 +450,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     }
 
-    let fps =
-        Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps)).alignment(Alignment::Right);
+    let fps = Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps))
+        .alignment(Alignment::Right)
+        .style(Style::default().dim());
+    let version = Paragraph::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+        .alignment(Alignment::Right)
+        .style(Style::default().dim());
 
     let ratio =
         (model.test_results.len() as f64 / model.test_cases_list.len() as f64).clamp(0.0, 1.0);
@@ -456,7 +465,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 .borders(Borders::NONE)
                 .padding(Padding::new(1, 1, 0, 0)),
         )
-        .filled_style(Style::new().red())
+        .filled_style(Style::new().blue())
         .unfilled_style(Style::new().black())
         .ratio(ratio)
         .label(if ratio == 0.0 {
@@ -497,7 +506,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
     for (n, &(key, label)) in menu_items.iter().enumerate() {
         let menu_item = Paragraph::new(vec![Line::from(vec![
-            Span::styled(key, Style::default().bold()),
+            Span::styled(key, Style::default().fg(Color::Blue).bold()),
             Span::styled(format!("{WHITESPACE}{label}"), Style::default()),
         ])])
         .block(Block::default().borders(Borders::NONE));
@@ -510,22 +519,17 @@ fn view(model: &mut Model, frame: &mut Frame) {
         } else {
             BorderType::Plain
         })
+        .border_style(if model.info_state.focused {
+            Style::default().fg(Color::Blue).bold()
+        } else {
+            Style::default().fg(Color::Blue)
+        })
         .borders(Borders::ALL)
         .title("Request/Response".bold());
 
-    let tabs = Tabs::new(
-        [Tab::Call, Tab::Headers, Tab::Payload, Tab::Error]
-            .iter()
-            .map(|tab| {
-                let text = tab.to_string();
-                Line::from(format!("  {text}  ").bold())
-            }),
-    )
-    .select(model.info_state.selected_tab as usize)
-    .highlight_style(Style::default().reversed())
-    .block(Block::default().borders(Borders::BOTTOM))
-    .padding("", "")
-    .divider("|");
+    let tabs = CustomTabs::new(vec!["Call", "Headers", "Payload", "Error"])
+        .select(model.info_state.selected_tab as usize)
+        .selected_style(Style::default().fg(Color::Blue).bold());
 
     let info = InfoWidget::new(model.test_results.clone());
 
@@ -547,6 +551,11 @@ fn view(model: &mut Model, frame: &mut Frame) {
             BorderType::Thick
         } else {
             BorderType::Plain
+        })
+        .border_style(if matches!(model.current_pane, Pane::Logger) {
+            Style::default().fg(Color::Blue).bold()
+        } else {
+            Style::default().fg(Color::Blue)
         })
         .style_error(Style::default().fg(Color::Red))
         .style_warn(Style::default().fg(Color::Yellow))
@@ -615,65 +624,51 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Block::new()
                 .title("Latency [ms]".bold())
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Blue))
                 .padding(Padding::top(1)),
         )
         .bar_width(BAR_WIDTH as u16)
         .bar_gap(1)
         .bar_style(Style::default().fg(Color::Blue));
 
-    let grouped_by_project = model
+    // Aggregate all test results across all projects
+    let successful = model
         .test_results
         .iter()
-        .into_group_map_by(|result| result.project_name.clone());
-    let project_test_summary: Vec<_> = get_tanu_config()
-        .projects
-        .iter()
-        .filter_map(|project| {
-            let test_results = grouped_by_project.get(&project.name)?;
-            let successful = test_results
-                .iter()
-                .filter(|result| result.test.as_ref().is_some_and(|test| test.result.is_ok()))
-                .count();
-            Some((
-                project.name.clone(),
-                successful,
-                test_results.len() - successful,
-            ))
-        })
-        .collect();
+        .filter(|result| result.test.as_ref().is_some_and(|test| test.result.is_ok()))
+        .count();
+    let total = model.test_results.len();
+    let failed = total - successful;
 
-    // Create bar groups for each project (maintaining original order)
-    let bar_groups = project_test_summary
-        .iter()
-        .map(|(name, success, fail)| {
-            BarGroup::default()
-                .label(Line::from(name.to_owned()).centered())
-                .bars(&[
-                    Bar::default()
-                        .value(*success as u64)
-                        .text_value(format!("success: {success}"))
-                        .value_style(Style::new().bg(Color::Green).fg(Color::Black))
-                        .style(Color::Green),
-                    Bar::default()
-                        .value(*fail as u64)
-                        .text_value(format!("fail: {fail}"))
-                        .value_style(Style::new().bg(Color::Red).fg(Color::Black))
-                        .style(Color::Red),
-                ])
-        })
-        .collect::<Vec<_>>();
+    // Create a single bar group for aggregated results
+    let bar_groups = vec![BarGroup::default()
+        .bars(&[
+            Bar::default()
+                .value(successful as u64)
+                .label(Line::from(if total > 0 { "ok" } else { "" }).centered())
+                .text_value(if total > 0 { format!("{successful}") } else { String::new() })
+                .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
+                .style(Color::Blue),
+            Bar::default()
+                .value(failed as u64)
+                .label(Line::from(if total > 0 { "err" } else { "" }).centered())
+                .text_value(if total > 0 { format!("{failed}") } else { String::new() })
+                .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
+                .style(Color::Blue),
+        ])];
 
-    // Create the bar chart with horizontal orientation
+    // Create the bar chart with vertical orientation
     let mut bar_chart = BarChart::default()
         .block(
             Block::new()
                 .title("Summary".bold())
                 .borders(Borders::ALL)
-                .padding(Padding::new(0, 1, 1, 1)),
+                .border_style(Style::default().fg(Color::Blue))
+                .padding(Padding::top(1)),
         )
-        .direction(Direction::Horizontal)
-        .bar_width(1)
-        .bar_gap(0)
+        .direction(Direction::Vertical)
+        .bar_width(BAR_WIDTH as u16)
+        .bar_gap(1)
         .group_gap(2);
 
     for bar_group in bar_groups {
@@ -689,7 +684,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
     } else {
-        frame.render_widget(fps, layout_fps);
+    frame.render_widget(fps, layout_fps);
+    frame.render_widget(version, layout_version);
         frame.render_widget(gauge, layout_gauge);
         frame.render_widget(logo, layout_logo);
         frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
