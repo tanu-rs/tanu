@@ -72,7 +72,15 @@ pub enum ReporterType {
 }
 
 async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> {
-    let mut rx = runner::subscribe()?;
+    // Attempt to subscribe first
+    let rx_result = runner::subscribe();
+
+    // Always participate in barrier, even if subscribe failed
+    // This prevents deadlock if any reporter fails to subscribe
+    runner::wait_reporter_barrier().await;
+
+    // Now check if subscribe succeeded
+    let mut rx = rx_result?;
 
     loop {
         let res = match rx.recv().await {

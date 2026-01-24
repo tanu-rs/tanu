@@ -118,6 +118,11 @@ pub(crate) static CHANNEL: Lazy<
     Mutex<Option<(broadcast::Sender<Event>, broadcast::Receiver<Event>)>>,
 > = Lazy::new(|| Mutex::new(Some(broadcast::channel(1000))));
 
+/// Barrier to synchronize reporter subscription before test execution starts.
+/// This prevents the race condition where tests publish events before reporters subscribe.
+pub(crate) static REPORTER_BARRIER: Lazy<Mutex<Option<Arc<tokio::sync::Barrier>>>> =
+    Lazy::new(|| Mutex::new(None));
+
 /// Publishes an event to the runner's event channel.
 ///
 /// This function is used throughout the test execution pipeline to broadcast
@@ -167,6 +172,48 @@ pub fn subscribe() -> eyre::Result<broadcast::Receiver<Event>> {
     };
 
     Ok(tx.subscribe())
+}
+
+/// Set up barrier for N reporters (called before spawning reporters).
+///
+/// This ensures all reporters subscribe before tests start executing,
+/// preventing the race condition where Start events are published before
+/// reporters are ready to receive them.
+pub(crate) fn setup_reporter_barrier(count: usize) -> eyre::Result<()> {
+    let Ok(mut barrier) = REPORTER_BARRIER.lock() else {
+        eyre::bail!("failed to acquire reporter barrier lock");
+    };
+    *barrier = Some(Arc::new(tokio::sync::Barrier::new(count + 1)));
+    Ok(())
+}
+
+/// Wait on barrier (called by reporters after subscribing, and by runner before tests).
+///
+/// If no barrier is set (standalone reporter use), this is a no-op.
+pub(crate) async fn wait_reporter_barrier() {
+    let barrier = match REPORTER_BARRIER.lock() {
+        Ok(guard) => guard.clone(),
+        Err(e) => {
+            error!("failed to acquire reporter barrier lock (poisoned): {e}");
+            return;
+        }
+    };
+
+    if let Some(b) = barrier {
+        b.wait().await;
+    }
+}
+
+/// Clear barrier after use.
+pub(crate) fn clear_reporter_barrier() {
+    match REPORTER_BARRIER.lock() {
+        Ok(mut barrier) => {
+            *barrier = None;
+        }
+        Err(e) => {
+            error!("failed to clear reporter barrier (poisoned lock): {e}");
+        }
+    }
 }
 
 /// Test execution errors.
@@ -860,10 +907,18 @@ impl Runner {
         }
 
         let reporters = std::mem::take(&mut self.reporters);
+
+        // Set up barrier for all reporters + runner
+        // This ensures all reporters subscribe before tests start
+        setup_reporter_barrier(reporters.len())?;
+
         let reporter_handles: Vec<_> = reporters
             .into_iter()
             .map(|mut reporter| tokio::spawn(async move { reporter.run().await }))
             .collect();
+
+        // Wait for all reporters to subscribe before starting tests
+        wait_reporter_barrier().await;
 
         let project_filter = ProjectFilter { project_names };
         let module_filter = ModuleFilter { module_names };
@@ -1101,6 +1156,9 @@ impl Runner {
                 Err(e) => error!("reporter task panicked: {e:#}"),
             }
         }
+
+        // Clean up barrier
+        clear_reporter_barrier();
 
         debug!("runner stopped");
 
