@@ -1,4 +1,6 @@
 mod assertion;
+#[cfg(feature = "fail-test")]
+mod fail_test;
 mod grpc;
 mod http;
 mod macros;
