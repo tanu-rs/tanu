@@ -13,6 +13,9 @@ path = "src/bin/second_runner/main.rs"
 name = "third-runner"
 path = "src/bin/third_runner.rs"
 
+[features]
+fail-test = []
+
 [dependencies]
 anyhow = { workspace = true }
 base64 = "0.21"
