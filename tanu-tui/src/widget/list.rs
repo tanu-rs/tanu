@@ -299,6 +299,7 @@ impl ExecutionStateController {
 }
 
 /// Represents the execution state of a test case, module, or project.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Default)]
 pub enum ExecutionState {
     /// The test case, module, or project is initialized.
@@ -818,6 +819,8 @@ mod test {
                     ended_at: std::time::SystemTime::UNIX_EPOCH,
                 }),
             ],
+            #[cfg(feature = "grpc")]
+            grpc_logs: vec![],
             test: None,
         }];
 

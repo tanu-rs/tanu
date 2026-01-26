@@ -36,6 +36,8 @@
 pub mod assertion;
 pub mod config;
 pub mod error;
+#[cfg(feature = "grpc")]
+pub mod grpc;
 pub mod http;
 pub mod masking;
 pub mod reporter;
@@ -76,5 +78,6 @@ pub use config::{get_config, get_tanu_config, Config, ProjectConfig};
 pub use error::{Error, Result};
 pub use reporter::{ListReporter, NullReporter, Reporter};
 pub use runner::{
-    Filter, ModuleFilter, ProjectFilter, Runner, TestIgnoreFilter, TestInfo, TestNameFilter,
+    CallLog, Filter, ModuleFilter, ProjectFilter, Runner, TestIgnoreFilter, TestInfo,
+    TestNameFilter,
 };
