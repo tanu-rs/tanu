@@ -56,6 +56,12 @@
 //! Tanu uses TOML configuration files with the following structure:
 //!
 //! ```toml
+//! [runner]
+//! capture_http = true      # Capture HTTP debug logs
+//! capture_rust = false     # Capture Rust "log" crate logs
+//! show_sensitive = false   # Show sensitive data in HTTP logs
+//! concurrency = 4          # Max parallel tests (default: unlimited)
+//!
 //! [[projects]]
 //! name = "staging"
 //! base_url = "https://staging.api.example.com"
@@ -121,6 +127,8 @@ pub struct Config {
     pub projects: Vec<Arc<ProjectConfig>>,
     /// Global tanu configuration
     pub tui: Tui,
+    /// Test runner configuration
+    pub runner: Runner,
 }
 
 impl Default for Config {
@@ -131,6 +139,7 @@ impl Default for Config {
                 ..Default::default()
             })],
             tui: Tui::default(),
+            runner: Runner::default(),
         }
     }
 }
@@ -146,6 +155,23 @@ pub struct Tui {
 pub struct Payload {
     /// Optional color theme for terminal output
     pub color_theme: Option<String>,
+}
+
+/// Test runner configuration
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Runner {
+    /// Whether to capture HTTP debug logs
+    #[serde(default)]
+    pub capture_http: Option<bool>,
+    /// Whether to capture Rust "log" crate based logs
+    #[serde(default)]
+    pub capture_rust: Option<bool>,
+    /// Whether to show sensitive data in HTTP logs (if false, masks with *****)
+    #[serde(default)]
+    pub show_sensitive: Option<bool>,
+    /// Maximum number of tests to run in parallel
+    #[serde(default)]
+    pub concurrency: Option<usize>,
 }
 
 impl Config {
@@ -165,6 +191,8 @@ impl Config {
             projects: Vec<ProjectConfig>,
             #[serde(default)]
             tui: Tui,
+            #[serde(default)]
+            runner: Runner,
         }
 
         let helper: ConfigHelper = toml::from_str(&buf).map_err(|e| {
@@ -176,6 +204,7 @@ impl Config {
         let mut cfg = Config {
             projects: helper.projects.into_iter().map(Arc::new).collect(),
             tui: helper.tui,
+            runner: helper.runner,
         };
 
         debug!("tanu.toml was successfully loaded: {cfg:#?}");

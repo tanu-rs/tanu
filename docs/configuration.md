@@ -16,8 +16,12 @@ The `tanu.toml` file consists of multiple `[[projects]]` tables, each representi
 Below is an example of a `tanu.toml` file:
 
 ```toml
-[tanu]
-payload.color_theme: "tomorrow-night"  # Replace with your preferred theme name
+[tui]
+payload.color_theme = "tomorrow-night"  # Replace with your preferred theme name
+
+[runner]
+capture_http = true     # Capture HTTP debug logs
+concurrency = 4         # Run up to 4 tests in parallel
 
 [[projects]]
 name = "staging"
@@ -40,6 +44,28 @@ retry.jitter = true
 retry.min_delay = "1s"
 retry.max_delay = "60s"
 ```
+
+## Runner
+
+The `[runner]` section configures global test execution behavior. All values are optional and serve as defaults that can be overridden by command-line flags.
+
+```toml
+[runner]
+capture_http = true      # Capture HTTP debug logs (default: false)
+capture_rust = false     # Capture Rust "log" crate logs (default: false)
+show_sensitive = false   # Show sensitive data in HTTP logs (default: false)
+concurrency = 4          # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
+```
+
+### Options
+
+- `capture_http`: When enabled, captures and displays HTTP request/response logs for debugging. Default is `false`. Can be overridden with `--capture-http`.
+- `capture_rust`: When enabled, captures logs from Rust's `log` crate. Useful for debugging tanu internals or test code that uses the log crate. Default is `false`. Can be overridden with `--capture-rust`.
+- `show_sensitive`: When enabled, displays sensitive data (API keys, tokens, passwords) in HTTP logs instead of masking them with `*****`. Use with caution as this may expose secrets. Default is `false`. Can be overridden with `--show-sensitive`.
+- `concurrency`: Maximum number of tests to run in parallel. If not specified, CLI mode runs all tests in parallel (unlimited), while TUI mode defaults to the number of CPU cores. Can be overridden with `-c` or `--concurrency`.
+
+!!! note
+    Command-line flags always take precedence over configuration file settings. Use configuration file settings to establish project defaults and command-line flags for one-off overrides.
 
 ## Retry
 
@@ -118,7 +144,7 @@ You can customize the appearance of Tanu's interface by selecting a color theme.
 To change the theme, add the following to your `tanu.toml` configuration file:
 
 ```toml
-[tanu]
+[tui]
 payload.color_theme = "tomorrow-night"  # Replace with your preferred theme name
 ```
 
