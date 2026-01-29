@@ -53,3 +53,89 @@ async fn my_test_function(a: u32, b: u32, expected: u32) -> eyre::Result<()> {
     Ok(())
 }
 ```
+
+## Serial Execution
+
+By default, Tanu runs tests in parallel for better performance. However, some tests need to run sequentially, such as tests that:
+
+- Share mutable state (databases, files, environment variables)
+- Modify global resources
+- Have ordering dependencies
+
+The `serial` attribute allows you to control test execution order.
+
+### Basic Serial Execution
+
+Use `serial` to run tests sequentially with all other serial tests:
+
+```rust
+#[tanu::test(serial)]
+async fn database_setup() -> eyre::Result<()> {
+    // This test runs serially with all other serial tests
+    Ok(())
+}
+
+#[tanu::test(serial)]
+async fn database_cleanup() -> eyre::Result<()> {
+    // Runs after database_setup completes
+    Ok(())
+}
+```
+
+### Named Serial Groups
+
+Create named groups to isolate serial execution. Tests in different groups can run in parallel:
+
+```rust
+#[tanu::test(serial = "database")]
+async fn db_write() -> eyre::Result<()> {
+    // Serializes only with other "database" group tests
+    Ok(())
+}
+
+#[tanu::test(serial = "database")]
+async fn db_read() -> eyre::Result<()> {
+    // Runs after db_write within the database group
+    Ok(())
+}
+
+#[tanu::test(serial = "cache")]
+async fn cache_write() -> eyre::Result<()> {
+    // Can run in parallel with database group
+    Ok(())
+}
+```
+
+### Serial with Parameters
+
+The `serial` attribute can be combined with parameterized tests. The `serial` keyword can appear anywhere in the attribute arguments:
+
+```rust
+// Serial before parameters
+#[tanu::test(serial, 200)]
+#[tanu::test(serial, 404)]
+async fn test_status_codes(code: u16) -> eyre::Result<()> {
+    Ok(())
+}
+
+// Serial after parameters
+#[tanu::test(1, 2, serial)]
+#[tanu::test(3, 4, serial)]
+async fn test_addition(a: i32, b: i32) -> eyre::Result<()> {
+    Ok(())
+}
+
+// Named groups with parameters
+#[tanu::test(serial = "api", 200)]
+#[tanu::test(serial = "api", 404)]
+async fn test_api_codes(code: u16) -> eyre::Result<()> {
+    Ok(())
+}
+```
+
+### Key Points
+
+- **Project-scoped**: Serial groups are scoped per project. Same group name in different projects won't interfere.
+- **Concurrency control**: Serial tests acquire their group mutex before the global concurrency semaphore, preventing resource blocking.
+- **Minimal lock scope**: The serial lock only covers test execution, not setup, teardown, or retry logic.
+- **Performance**: Non-serial tests and different serial groups run in parallel for optimal performance.

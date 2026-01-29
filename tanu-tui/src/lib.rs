@@ -34,9 +34,7 @@ use ratatui::{
     prelude::*,
     style::{Modifier, Style},
     text::Line,
-    widgets::{
-        Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph,
-    },
+    widgets::{Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph},
     Frame,
 };
 use std::{
@@ -393,11 +391,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
     .areas(layout_left);
     let [layout_logo, layout_fps_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(9)]).areas(layout_logo);
-    let [layout_fps, layout_version] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(layout_fps_area);
+    let [layout_fps, layout_version] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(layout_fps_area);
     let layout_menu_items = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -641,21 +636,28 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let failed = total - successful;
 
     // Create a single bar group for aggregated results
-    let bar_groups = vec![BarGroup::default()
-        .bars(&[
-            Bar::default()
-                .value(successful as u64)
-                .label(Line::from(if total > 0 { "ok" } else { "" }).centered())
-                .text_value(if total > 0 { format!("{successful}") } else { String::new() })
-                .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
-                .style(Color::Blue),
-            Bar::default()
-                .value(failed as u64)
-                .label(Line::from(if total > 0 { "err" } else { "" }).centered())
-                .text_value(if total > 0 { format!("{failed}") } else { String::new() })
-                .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
-                .style(Color::Blue),
-        ])];
+    let bar_groups = vec![BarGroup::default().bars(&[
+        Bar::default()
+            .value(successful as u64)
+            .label(Line::from(if total > 0 { "ok" } else { "" }).centered())
+            .text_value(if total > 0 {
+                format!("{successful}")
+            } else {
+                String::new()
+            })
+            .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
+            .style(Color::Blue),
+        Bar::default()
+            .value(failed as u64)
+            .label(Line::from(if total > 0 { "err" } else { "" }).centered())
+            .text_value(if total > 0 {
+                format!("{failed}")
+            } else {
+                String::new()
+            })
+            .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
+            .style(Color::Blue),
+    ])];
 
     // Create the bar chart with vertical orientation
     let mut bar_chart = BarChart::default()
@@ -684,8 +686,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Pane::Logger => frame.render_widget(logger, layout_main),
         }
     } else {
-    frame.render_widget(fps, layout_fps);
-    frame.render_widget(version, layout_version);
+        frame.render_widget(fps, layout_fps);
+        frame.render_widget(version, layout_version);
         frame.render_widget(gauge, layout_gauge);
         frame.render_widget(logo, layout_logo);
         frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);

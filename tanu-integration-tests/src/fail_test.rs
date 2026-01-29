@@ -1,5 +1,5 @@
-use tanu::{check_eq, eyre, http::Client};
 use serde_json::Value;
+use tanu::{check_eq, eyre, http::Client};
 
 #[tanu::test]
 async fn always_fails() -> eyre::Result<()> {

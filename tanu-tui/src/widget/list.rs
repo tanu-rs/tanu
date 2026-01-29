@@ -264,6 +264,7 @@ impl ExecutionStateController {
                     info: Arc::new(TestInfo {
                         module: "".into(),
                         name: "".into(),
+                        serial_group: None,
                     }),
                     worker_id: 0,
                     result: if ok {
@@ -701,10 +702,12 @@ mod test {
             TestInfo {
                 module: "foo".into(),
                 name: "test1".into(),
+                serial_group: None,
             },
             TestInfo {
                 module: "bar".into(),
                 name: "test2".into(),
+                serial_group: None,
             },
         ];
 
@@ -779,10 +782,12 @@ mod test {
             TestInfo {
                 module: "foo".into(),
                 name: "test1".into(),
+                serial_group: None,
             },
             TestInfo {
                 module: "bar".into(),
                 name: "test2".into(),
+                serial_group: None,
             },
         ];
 
@@ -900,6 +905,7 @@ mod test {
                 info: Arc::new(TestInfo {
                     module: "".into(),
                     name: "".into(),
+                    serial_group: None,
                 }),
                 worker_id: 0,
                 result: Ok(()),
@@ -920,6 +926,7 @@ mod test {
                 info: Arc::new(TestInfo {
                     module: "".into(),
                     name: "".into(),
+                    serial_group: None,
                 }),
                 worker_id: 0,
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),

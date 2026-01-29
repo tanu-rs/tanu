@@ -6,6 +6,7 @@ mod http;
 mod macros;
 mod misc;
 mod retry;
+mod serial;
 mod task_local;
 mod tcp;
 
