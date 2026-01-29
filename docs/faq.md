@@ -167,7 +167,12 @@ cargo run test -t pattern  # Run tests matching pattern
 ```
 
 ### Can I run tests in parallel?
-Yes, tanu runs tests concurrently by default. You can control concurrency with command-line options.
+Yes, tanu runs tests concurrently by default. You can control concurrency using:
+
+- Command-line flag: `--concurrency 4` or `-c 4`
+- Configuration file: `runner.concurrency = 4` in `tanu.toml`
+
+See the [Runner Configuration](configuration.md#runner) section for more details.
 
 ### How do I use the TUI mode?
 ```bash
@@ -216,7 +221,19 @@ This might be due to:
 - Resource cleanup issues
 
 ### How do I debug HTTP requests?
-Tanu automatically captures HTTP request/response logs. Use the TUI mode to inspect detailed request information.
+Use the `--capture-http` flag to capture HTTP request/response logs:
+
+```bash
+cargo run -- test --capture-http
+```
+
+You can also enable this by default in `tanu.toml`:
+```toml
+[runner]
+capture_http = true
+```
+
+For interactive debugging, use TUI mode to inspect detailed request information. See [Best Practices - HTTP Debugging](best-practices.md#http-debugging) for more details on automatic sensitive data masking.
 
 ## Performance
 
@@ -225,9 +242,9 @@ Tanu is built in Rust and leverages zero-cost abstractions for minimal overhead.
 
 ### Can I control test execution speed?
 Yes, through configuration:
-- Adjust concurrency levels
-- Configure timeouts
-- Use retry settings appropriately
+- Adjust concurrency levels with `--concurrency` flag or `runner.concurrency` in config
+- Configure timeouts in your HTTP client
+- Use retry settings appropriately (see [Retry Configuration](configuration.md#retry))
 - Consider rate limiting for API protection
 
 ## Integration
