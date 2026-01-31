@@ -49,7 +49,7 @@
 //! use tanu_core::Runner;
 //!
 //! let mut runner = Runner::new();
-//! runner.add_test("my_test", "my_module", test_factory);
+//! runner.add_test("my_test", "my_module", None, test_factory);
 //! runner.run(&[], &[], &[]).await?;
 //! ```
 use backon::Retryable;
@@ -360,6 +360,7 @@ pub struct TestSummary {
 pub struct TestInfo {
     pub module: String,
     pub name: String,
+    pub serial_group: Option<String>,
 }
 
 impl TestInfo {
@@ -669,7 +670,7 @@ impl Filter for TestIgnoreFilter {
 /// runner.add_reporter(TableReporter::new());
 ///
 /// // Add tests (typically done by procedural macros)
-/// runner.add_test("health_check", "api", test_factory);
+/// runner.add_test("health_check", "api", None, test_factory);
 ///
 /// // Run all tests
 /// runner.run(&[], &[], &[]).await?;
@@ -815,11 +816,18 @@ impl Runner {
     }
 
     /// Add a test case to the runner.
-    pub fn add_test(&mut self, name: &str, module: &str, factory: TestCaseFactory) {
+    pub fn add_test(
+        &mut self,
+        name: &str,
+        module: &str,
+        serial_group: Option<&str>,
+        factory: TestCaseFactory,
+    ) {
         self.test_cases.push((
             Arc::new(TestInfo {
                 name: name.into(),
                 module: module.into(),
+                serial_group: serial_group.map(|s| s.to_string()),
             }),
             factory,
         ));
@@ -936,6 +944,12 @@ impl Runner {
             // Worker ID pool for timeline visualization (only when concurrency is specified)
             let worker_ids = Arc::new(WorkerIds::new(concurrency));
 
+            // Per-group mutexes for serial execution (project-scoped)
+            // Key format: "project_name::group_name"
+            let serial_groups: Arc<
+                tokio::sync::RwLock<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+            > = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+
             let projects = self.cfg.projects.clone();
             let projects = if projects.is_empty() {
                 vec![Arc::new(ProjectConfig {
@@ -956,7 +970,37 @@ impl Runner {
                 .map(|(project, info, factory)| {
                     let semaphore = semaphore.clone();
                     let worker_ids = worker_ids.clone();
+                    let serial_groups = serial_groups.clone();
                     tokio::spawn(async move {
+                        // Step 1: Acquire serial group mutex FIRST (if needed) - project-scoped
+                        // This ensures tests in the same group don't hold semaphore permits unnecessarily
+                        let serial_mutex = match &info.serial_group {
+                            Some(group_name) => {
+                                // Create project-scoped key: "project_name::group_name"
+                                let key = format!("{}::{}", project.name, group_name);
+
+                                // Get or create mutex for this project+group
+                                let read_lock = serial_groups.read().await;
+                                if let Some(mutex) = read_lock.get(&key) {
+                                    Some(Arc::clone(mutex))
+                                } else {
+                                    drop(read_lock);
+                                    let mut write_lock = serial_groups.write().await;
+                                    Some(
+                                        write_lock
+                                            .entry(key)
+                                            .or_insert_with(|| {
+                                                Arc::new(tokio::sync::Mutex::new(()))
+                                            })
+                                            .clone(),
+                                    )
+                                }
+                            }
+                            None => None,
+                        };
+
+                        // Step 2: Acquire global semaphore AFTER serial mutex
+                        // This prevents blocking other tests while waiting for serial group
                         let _permit = semaphore
                             .acquire()
                             .await
@@ -976,7 +1020,16 @@ impl Runner {
 
                                         let retry_count =
                                             AtomicUsize::new(project.retry.count.unwrap_or(0));
+                                        let serial_mutex_clone = serial_mutex.clone();
                                         let f = || async {
+                                            // Acquire serial guard just before test execution
+                                            let _serial_guard =
+                                                if let Some(ref mutex) = serial_mutex_clone {
+                                                    Some(mutex.lock().await)
+                                                } else {
+                                                    None
+                                                };
+
                                             let started_at = SystemTime::now();
                                             let request_started = std::time::Instant::now();
                                             let res = factory().await;
@@ -1251,7 +1304,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("retry_test", "module", factory);
+        runner.add_test("retry_test", "module", None, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1292,7 +1345,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config_with_retry());
-        runner.add_test("retry_test", "module", factory);
+        runner.add_test("retry_test", "module", None, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1312,6 +1365,7 @@ mod test {
         let test_info = Arc::new(TestInfo {
             module: "mod".to_string(),
             name: "test".to_string(),
+            serial_group: None,
         });
 
         crate::config::PROJECT
@@ -1338,6 +1392,7 @@ mod test {
         let test_info = Arc::new(TestInfo {
             module: "mod".to_string(),
             name: "test".to_string(),
+            serial_group: None,
         });
 
         crate::config::PROJECT
@@ -1385,7 +1440,7 @@ mod test {
 
         let mut rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("masking_query_test", "masking_module", factory);
+        runner.add_test("masking_query_test", "masking_module", None, factory);
 
         runner.run(&[], &[], &[]).await?;
 
@@ -1450,7 +1505,7 @@ mod test {
 
         let mut rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("masking_headers_test", "masking_module", factory);
+        runner.add_test("masking_headers_test", "masking_module", None, factory);
 
         runner.run(&[], &[], &[]).await?;
 
@@ -1525,7 +1580,7 @@ mod test {
         let mut runner = Runner::with_config(create_config());
         runner.capture_http();
         runner.show_sensitive();
-        runner.add_test("show_sensitive_test", "masking_module", factory);
+        runner.add_test("show_sensitive_test", "masking_module", None, factory);
 
         runner.run(&[], &[], &[]).await?;
 

@@ -245,9 +245,12 @@ impl App {
         match matches.subcommand() {
             Some(("test", test_matches)) => {
                 // Merge config values with CLI flags (CLI takes precedence)
-                let capture_http = test_matches.get_flag("capture-http") || cfg.runner.capture_http.unwrap_or(false);
-                let capture_rust = test_matches.get_flag("capture-rust") || cfg.runner.capture_rust.unwrap_or(false);
-                let show_sensitive = test_matches.get_flag("show-sensitive") || cfg.runner.show_sensitive.unwrap_or(false);
+                let capture_http = test_matches.get_flag("capture-http")
+                    || cfg.runner.capture_http.unwrap_or(false);
+                let capture_rust = test_matches.get_flag("capture-rust")
+                    || cfg.runner.capture_rust.unwrap_or(false);
+                let show_sensitive = test_matches.get_flag("show-sensitive")
+                    || cfg.runner.show_sensitive.unwrap_or(false);
                 let projects = test_matches
                     .get_many::<String>("projects")
                     .map(|vals| vals.cloned().collect::<Vec<_>>())
@@ -269,7 +272,9 @@ impl App {
                     reporters_arg.push(ReporterType::List.to_string());
                 }
                 // Merge config value with CLI flag (CLI takes precedence)
-                let concurrency = test_matches.get_one::<usize>("concurrency").cloned()
+                let concurrency = test_matches
+                    .get_one::<usize>("concurrency")
+                    .cloned()
                     .or(cfg.runner.concurrency);
                 let color_command = test_matches
                     .get_one::<String>("color")
@@ -342,7 +347,9 @@ impl App {
                 let tanu_log_level = log::LevelFilter::from_str(tanu_log_level_str)
                     .unwrap_or(log::LevelFilter::Info);
                 // Merge config value with CLI flag (CLI takes precedence), default to CPU cores
-                let concurrency = tui_matches.get_one::<usize>("concurrency").cloned()
+                let concurrency = tui_matches
+                    .get_one::<usize>("concurrency")
+                    .cloned()
                     .or(cfg.runner.concurrency)
                     .unwrap_or_else(num_cpus::get);
 

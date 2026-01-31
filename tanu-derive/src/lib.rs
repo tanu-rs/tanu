@@ -29,27 +29,81 @@ struct Input {
     args: Punctuated<Expr, Token![,]>,
     /// Test name specified in the test attribute.
     name: Option<LitStr>,
+    /// Serial group name: None = parallel, Some("") = default group, Some("x") = named group
+    serial_group: Option<String>,
 }
 
 impl Parse for Input {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
-            Ok(Input {
+            return Ok(Input {
                 args: Default::default(),
                 name: None,
-            })
-        } else {
-            let args: Punctuated<Expr, Token![,]> =
-                Punctuated::parse_separated_nonempty_with(input, Expr::parse)?;
-
-            let name = if input.parse::<Token![;]>().is_ok() {
-                input.parse::<LitStr>().ok()
-            } else {
-                None
-            };
-
-            Ok(Input { args, name })
+                serial_group: None,
+            });
         }
+
+        let mut serial_group: Option<String> = None;
+        let mut test_args: Punctuated<Expr, Token![,]> = Punctuated::new();
+
+        // Parse all comma-separated arguments, looking for serial
+        loop {
+            if input.peek(Token![;]) || input.is_empty() {
+                break;
+            }
+
+            // Check if this is `serial` or `serial = "group"`
+            if input.peek(syn::Ident) {
+                let fork = input.fork();
+                if let Ok(ident) = fork.parse::<syn::Ident>() {
+                    if ident == "serial" {
+                        // Consume the serial identifier
+                        input.parse::<syn::Ident>()?;
+
+                        // Check for `= "group"`
+                        let group = if input.peek(Token![=]) {
+                            input.parse::<Token![=]>()?;
+                            let lit: LitStr = input.parse()?;
+                            Some(lit.value())
+                        } else {
+                            Some(String::new()) // Empty string for default group
+                        };
+
+                        serial_group = group;
+
+                        // Consume comma if present
+                        if input.peek(Token![,]) {
+                            input.parse::<Token![,]>()?;
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // Not a serial argument, parse as test parameter
+            let expr = input.parse::<Expr>()?;
+            test_args.push(expr);
+
+            // Consume comma if present
+            if input.peek(Token![,]) && !input.peek2(Token![;]) {
+                input.parse::<Token![,]>()?;
+            } else if !input.peek(Token![;]) && !input.is_empty() {
+                break;
+            }
+        }
+
+        // Parse optional test name after semicolon
+        let name = if input.parse::<Token![;]>().is_ok() {
+            input.parse::<LitStr>().ok()
+        } else {
+            None
+        };
+
+        Ok(Input {
+            args: test_args,
+            name,
+            serial_group,
+        })
     }
 }
 
@@ -301,6 +355,13 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let args = input_args.args.to_token_stream();
 
+    // Generate serial_group token
+    let serial_group_tokens = match &input_args.serial_group {
+        None => quote! { None },
+        Some(s) if s.is_empty() => quote! { Some("") },
+        Some(s) => quote! { Some(#s) },
+    };
+
     // tanu internally relies on the `eyre` and `color-eyre` crates for error handling.
     // since `tanu::Runner` expects test functions to return an `eyre::Result`, the macro
     // generates two types of code.
@@ -320,6 +381,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                 ::tanu::TestRegistration {
                     module: module_path!(),
                     name: #test_name_str,
+                    serial_group: #serial_group_tokens,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await
@@ -337,6 +399,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                 ::tanu::TestRegistration {
                     module: module_path!(),
                     name: #test_name_str,
+                    serial_group: #serial_group_tokens,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await.map_err(|e| ::tanu::eyre::eyre!(Box::new(e)))
@@ -400,6 +463,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
                 runner.add_test(
                     test.name,
                     test.module,
+                    test.serial_group,
                     std::sync::Arc::new(test.test_fn)
                 );
             }

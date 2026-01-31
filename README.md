@@ -85,6 +85,7 @@ async fn main() -> eyre::Result<()> {
 - **Type-Safe**: Leverage Rust's type system for robust API testing
 - **Ergonomic Assertions**: Use `check!`, `check_eq!`, and other assertion macros for clear test validation
 - **Parameterized Testing**: Test multiple scenarios with different inputs using multiple `#[tanu::test(param)]` attributes
+- **Serial Execution Control**: Run tests sequentially when needed with `#[tanu::test(serial)]` or grouped serial execution for tests that share mutable state
 - **Built-in HTTP Client**: No need to set up reqwest or other HTTP clients manually
 - **Automatic Sensitive Data Masking**: API keys, tokens, and passwords in HTTP logs are automatically masked with `*****` for security
 - **Error Handling**: Clean error propagation with `eyre::Result`

@@ -136,6 +136,7 @@ pub type AsyncTestFn =
 pub struct TestRegistration {
     pub module: &'static str,
     pub name: &'static str,
+    pub serial_group: Option<&'static str>,
     pub test_fn: AsyncTestFn,
 }
 

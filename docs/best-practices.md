@@ -347,9 +347,103 @@ async fn create_user_test() -> eyre::Result<()> {
 #[tanu::test]
 async fn create_user_first() -> eyre::Result<()> { ... }
 
-#[tanu::test] 
+#[tanu::test]
 async fn update_user_created_above() -> eyre::Result<()> {
     // This test depends on the previous test
+    Ok(())
+}
+```
+
+### Use Serial Execution When Needed
+
+By default, Tanu runs tests in parallel for maximum performance. However, some tests need to run sequentially. Use the `serial` attribute judiciously:
+
+**When to use serial tests:**
+
+1. **Shared mutable state**: Tests that modify shared resources (databases, files, environment variables)
+2. **Global state**: Tests that rely on or modify global state
+3. **Resource constraints**: Tests that exhaust limited resources (ports, file handles)
+4. **External dependencies**: Tests interacting with external systems that don't support concurrency
+
+```rust
+// Good - Serial for database tests that share state
+#[tanu::test(serial = "database")]
+async fn test_database_migration() -> eyre::Result<()> {
+    // Modifies shared database schema
+    Ok(())
+}
+
+#[tanu::test(serial = "database")]
+async fn test_database_seeding() -> eyre::Result<()> {
+    // Depends on clean database state
+    Ok(())
+}
+
+// Good - Parallel for independent API tests
+#[tanu::test]
+async fn test_get_user_endpoint() -> eyre::Result<()> {
+    // Read-only, no shared state
+    Ok(())
+}
+```
+
+**Best practices for serial tests:**
+
+- **Use named groups**: Organize serial tests into logical groups (`serial = "database"`, `serial = "cache"`) so different groups can run in parallel
+- **Keep them minimal**: Write as few serial tests as possible - they reduce parallelism
+- **Isolate state when possible**: Consider using test fixtures or containers to avoid needing serial execution
+- **Document why**: Add comments explaining why a test needs serial execution
+
+```rust
+// Named groups allow different concerns to run in parallel
+#[tanu::test(serial = "database")]
+async fn db_test_1() -> eyre::Result<()> {
+    // Database tests run sequentially within this group
+    Ok(())
+}
+
+#[tanu::test(serial = "filesystem")]
+async fn file_test_1() -> eyre::Result<()> {
+    // Filesystem tests run in parallel with database group
+    Ok(())
+}
+
+#[tanu::test]
+async fn api_test_1() -> eyre::Result<()> {
+    // Regular tests run in parallel with everything
+    Ok(())
+}
+```
+
+**Avoid unnecessary serial execution:**
+
+```rust
+// Bad - Unnecessarily serial
+#[tanu::test(serial)]
+async fn test_pure_computation() -> eyre::Result<()> {
+    let result = 2 + 2;
+    check_eq!(result, 4);
+    Ok(())
+}
+
+// Good - Parallel by default
+#[tanu::test]
+async fn test_pure_computation() -> eyre::Result<()> {
+    let result = 2 + 2;
+    check_eq!(result, 4);
+    Ok(())
+}
+```
+
+**Serial with parameterized tests:**
+
+```rust
+// Serial tests can be parameterized too
+#[tanu::test(serial = "api", 200)]
+#[tanu::test(serial = "api", 201)]
+#[tanu::test(serial = "api", 204)]
+async fn test_api_status_codes(status: u16) -> eyre::Result<()> {
+    // All parameterized tests run serially within the "api" group
     Ok(())
 }
 ```
