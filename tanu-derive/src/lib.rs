@@ -19,8 +19,8 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprCall, ExprLit, ExprPath,
-    ItemFn, Lit, LitStr, ReturnType, Signature, Token, Type,
+    parse::Parse, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Expr, ExprCall,
+    ExprLit, ExprPath, Item, ItemFn, ItemMod, Lit, LitStr, ReturnType, Signature, Token, Type,
 };
 
 /// Represents arguments in the test attribute #[test(a, b; c)].
@@ -31,6 +31,8 @@ struct Input {
     name: Option<LitStr>,
     /// Serial group name: None = parallel, Some("") = default group, Some("x") = named group
     serial_group: Option<String>,
+    /// Whether tests should run in source order (module-level attribute)
+    ordered: bool,
 }
 
 impl Parse for Input {
@@ -40,10 +42,12 @@ impl Parse for Input {
                 args: Default::default(),
                 name: None,
                 serial_group: None,
+                ordered: false,
             });
         }
 
         let mut serial_group: Option<String> = None;
+        let mut ordered = false;
         let mut test_args: Punctuated<Expr, Token![,]> = Punctuated::new();
 
         // Parse all comma-separated arguments, looking for serial
@@ -52,7 +56,7 @@ impl Parse for Input {
                 break;
             }
 
-            // Check if this is `serial` or `serial = "group"`
+            // Check if this is `serial`, `serial = "group"`, or `ordered`
             if input.peek(syn::Ident) {
                 let fork = input.fork();
                 if let Ok(ident) = fork.parse::<syn::Ident>() {
@@ -70,6 +74,16 @@ impl Parse for Input {
                         };
 
                         serial_group = group;
+
+                        // Consume comma if present
+                        if input.peek(Token![,]) {
+                            input.parse::<Token![,]>()?;
+                        }
+                        continue;
+                    } else if ident == "ordered" {
+                        // Consume the ordered identifier
+                        input.parse::<syn::Ident>()?;
+                        ordered = true;
 
                         // Consume comma if present
                         if input.peek(Token![,]) {
@@ -103,6 +117,7 @@ impl Parse for Input {
             args: test_args,
             name,
             serial_group,
+            ordered,
         })
     }
 }
@@ -306,6 +321,57 @@ fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
     None
 }
 
+/// Handles #[tanu::test(ordered)] when applied to a module.
+/// Injects 'ordered' parameter into all #[tanu::test] attributes within the module.
+fn handle_ordered_module(mut module: ItemMod) -> TokenStream {
+    // Process the module contents if present
+    if let Some((_, items)) = &mut module.content {
+        for item in items.iter_mut() {
+            if let Item::Fn(func) = item {
+                // Check if this function has #[tanu::test] attribute
+                let has_tanu_test = func.attrs.iter().any(|attr| {
+                    if let Some(segment) = attr.path().segments.first() {
+                        segment.ident == "tanu"
+                    } else {
+                        false
+                    }
+                });
+
+                if has_tanu_test {
+                    // Find and modify the #[tanu::test] attribute
+                    for attr in func.attrs.iter_mut() {
+                        if let Some(segment) = attr.path().segments.first() {
+                            if segment.ident == "tanu" {
+                                // Preserve original attribute span so line!() stays accurate
+                                let attr_span = attr.span();
+                                // Parse the existing attribute arguments
+                                let tokens = attr.meta.require_list().ok().map(|list| {
+                                    let tokens = &list.tokens;
+                                    tokens.clone()
+                                });
+
+                                // Reconstruct with ordered added
+                                let new_tokens = if let Some(existing) = tokens {
+                                    quote::quote_spanned! { attr_span => ordered, #existing }
+                                } else {
+                                    quote::quote_spanned! { attr_span => ordered }
+                                };
+
+                                // Replace the attribute
+                                *attr = syn::parse_quote_spanned! { attr_span =>
+                                    #[tanu::test(#new_tokens)]
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    quote! { #module }.into()
+}
+
 /// Marks an async function as a tanu test case.
 ///
 /// This attribute registers the function with tanu's test discovery system,
@@ -348,6 +414,22 @@ fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_args = parse_macro_input!(args as Input);
+
+    // Try to parse as module first (for #[tanu::test(ordered)] on modules)
+    if let Ok(module) = syn::parse::<ItemMod>(input.clone()) {
+        if input_args.ordered {
+            return handle_ordered_module(module);
+        }
+        // If it's a module but not ordered, return error
+        return syn::Error::new_spanned(
+            module,
+            "#[tanu::test] on modules requires 'ordered' parameter. Use #[tanu::test(ordered)]",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // Parse as function
     let input_fn = parse_macro_input!(input as ItemFn);
 
     let func_name_inner = &input_fn.sig.ident;
@@ -356,11 +438,18 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = input_args.args.to_token_stream();
 
     // Generate serial_group token
-    let serial_group_tokens = match &input_args.serial_group {
-        None => quote! { None },
-        Some(s) if s.is_empty() => quote! { Some("") },
-        Some(s) => quote! { Some(#s) },
+    // When ordered is true, auto-create serial group based on module path
+    let serial_group_tokens = if input_args.ordered {
+        quote! { Some(module_path!()) }
+    } else {
+        match &input_args.serial_group {
+            None => quote! { None },
+            Some(s) if s.is_empty() => quote! { Some("") },
+            Some(s) => quote! { Some(#s) },
+        }
     };
+
+    let ordered = input_args.ordered;
 
     // tanu internally relies on the `eyre` and `color-eyre` crates for error handling.
     // since `tanu::Runner` expects test functions to return an `eyre::Result`, the macro
@@ -382,6 +471,8 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                     module: module_path!(),
                     name: #test_name_str,
                     serial_group: #serial_group_tokens,
+                    line: line!(),
+                    ordered: #ordered,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await
@@ -400,6 +491,8 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                     module: module_path!(),
                     name: #test_name_str,
                     serial_group: #serial_group_tokens,
+                    line: line!(),
+                    ordered: #ordered,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await.map_err(|e| ::tanu::eyre::eyre!(Box::new(e)))
@@ -464,6 +557,8 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
                     test.name,
                     test.module,
                     test.serial_group,
+                    test.line,
+                    test.ordered,
                     std::sync::Arc::new(test.test_fn)
                 );
             }

@@ -265,6 +265,8 @@ impl ExecutionStateController {
                         module: "".into(),
                         name: "".into(),
                         serial_group: None,
+                        line: 0,
+                        ordered: false,
                     }),
                     worker_id: 0,
                     result: if ok {
@@ -703,11 +705,15 @@ mod test {
                 module: "foo".into(),
                 name: "test1".into(),
                 serial_group: None,
+                line: 0,
+                ordered: false,
             },
             TestInfo {
                 module: "bar".into(),
                 name: "test2".into(),
                 serial_group: None,
+                line: 0,
+                ordered: false,
             },
         ];
 
@@ -783,11 +789,15 @@ mod test {
                 module: "foo".into(),
                 name: "test1".into(),
                 serial_group: None,
+                line: 0,
+                ordered: false,
             },
             TestInfo {
                 module: "bar".into(),
                 name: "test2".into(),
                 serial_group: None,
+                line: 0,
+                ordered: false,
             },
         ];
 
@@ -906,6 +916,8 @@ mod test {
                     module: "".into(),
                     name: "".into(),
                     serial_group: None,
+                    line: 0,
+                    ordered: false,
                 }),
                 worker_id: 0,
                 result: Ok(()),
@@ -927,6 +939,8 @@ mod test {
                     module: "".into(),
                     name: "".into(),
                     serial_group: None,
+                    line: 0,
+                    ordered: false,
                 }),
                 worker_id: 0,
                 result: Err(tanu_core::runner::Error::ErrorReturned("fail".into())),

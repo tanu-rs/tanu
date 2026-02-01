@@ -204,6 +204,104 @@ pub(crate) async fn wait_reporter_barrier() {
     }
 }
 
+async fn execute_test(
+    project: Arc<ProjectConfig>,
+    info: Arc<TestInfo>,
+    factory: TestCaseFactory,
+    serial_mutex: Option<Arc<tokio::sync::Mutex<()>>>,
+    worker_id: isize,
+) -> eyre::Result<Test> {
+    let project_for_scope = Arc::clone(&project);
+    let info_for_scope = Arc::clone(&info);
+    config::PROJECT
+        .scope(project_for_scope, async {
+            TEST_INFO
+                .scope(info_for_scope, async {
+                    let test_name = info.name.clone();
+                    publish(EventBody::Start)?;
+
+                    let retry_count = AtomicUsize::new(project.retry.count.unwrap_or(0));
+                    let serial_mutex_clone = serial_mutex.clone();
+                    let f = || async {
+                        // Acquire serial guard just before test execution
+                        let _serial_guard = if let Some(ref mutex) = serial_mutex_clone {
+                            Some(mutex.lock().await)
+                        } else {
+                            None
+                        };
+
+                        let started_at = SystemTime::now();
+                        let request_started = std::time::Instant::now();
+                        let res = factory().await;
+                        let ended_at = SystemTime::now();
+
+                        if res.is_err() && retry_count.load(Ordering::SeqCst) > 0 {
+                            let test_result = match &res {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(Error::ErrorReturned(format!("{e:?}"))),
+                            };
+                            let test = Test {
+                                result: test_result,
+                                info: Arc::clone(&info),
+                                worker_id,
+                                started_at,
+                                ended_at,
+                                request_time: request_started.elapsed(),
+                            };
+                            publish(EventBody::Retry(test))?;
+                            retry_count.fetch_sub(1, Ordering::SeqCst);
+                        };
+                        res
+                    };
+                    let started_at = SystemTime::now();
+                    let started = std::time::Instant::now();
+                    let fut = f.retry(project.retry.backoff());
+                    let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
+                    let res = fut.await;
+                    let request_time = started.elapsed();
+                    let ended_at = SystemTime::now();
+
+                    let result = match res {
+                        Ok(Ok(_)) => {
+                            debug!("{test_name} ok");
+                            Ok(())
+                        }
+                        Ok(Err(e)) => {
+                            debug!("{test_name} failed: {e:#}");
+                            Err(Error::ErrorReturned(format!("{e:?}")))
+                        }
+                        Err(e) => {
+                            let panic_message =
+                                if let Some(panic_message) = e.downcast_ref::<&str>() {
+                                    format!("{test_name} failed with message: {panic_message}")
+                                } else if let Some(panic_message) = e.downcast_ref::<String>() {
+                                    format!("{test_name} failed with message: {panic_message}")
+                                } else {
+                                    format!("{test_name} failed with unknown message")
+                                };
+                            let e = eyre::eyre!(panic_message);
+                            Err(Error::Panicked(format!("{e:?}")))
+                        }
+                    };
+
+                    let test = Test {
+                        result,
+                        info: Arc::clone(&info),
+                        worker_id,
+                        started_at,
+                        ended_at,
+                        request_time,
+                    };
+
+                    publish(EventBody::End(test.clone()))?;
+
+                    eyre::Ok(test)
+                })
+                .await
+        })
+        .await
+}
+
 /// Clear barrier after use.
 pub(crate) fn clear_reporter_barrier() {
     match REPORTER_BARRIER.lock() {
@@ -361,6 +459,8 @@ pub struct TestInfo {
     pub module: String,
     pub name: String,
     pub serial_group: Option<String>,
+    pub line: u32,
+    pub ordered: bool,
 }
 
 impl TestInfo {
@@ -821,6 +921,8 @@ impl Runner {
         name: &str,
         module: &str,
         serial_group: Option<&str>,
+        line: u32,
+        ordered: bool,
         factory: TestCaseFactory,
     ) {
         self.test_cases.push((
@@ -828,6 +930,8 @@ impl Runner {
                 name: name.into(),
                 module: module.into(),
                 serial_group: serial_group.map(|s| s.to_string()),
+                line,
+                ordered,
             }),
             factory,
         ));
@@ -959,7 +1063,10 @@ impl Runner {
             } else {
                 projects
             };
-            self.test_cases
+
+            // Collect all tests and apply filters
+            let mut all_tests: Vec<_> = self
+                .test_cases
                 .iter()
                 .cartesian_product(projects.into_iter())
                 .map(|((info, factory), project)| (project, Arc::clone(info), factory.clone()))
@@ -967,165 +1074,178 @@ impl Runner {
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
                 .filter(move |(project, info, _)| project_filter.filter(project, info))
                 .filter(move |(project, info, _)| test_ignore_filter.filter(project, info))
-                .map(|(project, info, factory)| {
-                    let semaphore = semaphore.clone();
-                    let worker_ids = worker_ids.clone();
-                    let serial_groups = serial_groups.clone();
-                    tokio::spawn(async move {
-                        // Step 1: Acquire serial group mutex FIRST (if needed) - project-scoped
-                        // This ensures tests in the same group don't hold semaphore permits unnecessarily
-                        let serial_mutex = match &info.serial_group {
-                            Some(group_name) => {
-                                // Create project-scoped key: "project_name::group_name"
-                                let key = format!("{}::{}", project.name, group_name);
+                .collect();
 
-                                // Get or create mutex for this project+group
-                                let read_lock = serial_groups.read().await;
-                                if let Some(mutex) = read_lock.get(&key) {
-                                    Some(Arc::clone(mutex))
-                                } else {
-                                    drop(read_lock);
-                                    let mut write_lock = serial_groups.write().await;
-                                    Some(
-                                        write_lock
-                                            .entry(key)
-                                            .or_insert_with(|| {
-                                                Arc::new(tokio::sync::Mutex::new(()))
-                                            })
-                                            .clone(),
-                                    )
-                                }
-                            }
-                            None => None,
-                        };
+            // Separate ordered and non-ordered tests
+            let (mut ordered_tests, non_ordered_tests): (Vec<_>, Vec<_>) =
+                all_tests.drain(..).partition(|(_, info, _)| info.ordered);
 
-                        // Step 2: Acquire global semaphore AFTER serial mutex
-                        // This prevents blocking other tests while waiting for serial group
+            // Sort ordered tests by (serial_group, line) to ensure source order within groups
+            ordered_tests
+                .sort_by_key(|(_project, info, _factory)| (info.serial_group.clone(), info.line));
+
+            // Group ordered tests by (project_name, serial_group) for sequential execution
+            let mut ordered_groups: std::collections::HashMap<String, Vec<_>> =
+                std::collections::HashMap::new();
+            for (project, info, factory) in ordered_tests {
+                let key = format!(
+                    "{}::{}",
+                    project.name,
+                    info.serial_group.as_deref().unwrap_or("")
+                );
+                ordered_groups
+                    .entry(key)
+                    .or_default()
+                    .push((project, info, factory));
+            }
+
+            // Create futures for ordered test groups (each group runs sequentially)
+            let ordered_handles = ordered_groups.into_iter().map(|(group_key, tests)| {
+                let semaphore = semaphore.clone();
+                let worker_ids = worker_ids.clone();
+                let serial_groups = serial_groups.clone();
+
+                tokio::spawn(async move {
+                    // Get serial mutex for this group once
+                    let serial_mutex = {
+                        let mut write_lock = serial_groups.write().await;
+                        write_lock
+                            .entry(group_key.clone())
+                            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                            .clone()
+                    };
+
+                    // Run all tests in this group sequentially (await each before starting next)
+                    let mut group_failed = false;
+                    let mut group_error: Option<eyre::Report> = None;
+                    for (project, info, factory) in tests {
+                        // Acquire semaphore for this test
                         let _permit = semaphore
                             .acquire()
                             .await
-                            .map_err(|e| eyre::eyre!("failed to acquire semaphore: {e}"))?;
+                            .map_err(|e| eyre::eyre!("failed to acquire semaphore: {e}"));
 
-                        // Acquire worker ID from pool
+                        if _permit.is_err() {
+                            continue;
+                        }
+
+                        // Acquire worker ID
                         let worker_id = worker_ids.acquire();
 
-                        let project_for_scope = Arc::clone(&project);
-                        let info_for_scope = Arc::clone(&info);
-                        let result = config::PROJECT
-                            .scope(project_for_scope, async {
-                                TEST_INFO
-                                    .scope(info_for_scope, async {
-                                        let test_name = info.name.clone();
-                                        publish(EventBody::Start)?;
-
-                                        let retry_count =
-                                            AtomicUsize::new(project.retry.count.unwrap_or(0));
-                                        let serial_mutex_clone = serial_mutex.clone();
-                                        let f = || async {
-                                            // Acquire serial guard just before test execution
-                                            let _serial_guard =
-                                                if let Some(ref mutex) = serial_mutex_clone {
-                                                    Some(mutex.lock().await)
-                                                } else {
-                                                    None
-                                                };
-
-                                            let started_at = SystemTime::now();
-                                            let request_started = std::time::Instant::now();
-                                            let res = factory().await;
-                                            let ended_at = SystemTime::now();
-
-                                            if res.is_err()
-                                                && retry_count.load(Ordering::SeqCst) > 0
-                                            {
-                                                let test_result = match &res {
-                                                    Ok(_) => Ok(()),
-                                                    Err(e) => {
-                                                        Err(Error::ErrorReturned(format!("{e:?}")))
-                                                    }
-                                                };
-                                                let test = Test {
-                                                    result: test_result,
-                                                    info: Arc::clone(&info),
-                                                    worker_id,
-                                                    started_at,
-                                                    ended_at,
-                                                    request_time: request_started.elapsed(),
-                                                };
-                                                publish(EventBody::Retry(test))?;
-                                                retry_count.fetch_sub(1, Ordering::SeqCst);
-                                            };
-                                            res
-                                        };
-                                        let started_at = SystemTime::now();
-                                        let started = std::time::Instant::now();
-                                        let fut = f.retry(project.retry.backoff());
-                                        let fut = std::panic::AssertUnwindSafe(fut).catch_unwind();
-                                        let res = fut.await;
-                                        let request_time = started.elapsed();
-                                        let ended_at = SystemTime::now();
-
-                                        let result = match res {
-                                            Ok(Ok(_)) => {
-                                                debug!("{test_name} ok");
-                                                Ok(())
-                                            }
-                                            Ok(Err(e)) => {
-                                                debug!("{test_name} failed: {e:#}");
-                                                Err(Error::ErrorReturned(format!("{e:?}")))
-                                            }
-                                            Err(e) => {
-                                                let panic_message = if let Some(panic_message) =
-                                                    e.downcast_ref::<&str>()
-                                                {
-                                                    format!(
-                                                "{test_name} failed with message: {panic_message}"
-                                            )
-                                                } else if let Some(panic_message) =
-                                                    e.downcast_ref::<String>()
-                                                {
-                                                    format!(
-                                                "{test_name} failed with message: {panic_message}"
-                                            )
-                                                } else {
-                                                    format!(
-                                                        "{test_name} failed with unknown message"
-                                                    )
-                                                };
-                                                let e = eyre::eyre!(panic_message);
-                                                Err(Error::Panicked(format!("{e:?}")))
-                                            }
-                                        };
-
-                                        let is_err = result.is_err();
-                                        publish(EventBody::End(Test {
-                                            info,
-                                            worker_id,
-                                            started_at,
-                                            ended_at,
-                                            request_time,
-                                            result,
-                                        }))?;
-
-                                        eyre::ensure!(!is_err);
-                                        eyre::Ok(())
-                                    })
-                                    .await
-                            })
-                            .await;
-
-                        // Return worker ID to pool
+                        let result = execute_test(
+                            project,
+                            info,
+                            factory,
+                            Some(serial_mutex.clone()),
+                            worker_id,
+                        )
+                        .await;
                         worker_ids.release(worker_id);
 
-                        result
-                    })
+                        match result {
+                            Ok(test) => {
+                                if test.result.is_err() {
+                                    group_failed = true;
+                                }
+                            }
+                            Err(e) => {
+                                group_failed = true;
+                                if group_error.is_none() {
+                                    group_error = Some(e);
+                                }
+                            }
+                        }
+                    }
+                    if group_failed {
+                        if let Some(e) = group_error {
+                            return Err(e);
+                        }
+                        eyre::bail!("one or more tests failed");
+                    }
+                    eyre::Ok(())
                 })
-                .collect()
+            });
+
+            // Create futures for non-ordered tests (parallel execution as before)
+            let non_ordered_handles =
+                non_ordered_tests
+                    .into_iter()
+                    .map(|(project, info, factory)| {
+                        let semaphore = semaphore.clone();
+                        let worker_ids = worker_ids.clone();
+                        let serial_groups = serial_groups.clone();
+                        tokio::spawn(async move {
+                            // Step 1: Acquire serial group mutex FIRST (if needed) - project-scoped
+                            // This ensures tests in the same group don't hold semaphore permits unnecessarily
+                            let serial_mutex = match &info.serial_group {
+                                Some(group_name) => {
+                                    // Create project-scoped key: "project_name::group_name"
+                                    let key = format!("{}::{}", project.name, group_name);
+
+                                    // Get or create mutex for this project+group
+                                    let read_lock = serial_groups.read().await;
+                                    if let Some(mutex) = read_lock.get(&key) {
+                                        Some(Arc::clone(mutex))
+                                    } else {
+                                        drop(read_lock);
+                                        let mut write_lock = serial_groups.write().await;
+                                        Some(
+                                            write_lock
+                                                .entry(key)
+                                                .or_insert_with(|| {
+                                                    Arc::new(tokio::sync::Mutex::new(()))
+                                                })
+                                                .clone(),
+                                        )
+                                    }
+                                }
+                                None => None,
+                            };
+
+                            // Step 2: Acquire global semaphore AFTER serial mutex
+                            // This prevents blocking other tests while waiting for serial group
+                            let _permit = semaphore
+                                .acquire()
+                                .await
+                                .map_err(|e| eyre::eyre!("failed to acquire semaphore: {e}"))?;
+
+                            // Acquire worker ID from pool
+                            let worker_id = worker_ids.acquire();
+
+                            let result = execute_test(
+                                project,
+                                info,
+                                factory,
+                                serial_mutex.clone(),
+                                worker_id,
+                            )
+                            .await
+                            .and_then(|test| {
+                                let is_err = test.result.is_err();
+                                eyre::ensure!(!is_err);
+                                eyre::Ok(())
+                            });
+
+                            // Return worker ID to pool
+                            worker_ids.release(worker_id);
+
+                            result
+                        })
+                    });
+
+            // Combine both ordered and non-ordered handles
+            let all_handles = FuturesUnordered::new();
+            for handle in ordered_handles {
+                all_handles.push(handle);
+            }
+            for handle in non_ordered_handles {
+                all_handles.push(handle);
+            }
+            all_handles
         };
         let test_prep_time = start.elapsed();
         debug!(
-            "created handles for {} test cases; took {}s",
-            handles.len(),
+            "created handles for {} test cases",
             test_prep_time.as_secs_f32()
         );
 
@@ -1304,7 +1424,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("retry_test", "module", None, factory);
+        runner.add_test("retry_test", "module", None, 0, false, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1345,7 +1465,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config_with_retry());
-        runner.add_test("retry_test", "module", None, factory);
+        runner.add_test("retry_test", "module", None, 0, false, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1366,6 +1486,8 @@ mod test {
             module: "mod".to_string(),
             name: "test".to_string(),
             serial_group: None,
+            line: 0,
+            ordered: false,
         });
 
         crate::config::PROJECT
@@ -1393,6 +1515,8 @@ mod test {
             module: "mod".to_string(),
             name: "test".to_string(),
             serial_group: None,
+            line: 0,
+            ordered: false,
         });
 
         crate::config::PROJECT
@@ -1440,7 +1564,14 @@ mod test {
 
         let mut rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("masking_query_test", "masking_module", None, factory);
+        runner.add_test(
+            "masking_query_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
 
         runner.run(&[], &[], &[]).await?;
 
@@ -1505,7 +1636,14 @@ mod test {
 
         let mut rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("masking_headers_test", "masking_module", None, factory);
+        runner.add_test(
+            "masking_headers_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
 
         runner.run(&[], &[], &[]).await?;
 
@@ -1580,7 +1718,14 @@ mod test {
         let mut runner = Runner::with_config(create_config());
         runner.capture_http();
         runner.show_sensitive();
-        runner.add_test("show_sensitive_test", "masking_module", None, factory);
+        runner.add_test(
+            "show_sensitive_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
 
         runner.run(&[], &[], &[]).await?;
 
