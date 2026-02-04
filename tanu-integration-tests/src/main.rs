@@ -5,6 +5,7 @@ mod grpc;
 mod http;
 mod macros;
 mod misc;
+mod ordered;
 mod retry;
 mod serial;
 mod task_local;

@@ -137,6 +137,8 @@ pub struct TestRegistration {
     pub module: &'static str,
     pub name: &'static str,
     pub serial_group: Option<&'static str>,
+    pub line: u32,
+    pub ordered: bool,
     pub test_fn: AsyncTestFn,
 }
 
