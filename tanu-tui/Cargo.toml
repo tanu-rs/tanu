@@ -36,9 +36,15 @@ tui-logger = { version = "0.18", features = ["tracing-support"] }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
+# gRPC support (optional)
+tonic = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }
+
+[features]
+default = []
+grpc = ["tanu-core/grpc", "tonic"]

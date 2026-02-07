@@ -87,6 +87,20 @@ fn symbol_http_result(status: StatusCode) -> Span<'static> {
     )
 }
 
+#[cfg(feature = "grpc")]
+fn symbol_grpc_result(status_code: tonic::Code) -> Span<'static> {
+    Span::styled(
+        "▪",
+        Style::default()
+            .fg(if status_code == tonic::Code::Ok {
+                Color::Green
+            } else {
+                Color::Red
+            })
+            .bold(),
+    )
+}
+
 /// The main state controller for test cases.
 pub struct ExecutionStateController;
 
@@ -302,6 +316,7 @@ impl ExecutionStateController {
 }
 
 /// Represents the execution state of a test case, module, or project.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Default)]
 pub enum ExecutionState {
     /// The test case, module, or project is initialized.
@@ -416,15 +431,20 @@ pub struct TestState {
 
 impl TestState {
     fn to_lines_recursively(&self) -> Vec<Line<'static>> {
-        let more_than_one_http_call =
+        let more_than_one_call =
             if let ExecutionState::Executed(test_result) = &self.execution_state {
-                test_result.logs.len() > 1
+                let http_count = test_result.logs.len();
+                #[cfg(feature = "grpc")]
+                let grpc_count = test_result.grpc_logs.len();
+                #[cfg(not(feature = "grpc"))]
+                let grpc_count = 0;
+                http_count + grpc_count > 1
             } else {
                 false
             };
 
         let mut lines = {
-            let icon = if !more_than_one_http_call {
+            let icon = if !more_than_one_call {
                 " "
             } else if self.expanded {
                 EXPANDED
@@ -443,6 +463,13 @@ impl TestState {
                     let indent = Span::raw("        ");
                     let symbol = symbol_http_result(http_call.response.status);
                     let name = Span::raw(format!(" {}", http_call.request.url));
+                    lines.push(Line::from(vec![indent, symbol, name]));
+                }
+                #[cfg(feature = "grpc")]
+                for grpc_call in &test_result.grpc_logs {
+                    let indent = Span::raw("        ");
+                    let symbol = symbol_grpc_result(grpc_call.response.status_code);
+                    let name = Span::raw(format!(" {}", grpc_call.request.method));
                     lines.push(Line::from(vec![indent, symbol, name]));
                 }
             }
@@ -469,6 +496,9 @@ pub struct TestCaseSelector {
     pub test: Option<String>,
     /// The index for HTTP call logs, if any.
     pub http_call_index: Option<usize>,
+    /// The index for gRPC call logs, if any.
+    #[cfg(feature = "grpc")]
+    pub grpc_call_index: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -570,10 +600,17 @@ impl TestListState {
                             }
                             n += 1;
                             if test.expanded {
-                                for _http_call in test_results_map
-                                    .get(&test.info.unique_name(&proj.name))
+                                let test_result = test_results_map.get(&test.info.unique_name(&proj.name));
+                                for _http_call in test_result
                                     .into_iter()
                                     .flat_map(|test_result| test_result.logs.iter())
+                                {
+                                    n += 1;
+                                }
+                                #[cfg(feature = "grpc")]
+                                for _grpc_call in test_result
+                                    .into_iter()
+                                    .flat_map(|test_result| test_result.grpc_logs.iter())
                                 {
                                     n += 1;
                                 }
@@ -619,20 +656,46 @@ impl TestListState {
                                 test_results_map.get(&test.info.unique_name(&proj.name));
 
                             if n == selected {
-                                return Some(TestCaseSelector {
-                                    project: proj.name.clone(),
-                                    module: Some(module.name.clone()),
-                                    test: Some(test.info.full_name()),
-                                    http_call_index: test_result.into_iter().next().and_then(
-                                        |test_result| {
-                                            if test_result.logs.len() == 1 {
-                                                Some(0)
-                                            } else {
-                                                None
-                                            }
+                                #[cfg(feature = "grpc")]
+                                {
+                                    let test_result_ref = test_result.into_iter().next();
+                                    let http_count = test_result_ref.map(|tr| tr.logs.len()).unwrap_or(0);
+                                    let grpc_count = test_result_ref.map(|tr| tr.grpc_logs.len()).unwrap_or(0);
+                                    let total_count = http_count + grpc_count;
+
+                                    return Some(TestCaseSelector {
+                                        project: proj.name.clone(),
+                                        module: Some(module.name.clone()),
+                                        test: Some(test.info.full_name()),
+                                        http_call_index: if total_count == 1 && http_count == 1 {
+                                            Some(0)
+                                        } else {
+                                            None
                                         },
-                                    ),
-                                });
+                                        grpc_call_index: if total_count == 1 && grpc_count == 1 {
+                                            Some(0)
+                                        } else {
+                                            None
+                                        },
+                                    });
+                                }
+                                #[cfg(not(feature = "grpc"))]
+                                {
+                                    return Some(TestCaseSelector {
+                                        project: proj.name.clone(),
+                                        module: Some(module.name.clone()),
+                                        test: Some(test.info.full_name()),
+                                        http_call_index: test_result.into_iter().next().and_then(
+                                            |test_result| {
+                                                if test_result.logs.len() == 1 {
+                                                    Some(0)
+                                                } else {
+                                                    None
+                                                }
+                                            },
+                                        ),
+                                    });
+                                }
                             }
                             n += 1;
 
@@ -643,11 +706,41 @@ impl TestListState {
                                     .enumerate()
                                 {
                                     if n == selected {
+                                        #[cfg(feature = "grpc")]
+                                        {
+                                            return Some(TestCaseSelector {
+                                                project: proj.name.clone(),
+                                                module: Some(module.name.clone()),
+                                                test: Some(test.info.full_name()),
+                                                http_call_index: Some(index),
+                                                grpc_call_index: None,
+                                            });
+                                        }
+                                        #[cfg(not(feature = "grpc"))]
+                                        {
+                                            return Some(TestCaseSelector {
+                                                project: proj.name.clone(),
+                                                module: Some(module.name.clone()),
+                                                test: Some(test.info.full_name()),
+                                                http_call_index: Some(index),
+                                            });
+                                        }
+                                    }
+                                    n += 1;
+                                }
+                                #[cfg(feature = "grpc")]
+                                for (index, _grpc_call) in test_result
+                                    .into_iter()
+                                    .flat_map(|test| test.grpc_logs.iter())
+                                    .enumerate()
+                                {
+                                    if n == selected {
                                         return Some(TestCaseSelector {
                                             project: proj.name.clone(),
                                             module: Some(module.name.clone()),
                                             test: Some(test.info.full_name()),
-                                            http_call_index: Some(index),
+                                            http_call_index: None,
+                                            grpc_call_index: Some(index),
                                         });
                                     }
                                     n += 1;
@@ -833,6 +926,8 @@ mod test {
                     ended_at: std::time::SystemTime::UNIX_EPOCH,
                 }),
             ],
+            #[cfg(feature = "grpc")]
+            grpc_logs: vec![],
             test: None,
         }];
 

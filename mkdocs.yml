@@ -52,6 +52,7 @@ nav:
       - Test Attributes: attribute.md
       - Ordered Execution: ordered-execution.md
       - Test Assertions: assertion.md
+      - gRPC Testing: grpc.md
       - Configuration: configuration.md
       - Command Line Options: command-line-option.md
       - TUI: tui.md
@@ -122,6 +123,7 @@ extra:
       link: https://crates.io/crates/tanu
   tags:
     HTTP: http
+    gRPC: grpc
     Testing: testing
     Configuration: config
     API: api

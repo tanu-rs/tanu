@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, pin::Pin};
 
-use tanu::{check, check_eq, eyre};
+use tanu::{check, check_eq, eyre, grpc};
 use tokio::net::TcpListener;
 use tokio::sync::OnceCell;
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
@@ -95,8 +95,12 @@ impl Echo for EchoSvc {
 #[tanu::test]
 async fn grpc_unary_echo() -> eyre::Result<()> {
     let addr = grpc_addr().await;
-    let mut client = EchoClient::connect(format!("http://{addr}")).await?;
 
+    // Use grpc::connect for automatic logging via middleware
+    let channel = grpc::connect(format!("http://{addr}")).await?;
+    let mut client = EchoClient::new(channel);
+
+    // All gRPC calls are automatically logged
     let response = client
         .unary(EchoRequest {
             message: "hello".to_string(),
@@ -114,7 +118,10 @@ async fn grpc_unary_echo() -> eyre::Result<()> {
 #[tanu::test]
 async fn grpc_unary_metadata_roundtrip() -> eyre::Result<()> {
     let addr = grpc_addr().await;
-    let mut client = EchoClient::connect(format!("http://{addr}")).await?;
+
+    // Use grpc::connect for automatic logging via middleware
+    let channel = grpc::connect(format!("http://{addr}")).await?;
+    let mut client = EchoClient::new(channel);
 
     let mut request = Request::new(EchoRequest {
         message: "hello".to_string(),
@@ -127,6 +134,7 @@ async fn grpc_unary_metadata_roundtrip() -> eyre::Result<()> {
         .metadata_mut()
         .insert("x-test", "metadata-value".parse().unwrap());
 
+    // Metadata is automatically captured by the middleware
     let response = client.unary(request).await?.into_inner();
 
     check_eq!("hello", response.message);
@@ -138,8 +146,12 @@ async fn grpc_unary_metadata_roundtrip() -> eyre::Result<()> {
 #[tanu::test]
 async fn grpc_unary_missing_required_metadata_is_invalid_argument() -> eyre::Result<()> {
     let addr = grpc_addr().await;
-    let mut client = EchoClient::connect(format!("http://{addr}")).await?;
 
+    // Use grpc::connect for automatic logging via middleware
+    let channel = grpc::connect(format!("http://{addr}")).await?;
+    let mut client = EchoClient::new(channel);
+
+    // Error responses are also logged automatically
     let err = client
         .unary(EchoRequest {
             message: "hello".to_string(),
@@ -156,7 +168,10 @@ async fn grpc_unary_missing_required_metadata_is_invalid_argument() -> eyre::Res
 #[tanu::test]
 async fn grpc_server_streaming() -> eyre::Result<()> {
     let addr = grpc_addr().await;
-    let mut client = EchoClient::connect(format!("http://{addr}")).await?;
+
+    // Use grpc::connect for automatic logging via middleware
+    let channel = grpc::connect(format!("http://{addr}")).await?;
+    let mut client = EchoClient::new(channel);
 
     let mut stream = client
         .server_stream(EchoStreamRequest {

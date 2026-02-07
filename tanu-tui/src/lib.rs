@@ -69,6 +69,8 @@ pub struct TestResult {
     pub module_name: String,
     pub name: String,
     pub logs: Vec<Box<tanu_core::http::Log>>,
+    #[cfg(feature = "grpc")]
+    pub grpc_logs: Vec<Box<tanu_core::grpc::Log>>,
     pub test: Option<tanu_core::runner::Test>,
 }
 
@@ -798,9 +800,13 @@ impl Runtime {
                         },
                         runner::Event {project: _, module: _, test: _, body: EventBody::Check(_)} => {
                         }
-                        runner::Event {project, module: _, test, body: EventBody::Http(log)} => {
+                        runner::Event {project, module: _, test, body: EventBody::Call(log)} => {
                             if let Some(test_result) = test_results_buffer.get_mut(&(project, test)) {
-                                test_result.logs.push(log);
+                                match log {
+                                    runner::CallLog::Http(http_log) => test_result.logs.push(http_log),
+                                    #[cfg(feature = "grpc")]
+                                    runner::CallLog::Grpc(grpc_log) => test_result.grpc_logs.push(grpc_log),
+                                }
                             } else {
                                 // TODO error
                             }
