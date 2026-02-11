@@ -367,7 +367,7 @@ impl App {
                     term.write_line(&format!(
                         "{} {}",
                         style("*").green().bold(),
-                        style(module).bold()
+                        style(module).yellow().bold()
                     ))?;
                     for project in &cfg.projects {
                         for test_case in test_case_by_module
@@ -378,10 +378,11 @@ impl App {
                                 continue;
                             }
                             term.write_line(&format!(
-                                "  {} {} {}",
+                                "  {} {} {}::{}",
                                 style("-").dim(),
-                                style(format!("[{}]", project.name)).cyan(),
-                                test_case.full_name()
+                                style(format!("[{}]", project.name)).magenta().bold(),
+                                style(&test_case.module).cyan(),
+                                style(&test_case.name).blue().bold()
                             ))?;
                         }
                     }
