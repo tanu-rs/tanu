@@ -25,6 +25,7 @@ pretty_assertions = "1"
 hyper = { version = "1.8", features = ["full"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
 hyper-tls = "0.6"
+http-body = "1"
 http-body-util = "0.1"
 bytes = "1"
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +36,5 @@ tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 test-case = "3"
 url = "2"
+tower = { version = "0.5", features = ["util"] }
+tonic = { version = "0.14", features = ["transport"] }

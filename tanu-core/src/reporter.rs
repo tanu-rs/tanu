@@ -100,8 +100,8 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
                 project,
                 module,
                 test,
-                body: EventBody::Http(log),
-            }) => reporter.on_http_call(project, module, test, log).await,
+                body: EventBody::Call(log),
+            }) => reporter.on_call(project, module, test, log).await,
             Ok(Event {
                 project,
                 module,
@@ -150,7 +150,7 @@ async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> 
 /// For each test, events are fired in this order:
 /// 1. `on_start()` - Test begins
 /// 2. `on_check()` - Each assertion (0 or more)
-/// 3. `on_http_call()` - Each HTTP request (0 or more)
+/// 3. `on_call()` - Each protocol call (HTTP, gRPC, etc.) (0 or more)
 /// 4. `on_retry()` - If test fails and retry is configured
 /// 5. `on_end()` - Test completes with final result
 ///
@@ -214,13 +214,13 @@ pub trait Reporter {
         Ok(())
     }
 
-    /// Called when an HTTP call is made.
-    async fn on_http_call(
+    /// Called when a protocol call (HTTP, gRPC, etc.) is made.
+    async fn on_call(
         &mut self,
         _project: String,
         _module: String,
         _test_name: String,
-        _log: Box<http::Log>,
+        _log: runner::CallLog,
     ) -> eyre::Result<()> {
         Ok(())
     }
@@ -278,6 +278,8 @@ impl Reporter for NullReporter {}
 struct Buffer {
     test_number: Option<usize>,
     http_logs: Vec<Box<http::Log>>,
+    #[cfg(feature = "grpc")]
+    grpc_logs: Vec<Box<crate::grpc::Log>>,
 }
 
 fn generate_test_number() -> usize {
@@ -370,19 +372,23 @@ impl Reporter for ListReporter {
         Ok(())
     }
 
-    async fn on_http_call(
+    async fn on_call(
         &mut self,
         project_name: String,
         module_name: String,
         test_name: String,
-        log: Box<http::Log>,
+        log: runner::CallLog,
     ) -> eyre::Result<()> {
         if self.capture_http {
-            self.buffer
+            let buffer = self
+                .buffer
                 .get_mut(&(project_name, module_name, test_name.clone()))
-                .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?
-                .http_logs
-                .push(log);
+                .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
+            match log {
+                runner::CallLog::Http(http_log) => buffer.http_logs.push(http_log),
+                #[cfg(feature = "grpc")]
+                runner::CallLog::Grpc(grpc_log) => buffer.grpc_logs.push(grpc_log),
+            }
         }
         Ok(())
     }
@@ -479,6 +485,101 @@ impl Reporter for ListReporter {
                 style("body:").dim(),
                 style(&log.response.body).dim()
             ))?;
+        }
+
+        // Display gRPC logs
+        #[cfg(feature = "grpc")]
+        for log in buffer.grpc_logs {
+            // Request line with colored gRPC indicator
+            self.terminal.write_line(&format!(
+                " {} {} {}",
+                style("=>").magenta(),
+                style("gRPC").magenta().bold(),
+                style(&log.request.method).underlined()
+            ))?;
+            // Request section
+            self.terminal.write_line(&format!(
+                "  {} {}",
+                style(">").magenta(),
+                style("request:").magenta()
+            ))?;
+            self.terminal.write_line(&format!(
+                "    {} {}",
+                style(">").magenta(),
+                style("metadata:").dim()
+            ))?;
+            for key_value in log.request.metadata.iter() {
+                let (key, value) = match key_value {
+                    tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                        k.as_str().to_string(),
+                        v.to_str().unwrap_or("<binary>").to_string(),
+                    ),
+                    tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                        k.as_str().to_string(),
+                        format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+                    ),
+                };
+                self.terminal.write_line(&format!(
+                    "       {} {}: {}",
+                    style(">").magenta(),
+                    style(&key).bold(),
+                    style(&value).dim()
+                ))?;
+            }
+            if !log.request.message.is_empty() {
+                self.terminal.write_line(&format!(
+                    "    {} {} {}",
+                    style(">").magenta(),
+                    style("message:").dim(),
+                    style(format!("{} bytes", log.request.message.len())).dim()
+                ))?;
+            }
+            // Response section with status code
+            self.terminal.write_line(&format!(
+                "  {} {} {}",
+                style("<").yellow(),
+                style("response:").yellow(),
+                style_grpc_status(log.response.status_code)
+            ))?;
+            self.terminal.write_line(&format!(
+                "    {} {}",
+                style("<").yellow(),
+                style("metadata:").dim()
+            ))?;
+            for key_value in log.response.metadata.iter() {
+                let (key, value) = match key_value {
+                    tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                        k.as_str().to_string(),
+                        v.to_str().unwrap_or("<binary>").to_string(),
+                    ),
+                    tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                        k.as_str().to_string(),
+                        format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+                    ),
+                };
+                self.terminal.write_line(&format!(
+                    "       {} {}: {}",
+                    style("<").yellow(),
+                    style(&key).bold(),
+                    style(&value).dim()
+                ))?;
+            }
+            if !log.response.message.is_empty() {
+                self.terminal.write_line(&format!(
+                    "    {} {} {}",
+                    style("<").yellow(),
+                    style("message:").dim(),
+                    style(format!("{} bytes", log.response.message.len())).dim()
+                ))?;
+            }
+            if !log.response.status_message.is_empty() {
+                self.terminal.write_line(&format!(
+                    "    {} {} {}",
+                    style("<").yellow(),
+                    style("status_message:").dim(),
+                    style(&log.response.status_message).dim()
+                ))?;
+            }
         }
 
         let status = symbol_test_result(&test);
@@ -603,6 +704,31 @@ fn style_status_code(status: u16) -> StyledObject<String> {
         400..=499 => style(s).red(),        // Client error
         500..=599 => style(s).red().bold(), // Server error
         _ => style(s),
+    }
+}
+
+/// Color gRPC status codes
+#[cfg(feature = "grpc")]
+fn style_grpc_status(code: tonic::Code) -> StyledObject<String> {
+    let s = format!("{:?}", code);
+    match code {
+        tonic::Code::Ok => style(s).green(),
+        tonic::Code::Cancelled
+        | tonic::Code::Unknown
+        | tonic::Code::DeadlineExceeded
+        | tonic::Code::ResourceExhausted
+        | tonic::Code::Aborted
+        | tonic::Code::Unavailable => style(s).yellow(),
+        tonic::Code::InvalidArgument
+        | tonic::Code::NotFound
+        | tonic::Code::AlreadyExists
+        | tonic::Code::PermissionDenied
+        | tonic::Code::FailedPrecondition
+        | tonic::Code::OutOfRange
+        | tonic::Code::Unauthenticated => style(s).red(),
+        tonic::Code::Unimplemented | tonic::Code::Internal | tonic::Code::DataLoss => {
+            style(s).red().bold()
+        }
     }
 }
 

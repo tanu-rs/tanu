@@ -76,6 +76,15 @@ impl InfoState {
     }
 }
 
+#[cfg(feature = "grpc")]
+pub enum SelectedCall<'a> {
+    Http(&'a tanu_core::http::Log),
+    Grpc(&'a tanu_core::grpc::Log),
+}
+
+#[cfg(not(feature = "grpc"))]
+pub type SelectedCall<'a> = &'a tanu_core::http::Log;
+
 pub struct InfoWidget {
     test_results: Vec<TestResult>,
 }
@@ -143,7 +152,7 @@ impl InfoWidget {
     fn get_selected_test_result(
         &self,
         state: &InfoState,
-    ) -> Option<(&TestResult, &tanu_core::http::Log)> {
+    ) -> Option<(&TestResult, SelectedCall<'_>)> {
         let selector = state.selected_test.as_ref()?;
         let test_name = selector.test.as_ref()?;
         let test_result = self.test_results.iter().find(|test_result| {
@@ -153,17 +162,37 @@ impl InfoWidget {
             selector.project == test_result.project_name && test.info.full_name() == *test_name
         })?;
 
-        Some((
-            test_result,
-            test_result.logs.get(selector.http_call_index?)?,
-        ))
+        #[cfg(feature = "grpc")]
+        {
+            // Try gRPC first if index is present
+            if let Some(grpc_idx) = selector.grpc_call_index {
+                if let Some(grpc_log) = test_result.grpc_logs.get(grpc_idx) {
+                    return Some((test_result, SelectedCall::Grpc(grpc_log)));
+                }
+            }
+            // Fall back to HTTP
+            if let Some(http_idx) = selector.http_call_index {
+                if let Some(http_log) = test_result.logs.get(http_idx) {
+                    return Some((test_result, SelectedCall::Http(http_log)));
+                }
+            }
+            None
+        }
+
+        #[cfg(not(feature = "grpc"))]
+        {
+            Some((
+                test_result,
+                test_result.logs.get(selector.http_call_index?)?,
+            ))
+        }
     }
 
     fn render_call(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
         const FIELD_PERCENTAGE: u16 = 30;
         const VALUE_PERCENTAGE: u16 = 70;
         let value_width = area.width * VALUE_PERCENTAGE / 100 - 3;
-        let Some((test_result, http_call)) = self.get_selected_test_result(state) else {
+        let Some((test_result, call)) = self.get_selected_test_result(state) else {
             return;
         };
 
@@ -189,18 +218,60 @@ impl InfoWidget {
                 value_width,
             ));
         }
-        rows.push(wrap_row("Request URL", &http_call.request.url, value_width));
-        rows.push(wrap_row("Method", &http_call.request.method, value_width));
-        rows.push(wrap_row(
-            "Status",
-            http_call.response.status.as_str(),
-            value_width,
-        ));
-        rows.push(wrap_row(
-            "Request Duration",
-            format!("{:?}", http_call.response.duration_req),
-            value_width,
-        ));
+
+        #[cfg(feature = "grpc")]
+        match call {
+            SelectedCall::Http(http_call) => {
+                rows.push(wrap_row("Request URL", &http_call.request.url, value_width));
+                rows.push(wrap_row("Method", &http_call.request.method, value_width));
+                rows.push(wrap_row(
+                    "Status",
+                    http_call.response.status.as_str(),
+                    value_width,
+                ));
+                rows.push(wrap_row(
+                    "Request Duration",
+                    format!("{:?}", http_call.response.duration_req),
+                    value_width,
+                ));
+            }
+            SelectedCall::Grpc(grpc_call) => {
+                rows.push(wrap_row("Method Path", &grpc_call.request.method, value_width));
+                rows.push(wrap_row(
+                    "Status Code",
+                    format!("{:?} ({})", grpc_call.response.status_code, grpc_call.response.status_code as i32),
+                    value_width,
+                ));
+                if !grpc_call.response.status_message.is_empty() {
+                    rows.push(wrap_row(
+                        "Status Message",
+                        &grpc_call.response.status_message,
+                        value_width,
+                    ));
+                }
+                rows.push(wrap_row(
+                    "Request Duration",
+                    format!("{:?}", grpc_call.response.duration),
+                    value_width,
+                ));
+            }
+        }
+
+        #[cfg(not(feature = "grpc"))]
+        {
+            rows.push(wrap_row("Request URL", &call.request.url, value_width));
+            rows.push(wrap_row("Method", &call.request.method, value_width));
+            rows.push(wrap_row(
+                "Status",
+                call.response.status.as_str(),
+                value_width,
+            ));
+            rows.push(wrap_row(
+                "Request Duration",
+                format!("{:?}", call.response.duration_req),
+                value_width,
+            ));
+        }
 
         // Apply alternating row colors
         let rows: Vec<Row> = rows
@@ -243,7 +314,7 @@ impl InfoWidget {
     }
 
     fn render_headers(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some((test_result, http_call)) = self.get_selected_test_result(state) else {
+        let Some((test_result, call)) = self.get_selected_test_result(state) else {
             return;
         };
 
@@ -255,8 +326,174 @@ impl InfoWidget {
                 .areas(area);
 
         let colors = TableColors::new();
-        {
-            let rows = http_call
+
+        #[cfg(feature = "grpc")]
+        let (req_rows, res_rows): (Vec<Row>, Vec<Row>) = match call {
+            SelectedCall::Http(http_call) => {
+                let req_rows: Vec<Row> = http_call
+                    .request
+                    .headers
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(n, (k, v))| {
+                        let color = match n % 2 {
+                            0 => colors.normal_row_color,
+                            _ => colors.alt_row_color,
+                        };
+                        let value = v
+                            .to_str()
+                            .inspect_err(|e| warn!("could not stringify header: {e:#}"))
+                            .unwrap_or_default();
+                        const PADDING: usize = 5;
+                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                        value
+                            .chars()
+                            .chunks(cell_width)
+                            .into_iter()
+                            .enumerate()
+                            .map(|(n, chunked_text)| {
+                                Row::new(vec![
+                                    if n == 0 {
+                                        format!(" {k} ")
+                                    } else {
+                                        String::new()
+                                    },
+                                    format!(" {} ", chunked_text.collect::<String>()),
+                                ])
+                                .bg(color)
+                                .height(1)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                let res_rows: Vec<Row> = http_call
+                    .response
+                    .headers
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(n, (k, v))| {
+                        let color = match n % 2 {
+                            0 => colors.normal_row_color,
+                            _ => colors.alt_row_color,
+                        };
+                        let value = v
+                            .to_str()
+                            .inspect_err(|e| warn!("could not stringify header: {e:#}"))
+                            .unwrap_or_default();
+                        const PADDING: usize = 5;
+                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                        value
+                            .chars()
+                            .chunks(cell_width)
+                            .into_iter()
+                            .enumerate()
+                            .map(|(n, chunked_text)| {
+                                Row::new(vec![
+                                    if n == 0 {
+                                        format!(" {k} ")
+                                    } else {
+                                        String::new()
+                                    },
+                                    format!(" {} ", chunked_text.collect::<String>()),
+                                ])
+                                .bg(color)
+                                .height(1)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                (req_rows, res_rows)
+            }
+            SelectedCall::Grpc(grpc_call) => {
+                let req_rows: Vec<Row> = grpc_call
+                    .request
+                    .metadata
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(n, key_value)| {
+                        use tonic::metadata::KeyAndValueRef;
+                        let color = match n % 2 {
+                            0 => colors.normal_row_color,
+                            _ => colors.alt_row_color,
+                        };
+                        let (key, value_str) = match key_value {
+                            KeyAndValueRef::Ascii(k, v) => {
+                                (k.as_str(), v.to_str().unwrap_or("<invalid utf8>").to_string())
+                            }
+                            KeyAndValueRef::Binary(k, v) => {
+                                (k.as_str(), format!("<binary {} bytes>", v.as_encoded_bytes().len()))
+                            }
+                        };
+                        const PADDING: usize = 5;
+                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                        value_str
+                            .chars()
+                            .chunks(cell_width)
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, chunked_text)| {
+                                Row::new(vec![
+                                    if i == 0 {
+                                        format!(" {key} ")
+                                    } else {
+                                        String::new()
+                                    },
+                                    format!(" {} ", chunked_text.collect::<String>()),
+                                ])
+                                .bg(color)
+                                .height(1)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                let res_rows: Vec<Row> = grpc_call
+                    .response
+                    .metadata
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(n, key_value)| {
+                        use tonic::metadata::KeyAndValueRef;
+                        let color = match n % 2 {
+                            0 => colors.normal_row_color,
+                            _ => colors.alt_row_color,
+                        };
+                        let (key, value_str) = match key_value {
+                            KeyAndValueRef::Ascii(k, v) => {
+                                (k.as_str(), v.to_str().unwrap_or("<invalid utf8>").to_string())
+                            }
+                            KeyAndValueRef::Binary(k, v) => {
+                                (k.as_str(), format!("<binary {} bytes>", v.as_encoded_bytes().len()))
+                            }
+                        };
+                        const PADDING: usize = 5;
+                        let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
+                        value_str
+                            .chars()
+                            .chunks(cell_width)
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, chunked_text)| {
+                                Row::new(vec![
+                                    if i == 0 {
+                                        format!(" {key} ")
+                                    } else {
+                                        String::new()
+                                    },
+                                    format!(" {} ", chunked_text.collect::<String>()),
+                                ])
+                                .bg(color)
+                                .height(1)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                (req_rows, res_rows)
+            }
+        };
+
+        #[cfg(not(feature = "grpc"))]
+        let (req_rows, res_rows) = {
+            let req_rows = call
                 .request
                 .headers
                 .iter()
@@ -291,38 +528,7 @@ impl InfoWidget {
                         })
                         .collect::<Vec<_>>()
                 });
-
-            let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
-            let table = Table::new(rows, widths)
-                .style(Style::new().fg(colors.row_fg))
-                .row_highlight_style(Style::default().fg(colors.selected_style_fg))
-                .header(
-                    Row::new(vec![" Header ", " Value "]).style(
-                        Style::default()
-                            .fg(colors.header_fg)
-                            .bg(colors.header_bg)
-                            .bold(),
-                    ),
-                )
-                .block(
-                    Block::new()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Blue))
-                        .title("Request")
-                        .padding(Padding::uniform(1)),
-                )
-                .style(Style::default());
-
-            ratatui::widgets::StatefulWidget::render(
-                table,
-                layout_req,
-                buf,
-                &mut state.headers_res_state,
-            );
-        }
-
-        {
-            let rows = http_call
+            let res_rows = call
                 .response
                 .headers
                 .iter()
@@ -357,6 +563,43 @@ impl InfoWidget {
                         })
                         .collect::<Vec<_>>()
                 });
+            (req_rows, res_rows)
+        };
+
+        {
+            let rows = req_rows;
+
+            let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
+            let table = Table::new(rows, widths)
+                .style(Style::new().fg(colors.row_fg))
+                .row_highlight_style(Style::default().fg(colors.selected_style_fg))
+                .header(
+                    Row::new(vec![" Header ", " Value "]).style(
+                        Style::default()
+                            .fg(colors.header_fg)
+                            .bg(colors.header_bg)
+                            .bold(),
+                    ),
+                )
+                .block(
+                    Block::new()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Blue))
+                        .title("Request")
+                        .padding(Padding::uniform(1)),
+                )
+                .style(Style::default());
+
+            ratatui::widgets::StatefulWidget::render(
+                table,
+                layout_req,
+                buf,
+                &mut state.headers_res_state,
+            );
+        }
+
+        {
+            let rows = res_rows;
             let widths = [Constraint::Percentage(30), Constraint::Percentage(70)];
             let table = Table::new(rows, widths)
                 .style(Style::new().fg(colors.row_fg))
@@ -388,32 +631,70 @@ impl InfoWidget {
     }
 
     fn render_payload(self, area: Rect, buf: &mut Buffer, state: &mut InfoState) {
-        let Some((_test_result, http_call)) = self.get_selected_test_result(state) else {
+        let Some((_test_result, call)) = self.get_selected_test_result(state) else {
             return;
         };
 
-        let body = &http_call.response.body;
-        if body.is_empty() {
-            return;
-        }
+        #[cfg(feature = "grpc")]
+        let (theme_bg, highlighted_text) = match call {
+            SelectedCall::Http(http_call) => {
+                let body = &http_call.response.body;
+                if body.is_empty() {
+                    return;
+                }
 
-        let content_type = http_call
-            .response
-            .headers
-            .get("content-type")
-            .map(|v| v.to_str().unwrap_or_default());
+                let content_type = http_call
+                    .response
+                    .headers
+                    .get("content-type")
+                    .map(|v| v.to_str().unwrap_or_default());
 
-        let (theme_bg, highlighted_text) = if content_type == Some("application/json") {
-            let json: serde_json::Value = match serde_json::from_str(body) {
-                Ok(json) => json,
-                Err(_) => return, // Handle invalid JSON gracefully
-            };
-            let json_str = serde_json::to_string_pretty(&json).unwrap();
-            let (theme_bg, highlighted_json) = highlight_source_code(json_str);
-            (Some(theme_bg), highlighted_json)
-        } else {
-            (None, body.to_string())
+                if content_type == Some("application/json") {
+                    let json: serde_json::Value = match serde_json::from_str(body) {
+                        Ok(json) => json,
+                        Err(_) => return,
+                    };
+                    let json_str = serde_json::to_string_pretty(&json).unwrap();
+                    let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+                    (Some(theme_bg), highlighted_json)
+                } else {
+                    (None, body.to_string())
+                }
+            }
+            SelectedCall::Grpc(grpc_call) => {
+                let req_msg = tanu_core::grpc::format_message(&grpc_call.request.message);
+                let res_msg = tanu_core::grpc::format_message(&grpc_call.response.message);
+                let combined = format!("Request Message:\n{}\n\nResponse Message:\n{}", req_msg, res_msg);
+                (None, combined)
+            }
         };
+
+        #[cfg(not(feature = "grpc"))]
+        let (theme_bg, highlighted_text) = {
+            let body = &call.response.body;
+            if body.is_empty() {
+                return;
+            }
+
+            let content_type = call
+                .response
+                .headers
+                .get("content-type")
+                .map(|v| v.to_str().unwrap_or_default());
+
+            if content_type == Some("application/json") {
+                let json: serde_json::Value = match serde_json::from_str(body) {
+                    Ok(json) => json,
+                    Err(_) => return,
+                };
+                let json_str = serde_json::to_string_pretty(&json).unwrap();
+                let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+                (Some(theme_bg), highlighted_json)
+            } else {
+                (None, body.to_string())
+            }
+        };
+
         // Split the highlighted JSON into lines
         let lines: Vec<&str> = highlighted_text.lines().collect();
 

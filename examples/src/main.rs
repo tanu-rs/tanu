@@ -1,5 +1,7 @@
+#[cfg(feature = "grpc")]
+mod grpc;
+mod http;
 mod parameterized;
-mod simple;
 
 use tanu::eyre;
 

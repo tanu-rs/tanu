@@ -3,8 +3,12 @@ name = "tanu-examples"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+grpc = ["tanu/grpc", "tonic"]
+
 [dependencies]
 serde = { workspace = true }
 tanu = { path = "../tanu" }
 tokio = { workspace = true }
+tonic = { workspace = true, optional = true }
 url = { version = "2", features = ["serde"] }
