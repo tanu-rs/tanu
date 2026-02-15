@@ -17,6 +17,7 @@ Steps:
    - `tanu/README.md`
    - `tanu-core/README.md`
    - `tanu-derive/README.md`
+   - `docs/grpc.md`
 
 4. Verify no stale references remain by running: `rg "<old_version>"`
 
