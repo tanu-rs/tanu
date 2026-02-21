@@ -236,10 +236,17 @@ impl InfoWidget {
                 ));
             }
             SelectedCall::Grpc(grpc_call) => {
-                rows.push(wrap_row("Method Path", &grpc_call.request.method, value_width));
+                rows.push(wrap_row(
+                    "Method Path",
+                    &grpc_call.request.method,
+                    value_width,
+                ));
                 rows.push(wrap_row(
                     "Status Code",
-                    format!("{:?} ({})", grpc_call.response.status_code, grpc_call.response.status_code as i32),
+                    format!(
+                        "{:?} ({})",
+                        grpc_call.response.status_code, grpc_call.response.status_code as i32
+                    ),
                     value_width,
                 ));
                 if !grpc_call.response.status_message.is_empty() {
@@ -417,12 +424,14 @@ impl InfoWidget {
                             _ => colors.alt_row_color,
                         };
                         let (key, value_str) = match key_value {
-                            KeyAndValueRef::Ascii(k, v) => {
-                                (k.as_str(), v.to_str().unwrap_or("<invalid utf8>").to_string())
-                            }
-                            KeyAndValueRef::Binary(k, v) => {
-                                (k.as_str(), format!("<binary {} bytes>", v.as_encoded_bytes().len()))
-                            }
+                            KeyAndValueRef::Ascii(k, v) => (
+                                k.as_str(),
+                                v.to_str().unwrap_or("<invalid utf8>").to_string(),
+                            ),
+                            KeyAndValueRef::Binary(k, v) => (
+                                k.as_str(),
+                                format!("<binary {} bytes>", v.as_encoded_bytes().len()),
+                            ),
                         };
                         const PADDING: usize = 5;
                         let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
@@ -458,12 +467,14 @@ impl InfoWidget {
                             _ => colors.alt_row_color,
                         };
                         let (key, value_str) = match key_value {
-                            KeyAndValueRef::Ascii(k, v) => {
-                                (k.as_str(), v.to_str().unwrap_or("<invalid utf8>").to_string())
-                            }
-                            KeyAndValueRef::Binary(k, v) => {
-                                (k.as_str(), format!("<binary {} bytes>", v.as_encoded_bytes().len()))
-                            }
+                            KeyAndValueRef::Ascii(k, v) => (
+                                k.as_str(),
+                                v.to_str().unwrap_or("<invalid utf8>").to_string(),
+                            ),
+                            KeyAndValueRef::Binary(k, v) => (
+                                k.as_str(),
+                                format!("<binary {} bytes>", v.as_encoded_bytes().len()),
+                            ),
                         };
                         const PADDING: usize = 5;
                         let cell_width = (layout_res.width as f32 * 0.7) as usize - PADDING;
@@ -664,7 +675,10 @@ impl InfoWidget {
             SelectedCall::Grpc(grpc_call) => {
                 let req_msg = tanu_core::grpc::format_message(&grpc_call.request.message);
                 let res_msg = tanu_core::grpc::format_message(&grpc_call.response.message);
-                let combined = format!("Request Message:\n{}\n\nResponse Message:\n{}", req_msg, res_msg);
+                let combined = format!(
+                    "Request Message:\n{}\n\nResponse Message:\n{}",
+                    req_msg, res_msg
+                );
                 (None, combined)
             }
         };

@@ -600,7 +600,8 @@ impl TestListState {
                             }
                             n += 1;
                             if test.expanded {
-                                let test_result = test_results_map.get(&test.info.unique_name(&proj.name));
+                                let test_result =
+                                    test_results_map.get(&test.info.unique_name(&proj.name));
                                 for _http_call in test_result
                                     .into_iter()
                                     .flat_map(|test_result| test_result.logs.iter())
@@ -659,8 +660,10 @@ impl TestListState {
                                 #[cfg(feature = "grpc")]
                                 {
                                     let test_result_ref = test_result.into_iter().next();
-                                    let http_count = test_result_ref.map(|tr| tr.logs.len()).unwrap_or(0);
-                                    let grpc_count = test_result_ref.map(|tr| tr.grpc_logs.len()).unwrap_or(0);
+                                    let http_count =
+                                        test_result_ref.map(|tr| tr.logs.len()).unwrap_or(0);
+                                    let grpc_count =
+                                        test_result_ref.map(|tr| tr.grpc_logs.len()).unwrap_or(0);
                                     let total_count = http_count + grpc_count;
 
                                     return Some(TestCaseSelector {
