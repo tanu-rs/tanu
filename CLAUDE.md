@@ -32,6 +32,12 @@ Tanu is an async-friendly WebAPI testing framework for Rust with CLI and TUI mod
 - `cargo clippy --workspace --all-targets --all-features` runs lint checks.
 - `cargo build --workspace --all-targets --all-features` builds all targets with full feature coverage.
 - `cargo run -p tanu-integration-tests -- test` runs the integration suite with the tanu runner (requires Docker for the httpbin container).
+
+## Required Post-Change Workflow
+After every code change, always run these three commands in order:
+1. `cargo fmt --all`
+2. `cargo clippy --workspace --all-targets --all-features`
+3. `TANU_CONFIG=./tanu-integration-tests/tanu.toml cargo run -p tanu-integration-tests -- test`
 - `cargo run -p tanu-integration-tests -- tui` launches the interactive TUI test runner.
 - `cargo run -p tanu-integration-tests -- ls` lists all available test cases.
 - `mkdocs serve` previews documentation locally (uses Python deps from `pyproject.toml`).
