@@ -334,7 +334,10 @@ impl App {
                         console::set_colors_enabled(false);
                         console::set_colors_enabled_stderr(false);
                     }
-                    _ => {}
+                    Some(Color::Auto) | None => {
+                        console::set_colors_enabled(term.is_term());
+                        console::set_colors_enabled_stderr(term.is_term());
+                    }
                 }
 
                 runner.run(&projects, &modules, &tests).await
