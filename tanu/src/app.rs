@@ -82,6 +82,10 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                     .long("color")
                     .help("Produce color output. Default is \"auto\" [env: CARGO_TERM_COLOR]")
                     .value_parser(["auto", "always", "never"]))
+                .arg(Arg::new("fail-fast")
+                    .long("fail-fast")
+                    .help("Abort test execution after the first failure")
+                    .action(ArgAction::SetTrue))
         )
         .subcommand(
             ClapCommand::new("tui")
@@ -291,6 +295,11 @@ impl App {
                 }
                 if let Some(concurrency) = concurrency {
                     runner.set_concurrency(concurrency);
+                }
+                let fail_fast =
+                    test_matches.get_flag("fail-fast") || cfg.runner.fail_fast.unwrap_or(false);
+                if fail_fast {
+                    runner.set_fail_fast(true);
                 }
                 runner.terminate_channel();
 

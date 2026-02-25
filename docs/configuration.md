@@ -55,6 +55,7 @@ capture_http = true      # Capture HTTP debug logs (default: false)
 capture_rust = false     # Capture Rust "log" crate logs (default: false)
 show_sensitive = false   # Show sensitive data in HTTP logs (default: false)
 concurrency = 4          # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
+fail_fast = false        # Abort after the first failure (default: false)
 ```
 
 ### Options
@@ -63,6 +64,7 @@ concurrency = 4          # Max parallel tests (default: unlimited for CLI, CPU c
 - `capture_rust`: When enabled, captures logs from Rust's `log` crate. Useful for debugging tanu internals or test code that uses the log crate. Default is `false`. Can be overridden with `--capture-rust`.
 - `show_sensitive`: When enabled, displays sensitive data (API keys, tokens, passwords) in HTTP logs instead of masking them with `*****`. Use with caution as this may expose secrets. Default is `false`. Can be overridden with `--show-sensitive`.
 - `concurrency`: Maximum number of tests to run in parallel. If not specified, CLI mode runs all tests in parallel (unlimited), while TUI mode defaults to the number of CPU cores. Can be overridden with `-c` or `--concurrency`.
+- `fail_fast`: When enabled, aborts test execution after the first failure. Remaining tests are skipped and counted as skipped in the summary. Default is `false`. Can be overridden with `--fail-fast`.
 
 !!! note
     Command-line flags always take precedence over configuration file settings. Use configuration file settings to establish project defaults and command-line flags for one-off overrides.
