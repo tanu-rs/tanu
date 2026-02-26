@@ -49,7 +49,7 @@ use tracing::*;
 use crate::{
     get_tanu_config, http,
     runner::{self, Event, EventBody, Test},
-    ModuleName, ProjectName, TestName,
+    CaptureHttpMode, ModuleName, ProjectName, TestName,
 };
 
 /// Available built-in reporter types.
@@ -329,7 +329,7 @@ fn generate_test_number() -> usize {
 pub struct ListReporter {
     terminal: Term,
     buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
-    capture_http: bool,
+    capture_http: CaptureHttpMode,
 }
 
 impl ListReporter {
@@ -337,20 +337,23 @@ impl ListReporter {
     ///
     /// # Parameters
     ///
-    /// - `capture_http`: Whether to include HTTP request/response details in output
+    /// - `capture_http`: Controls when HTTP request/response details are shown in output
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// use tanu_core::reporter::ListReporter;
+    /// use tanu_core::{reporter::ListReporter, CaptureHttpMode};
     ///
-    /// // With HTTP logging
-    /// let reporter = ListReporter::new(true);
+    /// // Show HTTP logs for all tests
+    /// let reporter = ListReporter::new(CaptureHttpMode::All);
     ///
-    /// // Without HTTP logging (faster, less verbose)
-    /// let reporter = ListReporter::new(false);
+    /// // Show HTTP logs only for failed tests
+    /// let reporter = ListReporter::new(CaptureHttpMode::OnFailure);
+    ///
+    /// // No HTTP logging
+    /// let reporter = ListReporter::new(CaptureHttpMode::Off);
     /// ```
-    pub fn new(capture_http: bool) -> ListReporter {
+    pub fn new(capture_http: CaptureHttpMode) -> ListReporter {
         ListReporter {
             terminal: Term::stdout(),
             buffer: IndexMap::new(),
@@ -379,7 +382,7 @@ impl Reporter for ListReporter {
         test_name: String,
         log: runner::CallLog,
     ) -> eyre::Result<()> {
-        if self.capture_http {
+        if !matches!(self.capture_http, CaptureHttpMode::Off) {
             let buffer = self
                 .buffer
                 .get_mut(&(project_name, module_name, test_name.clone()))
@@ -432,153 +435,161 @@ impl Reporter for ListReporter {
             .swap_remove(&(project_name.clone(), module_name, test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
 
-        for log in buffer.http_logs {
-            // Request line with colored method
-            self.terminal.write_line(&format!(
-                " {} {} {}",
-                style("=>").cyan(),
-                style_http_method(log.request.method.as_ref()),
-                style(&log.request.url.to_string()).underlined()
-            ))?;
-            // Request section
-            self.terminal.write_line(&format!(
-                "  {} {}",
-                style(">").cyan(),
-                style("request:").cyan()
-            ))?;
-            self.terminal.write_line(&format!(
-                "    {} {}",
-                style(">").cyan(),
-                style("headers:").dim()
-            ))?;
-            for key in log.request.headers.keys() {
-                self.terminal.write_line(&format!(
-                    "       {} {}: {}",
-                    style(">").cyan(),
-                    style(key.as_str()).bold(),
-                    style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
-                ))?;
-            }
-            // Response section with status code
-            self.terminal.write_line(&format!(
-                "  {} {} {}",
-                style("<").yellow(),
-                style("response:").yellow(),
-                style_status_code(log.response.status.as_u16())
-            ))?;
-            self.terminal.write_line(&format!(
-                "    {} {}",
-                style("<").yellow(),
-                style("headers:").dim()
-            ))?;
-            for key in log.response.headers.keys() {
-                self.terminal.write_line(&format!(
-                    "       {} {}: {}",
-                    style("<").yellow(),
-                    style(key.as_str()).bold(),
-                    style(log.response.headers.get(key).unwrap().to_str().unwrap()).dim()
-                ))?;
-            }
-            self.terminal.write_line(&format!(
-                "    {} {} {}",
-                style("<").yellow(),
-                style("body:").dim(),
-                style(&log.response.body).dim()
-            ))?;
-        }
+        let should_print = match self.capture_http {
+            CaptureHttpMode::All => true,
+            CaptureHttpMode::OnFailure => test.result.is_err(),
+            CaptureHttpMode::Off => false,
+        };
 
-        // Display gRPC logs
-        #[cfg(feature = "grpc")]
-        for log in buffer.grpc_logs {
-            // Request line with colored gRPC indicator
-            self.terminal.write_line(&format!(
-                " {} {} {}",
-                style("=>").magenta(),
-                style("gRPC").magenta().bold(),
-                style(&log.request.method).underlined()
-            ))?;
-            // Request section
-            self.terminal.write_line(&format!(
-                "  {} {}",
-                style(">").magenta(),
-                style("request:").magenta()
-            ))?;
-            self.terminal.write_line(&format!(
-                "    {} {}",
-                style(">").magenta(),
-                style("metadata:").dim()
-            ))?;
-            for key_value in log.request.metadata.iter() {
-                let (key, value) = match key_value {
-                    tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
-                        k.as_str().to_string(),
-                        v.to_str().unwrap_or("<binary>").to_string(),
-                    ),
-                    tonic::metadata::KeyAndValueRef::Binary(k, v) => (
-                        k.as_str().to_string(),
-                        format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
-                    ),
-                };
+        if should_print {
+            for log in buffer.http_logs {
+                // Request line with colored method
                 self.terminal.write_line(&format!(
-                    "       {} {}: {}",
+                    " {} {} {}",
+                    style("=>").cyan(),
+                    style_http_method(log.request.method.as_ref()),
+                    style(&log.request.url.to_string()).underlined()
+                ))?;
+                // Request section
+                self.terminal.write_line(&format!(
+                    "  {} {}",
+                    style(">").cyan(),
+                    style("request:").cyan()
+                ))?;
+                self.terminal.write_line(&format!(
+                    "    {} {}",
+                    style(">").cyan(),
+                    style("headers:").dim()
+                ))?;
+                for key in log.request.headers.keys() {
+                    self.terminal.write_line(&format!(
+                        "       {} {}: {}",
+                        style(">").cyan(),
+                        style(key.as_str()).bold(),
+                        style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
+                    ))?;
+                }
+                // Response section with status code
+                self.terminal.write_line(&format!(
+                    "  {} {} {}",
+                    style("<").yellow(),
+                    style("response:").yellow(),
+                    style_status_code(log.response.status.as_u16())
+                ))?;
+                self.terminal.write_line(&format!(
+                    "    {} {}",
+                    style("<").yellow(),
+                    style("headers:").dim()
+                ))?;
+                for key in log.response.headers.keys() {
+                    self.terminal.write_line(&format!(
+                        "       {} {}: {}",
+                        style("<").yellow(),
+                        style(key.as_str()).bold(),
+                        style(log.response.headers.get(key).unwrap().to_str().unwrap()).dim()
+                    ))?;
+                }
+                self.terminal.write_line(&format!(
+                    "    {} {} {}",
+                    style("<").yellow(),
+                    style("body:").dim(),
+                    style(&log.response.body).dim()
+                ))?;
+            }
+
+            // Display gRPC logs
+            #[cfg(feature = "grpc")]
+            for log in buffer.grpc_logs {
+                // Request line with colored gRPC indicator
+                self.terminal.write_line(&format!(
+                    " {} {} {}",
+                    style("=>").magenta(),
+                    style("gRPC").magenta().bold(),
+                    style(&log.request.method).underlined()
+                ))?;
+                // Request section
+                self.terminal.write_line(&format!(
+                    "  {} {}",
                     style(">").magenta(),
-                    style(&key).bold(),
-                    style(&value).dim()
+                    style("request:").magenta()
                 ))?;
-            }
-            if !log.request.message.is_empty() {
                 self.terminal.write_line(&format!(
-                    "    {} {} {}",
+                    "    {} {}",
                     style(">").magenta(),
-                    style("message:").dim(),
-                    style(format!("{} bytes", log.request.message.len())).dim()
+                    style("metadata:").dim()
                 ))?;
-            }
-            // Response section with status code
-            self.terminal.write_line(&format!(
-                "  {} {} {}",
-                style("<").yellow(),
-                style("response:").yellow(),
-                style_grpc_status(log.response.status_code)
-            ))?;
-            self.terminal.write_line(&format!(
-                "    {} {}",
-                style("<").yellow(),
-                style("metadata:").dim()
-            ))?;
-            for key_value in log.response.metadata.iter() {
-                let (key, value) = match key_value {
-                    tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
-                        k.as_str().to_string(),
-                        v.to_str().unwrap_or("<binary>").to_string(),
-                    ),
-                    tonic::metadata::KeyAndValueRef::Binary(k, v) => (
-                        k.as_str().to_string(),
-                        format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
-                    ),
-                };
+                for key_value in log.request.metadata.iter() {
+                    let (key, value) = match key_value {
+                        tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                            k.as_str().to_string(),
+                            v.to_str().unwrap_or("<binary>").to_string(),
+                        ),
+                        tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                            k.as_str().to_string(),
+                            format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+                        ),
+                    };
+                    self.terminal.write_line(&format!(
+                        "       {} {}: {}",
+                        style(">").magenta(),
+                        style(&key).bold(),
+                        style(&value).dim()
+                    ))?;
+                }
+                if !log.request.message.is_empty() {
+                    self.terminal.write_line(&format!(
+                        "    {} {} {}",
+                        style(">").magenta(),
+                        style("message:").dim(),
+                        style(format!("{} bytes", log.request.message.len())).dim()
+                    ))?;
+                }
+                // Response section with status code
                 self.terminal.write_line(&format!(
-                    "       {} {}: {}",
+                    "  {} {} {}",
                     style("<").yellow(),
-                    style(&key).bold(),
-                    style(&value).dim()
+                    style("response:").yellow(),
+                    style_grpc_status(log.response.status_code)
                 ))?;
-            }
-            if !log.response.message.is_empty() {
                 self.terminal.write_line(&format!(
-                    "    {} {} {}",
+                    "    {} {}",
                     style("<").yellow(),
-                    style("message:").dim(),
-                    style(format!("{} bytes", log.response.message.len())).dim()
+                    style("metadata:").dim()
                 ))?;
-            }
-            if !log.response.status_message.is_empty() {
-                self.terminal.write_line(&format!(
-                    "    {} {} {}",
-                    style("<").yellow(),
-                    style("status_message:").dim(),
-                    style(&log.response.status_message).dim()
-                ))?;
+                for key_value in log.response.metadata.iter() {
+                    let (key, value) = match key_value {
+                        tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                            k.as_str().to_string(),
+                            v.to_str().unwrap_or("<binary>").to_string(),
+                        ),
+                        tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                            k.as_str().to_string(),
+                            format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+                        ),
+                    };
+                    self.terminal.write_line(&format!(
+                        "       {} {}: {}",
+                        style("<").yellow(),
+                        style(&key).bold(),
+                        style(&value).dim()
+                    ))?;
+                }
+                if !log.response.message.is_empty() {
+                    self.terminal.write_line(&format!(
+                        "    {} {} {}",
+                        style("<").yellow(),
+                        style("message:").dim(),
+                        style(format!("{} bytes", log.response.message.len())).dim()
+                    ))?;
+                }
+                if !log.response.status_message.is_empty() {
+                    self.terminal.write_line(&format!(
+                        "    {} {} {}",
+                        style("<").yellow(),
+                        style("status_message:").dim(),
+                        style(&log.response.status_message).dim()
+                    ))?;
+                }
             }
         }
 
@@ -788,7 +799,7 @@ fn style_module_path(module: &str, test: &str) -> String {
 pub struct TableReporter {
     terminal: Term,
     buffer: HashMap<(ProjectName, ModuleName, TestName), Test>,
-    capture_http: bool,
+    capture_http: CaptureHttpMode,
 }
 
 impl TableReporter {
@@ -796,16 +807,16 @@ impl TableReporter {
     ///
     /// # Parameters
     ///
-    /// - `capture_http`: Whether to capture HTTP details (currently unused in table output)
+    /// - `capture_http`: Controls when HTTP details are captured (currently unused in table output)
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// use tanu_core::reporter::TableReporter;
+    /// use tanu_core::{reporter::TableReporter, CaptureHttpMode};
     ///
-    /// let reporter = TableReporter::new(false);
+    /// let reporter = TableReporter::new(CaptureHttpMode::Off);
     /// ```
-    pub fn new(capture_http: bool) -> TableReporter {
+    pub fn new(capture_http: CaptureHttpMode) -> TableReporter {
         TableReporter {
             terminal: Term::stdout(),
             buffer: HashMap::new(),

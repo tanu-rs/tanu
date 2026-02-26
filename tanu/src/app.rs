@@ -9,6 +9,7 @@ use std::{
     collections::{HashMap, VecDeque},
     str::FromStr,
 };
+use tanu_core::CaptureHttpMode;
 use tanu_core::Filter;
 
 use crate::{get_tanu_config, ListReporter, ReporterType, TableReporter};
@@ -40,8 +41,10 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                 .about("Run tests in CLI mode")
                 .arg(Arg::new("capture-http")
                     .long("capture-http")
-                    .help("Capture http debug logs")
-                    .action(ArgAction::SetTrue))
+                    .help("Capture HTTP debug logs. Bare --capture-http or --capture-http=all shows logs for all tests; --capture-http=on-failure shows logs only for failed tests")
+                    .num_args(0..=1)
+                    .default_missing_value("all")
+                    .value_parser(["all", "off", "on-failure"]))
                 .arg(Arg::new("show-sensitive")
                     .long("show-sensitive")
                     .help("Show sensitive data (API keys, tokens) in HTTP logs instead of masking them with *****")
@@ -249,8 +252,15 @@ impl App {
         match matches.subcommand() {
             Some(("test", test_matches)) => {
                 // Merge config values with CLI flags (CLI takes precedence)
-                let capture_http = test_matches.get_flag("capture-http")
-                    || cfg.runner.capture_http.unwrap_or(false);
+                let capture_http = test_matches
+                    .get_one::<String>("capture-http")
+                    .map(|s| match s.as_str() {
+                        "on-failure" => CaptureHttpMode::OnFailure,
+                        "off" => CaptureHttpMode::Off,
+                        _ => CaptureHttpMode::All,
+                    })
+                    .or_else(|| cfg.runner.capture_http.clone())
+                    .unwrap_or_default();
                 let capture_rust = test_matches.get_flag("capture-rust")
                     || cfg.runner.capture_rust.unwrap_or(false);
                 let show_sensitive = test_matches.get_flag("show-sensitive")
@@ -284,9 +294,7 @@ impl App {
                     .get_one::<String>("color")
                     .and_then(|s| Color::from_str(s).ok());
 
-                if capture_http {
-                    runner.capture_http();
-                }
+                runner.set_capture_http_mode(capture_http.clone());
                 if capture_rust {
                     runner.capture_rust();
                 }
@@ -307,7 +315,7 @@ impl App {
                 reporters.extend([
                     (
                         ReporterType::Table.to_string(),
-                        Box::new(TableReporter::new(capture_http)),
+                        Box::new(TableReporter::new(capture_http.clone())),
                     ),
                     (
                         ReporterType::List.to_string(),

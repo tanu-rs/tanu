@@ -74,7 +74,7 @@ pub type ModuleName = String;
 pub type TestName = String;
 
 // Re-export key functionality
-pub use config::{get_config, get_tanu_config, Config, ProjectConfig};
+pub use config::{get_config, get_tanu_config, CaptureHttpMode, Config, ProjectConfig};
 pub use error::{Error, Result};
 pub use reporter::{ListReporter, NullReporter, Reporter};
 pub use runner::{
