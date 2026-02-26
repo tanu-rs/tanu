@@ -15,6 +15,7 @@ Run tests with tanu.
 * `-t, --tests <TESTS>`        Run only the specified test cases. This option can be specified multiple times e.g. --tests a ---tests b
 * `--reporter <REPORTER>`  Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null"
 * `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel. Can also be set in `tanu.toml` as `runner.concurrency = 4`.
+* `--fail-fast`            Abort test execution after the first failure. Remaining tests are skipped and reported as skipped in the summary. Can also be set in `tanu.toml` as `runner.fail_fast = true`.
 * `--color <WHEN>`         Control when colored output is used. Possible values are "auto" (default), "always", or "never". Environment variable `CARGO_TERM_COLOR` is also respected.
 
 ## `tui`

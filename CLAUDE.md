@@ -49,6 +49,7 @@ After every code change, always run these three commands in order:
   - `-t, --tests` - Filter by test names (comma-separated)
   - `-c, --concurrency` - Max parallel tests
   - `--capture-http` - Log HTTP requests/responses
+  - `--fail-fast` - Abort after first failure, skipping remaining tests
 - **tui**: Interactive TUI mode for test execution.
   - `-c, --concurrency` - Max parallel tests (default: CPU cores)
 - **ls**: List all available test cases.

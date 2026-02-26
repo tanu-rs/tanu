@@ -62,7 +62,7 @@ use std::{
     ops::Deref,
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::{Duration, SystemTime},
@@ -454,6 +454,7 @@ pub struct TestSummary {
     pub total_tests: usize,
     pub passed_tests: usize,
     pub failed_tests: usize,
+    pub skipped_tests: usize,
     pub total_time: Duration,
     pub test_prep_time: Duration,
 }
@@ -571,6 +572,8 @@ pub struct Options {
     /// Whether to mask sensitive data (API keys, tokens) in HTTP logs.
     /// Defaults to `true` (masked). Set to `false` with `--show-sensitive` flag.
     pub mask_sensitive: bool,
+    /// Whether to abort test execution after the first failure.
+    pub fail_fast: bool,
 }
 
 impl Default for Options {
@@ -582,6 +585,7 @@ impl Default for Options {
             terminate_channel: false,
             concurrency: None,
             mask_sensitive: true, // Masked by default for security
+            fail_fast: false,
         }
     }
 }
@@ -979,6 +983,11 @@ impl Runner {
         self.options.mask_sensitive = false;
     }
 
+    /// Enables fail-fast mode: abort test execution after the first failure.
+    pub fn set_fail_fast(&mut self, fail_fast: bool) {
+        self.options.fail_fast = fail_fast;
+    }
+
     /// Executes all registered tests with optional filtering.
     ///
     /// Runs tests concurrently according to the configured options and filters.
@@ -1047,6 +1056,8 @@ impl Runner {
         let test_ignore_filter = TestIgnoreFilter::default();
 
         let start = std::time::Instant::now();
+        let fail_fast = self.options.fail_fast;
+        let cancelled = Arc::new(AtomicBool::new(false));
         let handles: FuturesUnordered<_> = {
             // Create a semaphore to limit concurrency
             let concurrency = self.options.concurrency;
@@ -1113,6 +1124,7 @@ impl Runner {
                 let semaphore = semaphore.clone();
                 let worker_ids = worker_ids.clone();
                 let serial_groups = serial_groups.clone();
+                let cancelled = cancelled.clone();
 
                 tokio::spawn(async move {
                     // Get serial mutex for this group once
@@ -1128,6 +1140,10 @@ impl Runner {
                     let mut group_failed = false;
                     let mut group_error: Option<eyre::Report> = None;
                     for (project, info, factory) in tests {
+                        if cancelled.load(Ordering::Relaxed) {
+                            break;
+                        }
+
                         // Acquire semaphore for this test
                         let _permit = semaphore
                             .acquire()
@@ -1183,7 +1199,12 @@ impl Runner {
                         let semaphore = semaphore.clone();
                         let worker_ids = worker_ids.clone();
                         let serial_groups = serial_groups.clone();
+                        let cancelled = cancelled.clone();
                         tokio::spawn(async move {
+                            if cancelled.load(Ordering::Relaxed) {
+                                return Ok(());
+                            }
+
                             // Step 1: Acquire serial group mutex FIRST (if needed) - project-scoped
                             // This ensures tests in the same group don't hold semaphore permits unnecessarily
                             let serial_mutex = match &info.serial_group {
@@ -1262,19 +1283,22 @@ impl Runner {
         let total_tests = handles.len();
         let options = self.options.clone();
         let runner = async move {
-            let results = handles.collect::<Vec<_>>().await;
-            if results.is_empty() {
-                console::Term::stdout().write_line("no test cases found")?;
-            }
-
+            let mut handles = handles;
             let mut failed_tests = 0;
-            for result in results {
+            let mut processed_tests = 0;
+
+            while let Some(result) = handles.next().await {
+                processed_tests += 1;
                 match result {
                     Ok(res) => {
                         if let Err(e) = res {
                             debug!("test case failed: {e:#}");
                             has_any_error = true;
                             failed_tests += 1;
+                            if fail_fast {
+                                cancelled.store(true, Ordering::Relaxed);
+                                break;
+                            }
                         }
                     }
                     Err(e) => {
@@ -1283,12 +1307,22 @@ impl Runner {
                             error!("{e}");
                             has_any_error = true;
                             failed_tests += 1;
+                            if fail_fast {
+                                cancelled.store(true, Ordering::Relaxed);
+                                break;
+                            }
                         }
                     }
                 }
             }
 
-            let passed_tests = total_tests - failed_tests;
+            if total_tests == 0 {
+                console::Term::stdout().write_line("no test cases found")?;
+            }
+
+            // Count remaining skipped tasks (when fail-fast triggered early exit)
+            let skipped_tests = total_tests - processed_tests;
+            let passed_tests = total_tests - failed_tests - skipped_tests;
             let total_time = start.elapsed();
 
             // Publish summary event
@@ -1296,6 +1330,7 @@ impl Runner {
                 total_tests,
                 passed_tests,
                 failed_tests,
+                skipped_tests,
                 total_time,
                 test_prep_time,
             };
@@ -1761,6 +1796,81 @@ mod test {
         }
 
         assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    fn passing_factory() -> TestCaseFactory {
+        Arc::new(|| Box::pin(async { Ok(()) }))
+    }
+
+    fn failing_factory() -> TestCaseFactory {
+        Arc::new(|| Box::pin(async { eyre::bail!("intentional failure") }))
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn runner_fail_fast_skips_remaining_tests() -> eyre::Result<()> {
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.set_concurrency(1);
+        runner.set_fail_fast(true);
+
+        // Failing test added first so it is spawned first and runs first
+        // under the single-threaded #[tokio::test] runtime.
+        runner.add_test("ff_fail", "module", None, 0, false, failing_factory());
+        runner.add_test("ff_pass1", "module", None, 1, false, passing_factory());
+        runner.add_test("ff_pass2", "module", None, 2, false, passing_factory());
+
+        let result = runner.run(&[], &[], &[]).await;
+        assert!(result.is_err());
+
+        let mut summary = None;
+        while let Ok(event) = rx.try_recv() {
+            if let EventBody::Summary(s) = event.body {
+                summary = Some(s);
+            }
+        }
+
+        let summary = summary.expect("should have received Summary event");
+        assert!(
+            summary.failed_tests >= 1,
+            "should have at least one failure"
+        );
+        assert!(
+            summary.skipped_tests >= 1,
+            "fail-fast should have skipped remaining tests"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn runner_without_fail_fast_runs_all_tests() -> eyre::Result<()> {
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.set_concurrency(1);
+        // fail_fast is false by default
+
+        runner.add_test("noff_fail", "module", None, 0, false, failing_factory());
+        runner.add_test("noff_pass1", "module", None, 1, false, passing_factory());
+        runner.add_test("noff_pass2", "module", None, 2, false, passing_factory());
+
+        let result = runner.run(&[], &[], &[]).await;
+        assert!(result.is_err());
+
+        let mut summary = None;
+        while let Ok(event) = rx.try_recv() {
+            if let EventBody::Summary(s) = event.body {
+                summary = Some(s);
+            }
+        }
+
+        let summary = summary.expect("should have received Summary event");
+        assert_eq!(summary.failed_tests, 1, "should have exactly one failure");
+        assert_eq!(summary.passed_tests, 2, "should have two passed tests");
+        assert_eq!(summary.skipped_tests, 0, "should have no skipped tests");
+
         Ok(())
     }
 }

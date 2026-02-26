@@ -172,6 +172,9 @@ pub struct Runner {
     /// Maximum number of tests to run in parallel
     #[serde(default)]
     pub concurrency: Option<usize>,
+    /// Whether to abort test execution after the first failure
+    #[serde(default)]
+    pub fail_fast: Option<bool>,
 }
 
 impl Config {

@@ -617,12 +617,13 @@ impl Reporter for ListReporter {
             total_tests,
             passed_tests,
             failed_tests,
+            skipped_tests,
             total_time,
             test_prep_time,
         } = summary;
 
         self.terminal.write_line("")?;
-        self.terminal.write_line(&format!(
+        let mut summary_line = format!(
             "{}: {} {}, {} {}, {} {}",
             style("Tests").bold(),
             style(passed_tests).green().bold(),
@@ -639,7 +640,15 @@ impl Reporter for ListReporter {
             },
             style(total_tests).bold(),
             style("total").dim()
-        ))?;
+        );
+        if skipped_tests > 0 {
+            summary_line.push_str(&format!(
+                ", {} {}",
+                style(skipped_tests).yellow().bold(),
+                style("skipped").yellow()
+            ));
+        }
+        self.terminal.write_line(&summary_line)?;
         self.terminal.write_line(&format!(
             "{}: {} ({}: {})",
             style("Time").bold(),
@@ -863,12 +872,13 @@ impl Reporter for TableReporter {
             total_tests,
             passed_tests,
             failed_tests,
+            skipped_tests,
             total_time,
             test_prep_time,
         } = summary;
 
         self.terminal.write_line("")?;
-        self.terminal.write_line(&format!(
+        let mut summary_line = format!(
             "{}: {} {}, {} {}, {} {}",
             style("Tests").bold(),
             style(passed_tests).green().bold(),
@@ -885,7 +895,15 @@ impl Reporter for TableReporter {
             },
             style(total_tests).bold(),
             style("total").dim()
-        ))?;
+        );
+        if skipped_tests > 0 {
+            summary_line.push_str(&format!(
+                ", {} {}",
+                style(skipped_tests).yellow().bold(),
+                style("skipped").yellow()
+            ));
+        }
+        self.terminal.write_line(&summary_line)?;
         self.terminal.write_line(&format!(
             "{}: {} ({}: {})",
             style("Time").bold(),
