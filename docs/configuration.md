@@ -51,16 +51,19 @@ The `[runner]` section configures global test execution behavior. All values are
 
 ```toml
 [runner]
-capture_http = true      # Capture HTTP debug logs (default: false)
-capture_rust = false     # Capture Rust "log" crate logs (default: false)
-show_sensitive = false   # Show sensitive data in HTTP logs (default: false)
-concurrency = 4          # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
-fail_fast = false        # Abort after the first failure (default: false)
+capture_http = true         # Capture HTTP debug logs for all tests (equivalent to "all")
+capture_http = "all"        # Capture HTTP debug logs for all tests
+capture_http = "on-failure" # Capture HTTP debug logs only for failed tests (default)
+capture_http = "off"        # Suppress HTTP debug logs entirely
+capture_rust = false        # Capture Rust "log" crate logs (default: false)
+show_sensitive = false      # Show sensitive data in HTTP logs (default: false)
+concurrency = 4             # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
+fail_fast = false           # Abort after the first failure (default: false)
 ```
 
 ### Options
 
-- `capture_http`: When enabled, captures and displays HTTP request/response logs for debugging. Default is `false`. Can be overridden with `--capture-http`.
+- `capture_http`: Controls when HTTP request/response logs are captured and displayed. Accepts a boolean (`true` = `"all"`, `false` = `"off"`) or a string (`"all"`, `"on-failure"`, or `"off"`). Default is `"on-failure"` (show HTTP logs only for failed tests). Use `"all"` to show logs for every test, or `"off"` to suppress logs entirely. Can be overridden with `--capture-http[=MODE]` on the command line.
 - `capture_rust`: When enabled, captures logs from Rust's `log` crate. Useful for debugging tanu internals or test code that uses the log crate. Default is `false`. Can be overridden with `--capture-rust`.
 - `show_sensitive`: When enabled, displays sensitive data (API keys, tokens, passwords) in HTTP logs instead of masking them with `*****`. Use with caution as this may expose secrets. Default is `false`. Can be overridden with `--show-sensitive`.
 - `concurrency`: Maximum number of tests to run in parallel. If not specified, CLI mode runs all tests in parallel (unlimited), while TUI mode defaults to the number of CPU cores. Can be overridden with `-c` or `--concurrency`.

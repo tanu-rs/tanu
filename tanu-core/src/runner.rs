@@ -71,7 +71,7 @@ use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
-    config::{self, get_tanu_config, ProjectConfig},
+    config::{self, get_tanu_config, CaptureHttpMode, ProjectConfig},
     http,
     reporter::Reporter,
     Config, ModuleName, ProjectName,
@@ -565,7 +565,7 @@ type TestCaseFactory = Arc<
 #[derive(Debug, Clone)]
 pub struct Options {
     pub debug: bool,
-    pub capture_http: bool,
+    pub capture_http: CaptureHttpMode,
     pub capture_rust: bool,
     pub terminate_channel: bool,
     pub concurrency: Option<usize>,
@@ -580,7 +580,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             debug: false,
-            capture_http: false,
+            capture_http: CaptureHttpMode::Off,
             capture_rust: false,
             terminate_channel: false,
             concurrency: None,
@@ -857,7 +857,12 @@ impl Runner {
     /// runner.capture_http();
     /// ```
     pub fn capture_http(&mut self) {
-        self.options.capture_http = true;
+        self.options.capture_http = CaptureHttpMode::All;
+    }
+
+    /// Sets the HTTP capture mode.
+    pub fn set_capture_http_mode(&mut self, mode: CaptureHttpMode) {
+        self.options.capture_http = mode;
     }
 
     /// Enables Rust logging output during test execution.
@@ -1872,5 +1877,106 @@ mod test {
         assert_eq!(summary.skipped_tests, 0, "should have no skipped tests");
 
         Ok(())
+    }
+
+    // Verify that HTTP Call events are published to the channel regardless of
+    // the capture_http mode (the HTTP client always publishes; the reporter
+    // decides what to display).
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn capture_http_events_published_for_all_tests_regardless_of_mode() -> eyre::Result<()> {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let make_http_factory = |url: String| -> TestCaseFactory {
+            Arc::new(move || {
+                let url = url.clone();
+                Box::pin(async move {
+                    let client = crate::http::Client::new();
+                    client.get(&url).send().await?;
+                    Ok(())
+                })
+            })
+        };
+
+        let failing_http_factory = |url: String| -> TestCaseFactory {
+            Arc::new(move || {
+                let url = url.clone();
+                Box::pin(async move {
+                    let client = crate::http::Client::new();
+                    client.get(&url).send().await?;
+                    eyre::bail!("intentional failure after http call");
+                })
+            })
+        };
+
+        let url = server.url();
+
+        // Run with OnFailure mode
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.set_capture_http_mode(CaptureHttpMode::OnFailure);
+        runner.add_test(
+            "ch_pass",
+            "ch_module",
+            None,
+            0,
+            false,
+            make_http_factory(url.clone()),
+        );
+        runner.add_test(
+            "ch_fail",
+            "ch_module",
+            None,
+            1,
+            false,
+            failing_http_factory(url.clone()),
+        );
+
+        let _ = runner.run(&[], &[], &[]).await;
+
+        // Both tests should have published Call events — capture mode only
+        // affects reporter display, not event publishing.
+        let mut pass_has_call = false;
+        let mut fail_has_call = false;
+        while let Ok(event) = rx.try_recv() {
+            if let EventBody::Call(CallLog::Http(_)) = &event.body {
+                match event.test.as_str() {
+                    "ch_pass" => pass_has_call = true,
+                    "ch_fail" => fail_has_call = true,
+                    _ => {}
+                }
+            }
+        }
+
+        assert!(
+            pass_has_call,
+            "passing test should still publish HTTP Call event"
+        );
+        assert!(
+            fail_has_call,
+            "failing test should still publish HTTP Call event"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn set_capture_http_mode_stores_mode() {
+        let mut runner = Runner::new();
+        assert_eq!(runner.options.capture_http, CaptureHttpMode::Off);
+
+        runner.capture_http();
+        assert_eq!(runner.options.capture_http, CaptureHttpMode::All);
+
+        runner.set_capture_http_mode(CaptureHttpMode::OnFailure);
+        assert_eq!(runner.options.capture_http, CaptureHttpMode::OnFailure);
+
+        runner.set_capture_http_mode(CaptureHttpMode::Off);
+        assert_eq!(runner.options.capture_http, CaptureHttpMode::Off);
     }
 }

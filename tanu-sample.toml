@@ -2,7 +2,10 @@
 payload.color_theme = "apathy"  # color theme for the payload tab, default is "solarized-dark"
 
 [runner]
-# capture_http = true     # capture HTTP debug logs, default is false
+# capture_http = true          # capture HTTP debug logs for all tests (equivalent to "all")
+# capture_http = "all"         # capture HTTP debug logs for all tests
+# capture_http = "on-failure"  # capture HTTP debug logs only for failed tests (default)
+# capture_http = "off"         # suppress HTTP debug logs entirely
 # capture_rust = true     # capture Rust "log" crate logs, default is false
 # show_sensitive = true   # show sensitive data in HTTP logs instead of masking, default is false
 # concurrency = 4         # max parallel tests, default is unlimited (test mode) or CPU cores (tui mode)

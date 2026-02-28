@@ -121,7 +121,7 @@ pub use app::App;
 // Re-export core functionality
 pub use tanu_core::{
     assertion,
-    config::{get_config, get_tanu_config, Config, ProjectConfig},
+    config::{get_config, get_tanu_config, CaptureHttpMode, Config, ProjectConfig},
     http, reporter,
     reporter::{ListReporter, NullReporter, Reporter, ReporterType, TableReporter},
     runner::{self, scope_current, Runner, TestInfo},

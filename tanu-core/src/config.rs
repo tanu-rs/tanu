@@ -98,6 +98,59 @@ use tracing::*;
 
 use crate::{Error, Result};
 
+/// Controls when HTTP request/response logs are captured and displayed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum CaptureHttpMode {
+    /// Do not capture HTTP logs (default).
+    Off,
+    /// Capture and display HTTP logs for all tests.
+    All,
+    /// Capture HTTP logs but only display them for failed tests.
+    #[default]
+    OnFailure,
+}
+
+impl<'de> serde::Deserialize<'de> for CaptureHttpMode {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CaptureHttpModeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for CaptureHttpModeVisitor {
+            type Value = CaptureHttpMode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(r#"a boolean or one of "all", "on-failure""#)
+            }
+
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                v: bool,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok(if v {
+                    CaptureHttpMode::All
+                } else {
+                    CaptureHttpMode::Off
+                })
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                match v {
+                    "all" => Ok(CaptureHttpMode::All),
+                    "on-failure" => Ok(CaptureHttpMode::OnFailure),
+                    _ => Err(E::invalid_value(serde::de::Unexpected::Str(v), &self)),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(CaptureHttpModeVisitor)
+    }
+}
+
 /// Environment variable name for specifying the config file path.
 const TANU_CONFIG_ENV: &str = "TANU_CONFIG";
 
@@ -160,9 +213,9 @@ pub struct Payload {
 /// Test runner configuration
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Runner {
-    /// Whether to capture HTTP debug logs
+    /// When and how to capture HTTP debug logs
     #[serde(default)]
-    pub capture_http: Option<bool>,
+    pub capture_http: Option<CaptureHttpMode>,
     /// Whether to capture Rust "log" crate based logs
     #[serde(default)]
     pub capture_rust: Option<bool>,
@@ -450,6 +503,79 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::{time::Duration, vec};
     use test_case::test_case;
+
+    mod capture_http_mode {
+        use super::CaptureHttpMode;
+        use pretty_assertions::assert_eq;
+
+        fn from_toml(s: &str) -> Result<CaptureHttpMode, toml::de::Error> {
+            #[derive(serde::Deserialize)]
+            struct Wrapper {
+                mode: CaptureHttpMode,
+            }
+            let w: Wrapper = toml::from_str(&format!("mode = {s}"))?;
+            Ok(w.mode)
+        }
+
+        #[test]
+        fn bool_true_maps_to_all() {
+            assert_eq!(from_toml("true").unwrap(), CaptureHttpMode::All);
+        }
+
+        #[test]
+        fn bool_false_maps_to_off() {
+            assert_eq!(from_toml("false").unwrap(), CaptureHttpMode::Off);
+        }
+
+        #[test]
+        fn string_all_maps_to_all() {
+            assert_eq!(from_toml(r#""all""#).unwrap(), CaptureHttpMode::All);
+        }
+
+        #[test]
+        fn string_on_failure_maps_to_on_failure() {
+            assert_eq!(
+                from_toml(r#""on-failure""#).unwrap(),
+                CaptureHttpMode::OnFailure
+            );
+        }
+
+        #[test]
+        fn invalid_string_returns_error() {
+            assert!(from_toml(r#""invalid""#).is_err());
+        }
+
+        #[test]
+        fn runner_capture_http_field_accepts_bool() {
+            #[derive(serde::Deserialize)]
+            struct R {
+                capture_http: Option<CaptureHttpMode>,
+            }
+            let r: R = toml::from_str("capture_http = true").unwrap();
+            assert_eq!(r.capture_http, Some(CaptureHttpMode::All));
+
+            let r: R = toml::from_str("capture_http = false").unwrap();
+            assert_eq!(r.capture_http, Some(CaptureHttpMode::Off));
+        }
+
+        #[test]
+        fn runner_capture_http_field_accepts_string() {
+            #[derive(serde::Deserialize)]
+            struct R {
+                capture_http: Option<CaptureHttpMode>,
+            }
+            let r: R = toml::from_str(r#"capture_http = "all""#).unwrap();
+            assert_eq!(r.capture_http, Some(CaptureHttpMode::All));
+
+            let r: R = toml::from_str(r#"capture_http = "on-failure""#).unwrap();
+            assert_eq!(r.capture_http, Some(CaptureHttpMode::OnFailure));
+        }
+
+        #[test]
+        fn default_is_on_failure() {
+            assert_eq!(CaptureHttpMode::default(), CaptureHttpMode::OnFailure);
+        }
+    }
 
     fn load_test_config() -> eyre::Result<Config> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
