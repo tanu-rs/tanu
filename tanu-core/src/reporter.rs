@@ -403,23 +403,44 @@ impl Reporter for ListReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
+        let should_print = match self.capture_http {
+            CaptureHttpMode::All => true,
+            CaptureHttpMode::OnFailure => test.result.is_err(),
+            CaptureHttpMode::Off => false,
+        };
+
         let buffer = self
             .buffer
             .get_mut(&(project_name.clone(), module_name.clone(), test_name.clone()))
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
-        let test_number = style(buffer.test_number.get_or_insert_with(generate_test_number)).dim();
+        let test_number = *buffer.test_number.get_or_insert_with(generate_test_number);
+        let http_logs: Vec<_> = buffer.http_logs.drain(..).collect();
+        #[cfg(feature = "grpc")]
+        let grpc_logs: Vec<_> = buffer.grpc_logs.drain(..).collect();
 
         if let Err(e) = test.result {
             self.terminal.write_line(&format!(
                 "{status} {test_number} {project} {path}: {retry_message}\n{error}",
                 status = symbol_error(),
+                test_number = style(test_number).dim(),
                 project = style_project(&project_name),
                 path = style_module_path(&module_name, &test_name),
                 retry_message = style("retrying...").blue(),
                 error = style(format!("{e:#}")).dim(),
             ))?;
         }
+
+        if should_print {
+            for log in &http_logs {
+                write_http_log(&self.terminal, log)?;
+            }
+            #[cfg(feature = "grpc")]
+            for log in &grpc_logs {
+                write_grpc_log(&self.terminal, log)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -440,158 +461,6 @@ impl Reporter for ListReporter {
             CaptureHttpMode::OnFailure => test.result.is_err(),
             CaptureHttpMode::Off => false,
         };
-
-        if should_print {
-            for log in buffer.http_logs {
-                // Request line with colored method
-                self.terminal.write_line(&format!(
-                    " {} {} {}",
-                    style("=>").cyan(),
-                    style_http_method(log.request.method.as_ref()),
-                    style(&log.request.url.to_string()).underlined()
-                ))?;
-                // Request section
-                self.terminal.write_line(&format!(
-                    "  {} {}",
-                    style(">").cyan(),
-                    style("request:").cyan()
-                ))?;
-                self.terminal.write_line(&format!(
-                    "    {} {}",
-                    style(">").cyan(),
-                    style("headers:").dim()
-                ))?;
-                for key in log.request.headers.keys() {
-                    self.terminal.write_line(&format!(
-                        "       {} {}: {}",
-                        style(">").cyan(),
-                        style(key.as_str()).bold(),
-                        style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
-                    ))?;
-                }
-                // Response section with status code
-                self.terminal.write_line(&format!(
-                    "  {} {} {}",
-                    style("<").yellow(),
-                    style("response:").yellow(),
-                    style_status_code(log.response.status.as_u16())
-                ))?;
-                self.terminal.write_line(&format!(
-                    "    {} {}",
-                    style("<").yellow(),
-                    style("headers:").dim()
-                ))?;
-                for key in log.response.headers.keys() {
-                    self.terminal.write_line(&format!(
-                        "       {} {}: {}",
-                        style("<").yellow(),
-                        style(key.as_str()).bold(),
-                        style(log.response.headers.get(key).unwrap().to_str().unwrap()).dim()
-                    ))?;
-                }
-                self.terminal.write_line(&format!(
-                    "    {} {} {}",
-                    style("<").yellow(),
-                    style("body:").dim(),
-                    style(&log.response.body).dim()
-                ))?;
-            }
-
-            // Display gRPC logs
-            #[cfg(feature = "grpc")]
-            for log in buffer.grpc_logs {
-                // Request line with colored gRPC indicator
-                self.terminal.write_line(&format!(
-                    " {} {} {}",
-                    style("=>").magenta(),
-                    style("gRPC").magenta().bold(),
-                    style(&log.request.method).underlined()
-                ))?;
-                // Request section
-                self.terminal.write_line(&format!(
-                    "  {} {}",
-                    style(">").magenta(),
-                    style("request:").magenta()
-                ))?;
-                self.terminal.write_line(&format!(
-                    "    {} {}",
-                    style(">").magenta(),
-                    style("metadata:").dim()
-                ))?;
-                for key_value in log.request.metadata.iter() {
-                    let (key, value) = match key_value {
-                        tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
-                            k.as_str().to_string(),
-                            v.to_str().unwrap_or("<binary>").to_string(),
-                        ),
-                        tonic::metadata::KeyAndValueRef::Binary(k, v) => (
-                            k.as_str().to_string(),
-                            format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
-                        ),
-                    };
-                    self.terminal.write_line(&format!(
-                        "       {} {}: {}",
-                        style(">").magenta(),
-                        style(&key).bold(),
-                        style(&value).dim()
-                    ))?;
-                }
-                if !log.request.message.is_empty() {
-                    self.terminal.write_line(&format!(
-                        "    {} {} {}",
-                        style(">").magenta(),
-                        style("message:").dim(),
-                        style(format!("{} bytes", log.request.message.len())).dim()
-                    ))?;
-                }
-                // Response section with status code
-                self.terminal.write_line(&format!(
-                    "  {} {} {}",
-                    style("<").yellow(),
-                    style("response:").yellow(),
-                    style_grpc_status(log.response.status_code)
-                ))?;
-                self.terminal.write_line(&format!(
-                    "    {} {}",
-                    style("<").yellow(),
-                    style("metadata:").dim()
-                ))?;
-                for key_value in log.response.metadata.iter() {
-                    let (key, value) = match key_value {
-                        tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
-                            k.as_str().to_string(),
-                            v.to_str().unwrap_or("<binary>").to_string(),
-                        ),
-                        tonic::metadata::KeyAndValueRef::Binary(k, v) => (
-                            k.as_str().to_string(),
-                            format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
-                        ),
-                    };
-                    self.terminal.write_line(&format!(
-                        "       {} {}: {}",
-                        style("<").yellow(),
-                        style(&key).bold(),
-                        style(&value).dim()
-                    ))?;
-                }
-                if !log.response.message.is_empty() {
-                    self.terminal.write_line(&format!(
-                        "    {} {} {}",
-                        style("<").yellow(),
-                        style("message:").dim(),
-                        style(format!("{} bytes", log.response.message.len())).dim()
-                    ))?;
-                }
-                if !log.response.status_message.is_empty() {
-                    self.terminal.write_line(&format!(
-                        "    {} {} {}",
-                        style("<").yellow(),
-                        style("status_message:").dim(),
-                        style(&log.response.status_message).dim()
-                    ))?;
-                }
-            }
-        }
 
         let status = symbol_test_result(&test);
         let Test {
@@ -617,6 +486,16 @@ impl Reporter for ListReporter {
                     "{status} {test_number} {project} {path} {request_time}:\n{error}",
                     error = style(format!("{e:#}")).red()
                 ))?;
+            }
+        }
+
+        if should_print {
+            for log in &buffer.http_logs {
+                write_http_log(&self.terminal, log)?;
+            }
+            #[cfg(feature = "grpc")]
+            for log in &buffer.grpc_logs {
+                write_grpc_log(&self.terminal, log)?;
             }
         }
 
@@ -760,6 +639,151 @@ fn style_project(name: &str) -> StyledObject<String> {
 /// Style module path with cyan color and test name in bold blue
 fn style_module_path(module: &str, test: &str) -> String {
     format!("{}::{}", style(module).cyan(), style(test).blue().bold())
+}
+
+fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
+    terminal.write_line(&format!(
+        " {} {} {}",
+        style("=>").cyan(),
+        style_http_method(log.request.method.as_ref()),
+        style(&log.request.url.to_string()).underlined()
+    ))?;
+    terminal.write_line(&format!(
+        "  {} {}",
+        style(">").cyan(),
+        style("request:").cyan()
+    ))?;
+    terminal.write_line(&format!(
+        "    {} {}",
+        style(">").cyan(),
+        style("headers:").dim()
+    ))?;
+    for key in log.request.headers.keys() {
+        terminal.write_line(&format!(
+            "       {} {}: {}",
+            style(">").cyan(),
+            style(key.as_str()).bold(),
+            style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
+        ))?;
+    }
+    terminal.write_line(&format!(
+        "  {} {} {}",
+        style("<").yellow(),
+        style("response:").yellow(),
+        style_status_code(log.response.status.as_u16())
+    ))?;
+    terminal.write_line(&format!(
+        "    {} {}",
+        style("<").yellow(),
+        style("headers:").dim()
+    ))?;
+    for key in log.response.headers.keys() {
+        terminal.write_line(&format!(
+            "       {} {}: {}",
+            style("<").yellow(),
+            style(key.as_str()).bold(),
+            style(log.response.headers.get(key).unwrap().to_str().unwrap()).dim()
+        ))?;
+    }
+    terminal.write_line(&format!(
+        "    {} {} {}",
+        style("<").yellow(),
+        style("body:").dim(),
+        style(&log.response.body).dim()
+    ))?;
+    Ok(())
+}
+
+#[cfg(feature = "grpc")]
+fn write_grpc_log(terminal: &Term, log: &crate::grpc::Log) -> eyre::Result<()> {
+    terminal.write_line(&format!(
+        " {} {} {}",
+        style("=>").magenta(),
+        style("gRPC").magenta().bold(),
+        style(&log.request.method).underlined()
+    ))?;
+    terminal.write_line(&format!(
+        "  {} {}",
+        style(">").magenta(),
+        style("request:").magenta()
+    ))?;
+    terminal.write_line(&format!(
+        "    {} {}",
+        style(">").magenta(),
+        style("metadata:").dim()
+    ))?;
+    for key_value in log.request.metadata.iter() {
+        let (key, value) = match key_value {
+            tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                k.as_str().to_string(),
+                v.to_str().unwrap_or("<binary>").to_string(),
+            ),
+            tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                k.as_str().to_string(),
+                format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+            ),
+        };
+        terminal.write_line(&format!(
+            "       {} {}: {}",
+            style(">").magenta(),
+            style(&key).bold(),
+            style(&value).dim()
+        ))?;
+    }
+    if !log.request.message.is_empty() {
+        terminal.write_line(&format!(
+            "    {} {} {}",
+            style(">").magenta(),
+            style("message:").dim(),
+            style(format!("{} bytes", log.request.message.len())).dim()
+        ))?;
+    }
+    terminal.write_line(&format!(
+        "  {} {} {}",
+        style("<").yellow(),
+        style("response:").yellow(),
+        style_grpc_status(log.response.status_code)
+    ))?;
+    terminal.write_line(&format!(
+        "    {} {}",
+        style("<").yellow(),
+        style("metadata:").dim()
+    ))?;
+    for key_value in log.response.metadata.iter() {
+        let (key, value) = match key_value {
+            tonic::metadata::KeyAndValueRef::Ascii(k, v) => (
+                k.as_str().to_string(),
+                v.to_str().unwrap_or("<binary>").to_string(),
+            ),
+            tonic::metadata::KeyAndValueRef::Binary(k, v) => (
+                k.as_str().to_string(),
+                format!("<binary: {} bytes>", v.as_encoded_bytes().len()),
+            ),
+        };
+        terminal.write_line(&format!(
+            "       {} {}: {}",
+            style("<").yellow(),
+            style(&key).bold(),
+            style(&value).dim()
+        ))?;
+    }
+    if !log.response.message.is_empty() {
+        terminal.write_line(&format!(
+            "    {} {} {}",
+            style("<").yellow(),
+            style("message:").dim(),
+            style(format!("{} bytes", log.response.message.len())).dim()
+        ))?;
+    }
+    if !log.response.status_message.is_empty() {
+        terminal.write_line(&format!(
+            "    {} {} {}",
+            style("<").yellow(),
+            style("status_message:").dim(),
+            style(&log.response.status_message).dim()
+        ))?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::vec_box, dead_code)]
