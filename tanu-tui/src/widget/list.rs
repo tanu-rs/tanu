@@ -87,6 +87,22 @@ fn symbol_http_result(status: StatusCode) -> Span<'static> {
     )
 }
 
+fn status_code_span(status: StatusCode) -> Span<'static> {
+    let color = match status.as_u16() {
+        100..=199 => Color::Cyan,
+        200..=299 => Color::Green,
+        300..=399 => Color::Yellow,
+        400..=499 => Color::Red,
+        500..=599 => Color::LightRed,
+        _ => Color::White,
+    };
+    let reason = status.canonical_reason().unwrap_or("");
+    Span::styled(
+        format!(" {} {}", status.as_u16(), reason),
+        Style::default().fg(color).bold(),
+    )
+}
+
 #[cfg(feature = "grpc")]
 fn symbol_grpc_result(status_code: tonic::Code) -> Span<'static> {
     Span::styled(
@@ -462,8 +478,9 @@ impl TestState {
                 for http_call in &test_result.logs {
                     let indent = Span::raw("        ");
                     let symbol = symbol_http_result(http_call.response.status);
+                    let status = status_code_span(http_call.response.status);
                     let name = Span::raw(format!(" {}", http_call.request.url));
-                    lines.push(Line::from(vec![indent, symbol, name]));
+                    lines.push(Line::from(vec![indent, symbol, status, name]));
                 }
                 #[cfg(feature = "grpc")]
                 for grpc_call in &test_result.grpc_logs {
