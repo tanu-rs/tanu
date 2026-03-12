@@ -322,6 +322,7 @@ fn generate_test_number() -> usize {
 ///     > headers:
 ///        > content-type: application/json
 ///   < response:
+///     < status: 401 Unauthorized
 ///     < headers:
 ///        < content-type: application/json
 ///     < body: {"error": "invalid credentials"}
@@ -594,9 +595,10 @@ fn style_http_method(method: &str) -> StyledObject<&str> {
 }
 
 /// Color HTTP status codes by category
-fn style_status_code(status: u16) -> StyledObject<String> {
-    let s = status.to_string();
-    match status {
+fn style_status_code(status: http::StatusCode) -> StyledObject<String> {
+    let reason = status.canonical_reason().unwrap_or("");
+    let s = format!("{} {}", status.as_u16(), reason);
+    match status.as_u16() {
         100..=199 => style(s).cyan(),       // Informational
         200..=299 => style(s).green(),      // Success
         300..=399 => style(s).yellow(),     // Redirection
@@ -667,10 +669,15 @@ fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
         ))?;
     }
     terminal.write_line(&format!(
-        "  {} {} {}",
+        "  {} {}",
         style("<").yellow(),
-        style("response:").yellow(),
-        style_status_code(log.response.status.as_u16())
+        style("response:").yellow()
+    ))?;
+    terminal.write_line(&format!(
+        "    {} {} {}",
+        style("<").yellow(),
+        style("status:").dim(),
+        style_status_code(log.response.status)
     ))?;
     terminal.write_line(&format!(
         "    {} {}",
