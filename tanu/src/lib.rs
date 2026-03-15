@@ -132,6 +132,10 @@ pub use tanu_core::{
 #[cfg(feature = "grpc")]
 pub use tanu_core::grpc;
 
+// Re-export GraphQL module when feature is enabled
+#[cfg(feature = "graphql")]
+pub use tanu_core::graphql;
+
 // Type alias for the async test function
 pub type AsyncTestFn =
     fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = eyre::Result<()>> + Send + 'static>>;

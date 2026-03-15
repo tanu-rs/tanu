@@ -53,6 +53,7 @@ nav:
       - Ordered Execution: ordered-execution.md
       - Test Assertions: assertion.md
       - gRPC Testing: grpc.md
+      - GraphQL Testing: graphql.md
       - Configuration: configuration.md
       - Command Line Options: command-line-option.md
       - TUI: tui.md

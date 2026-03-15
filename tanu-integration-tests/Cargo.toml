@@ -19,11 +19,12 @@ fail-test = []
 [dependencies]
 anyhow = { workspace = true }
 base64 = "0.21"
+graphql_client = "0.16"
 dtor = "0.0.6"
 prost = "0.14.1"
 serde = { workspace = true }
 serde_json = "1"
-tanu = { path = "../tanu", features = ["json", "cookies", "grpc"] }
+tanu = { path = "../tanu", features = ["json", "cookies", "grpc", "graphql"] }
 testcontainers = "0.24"
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
