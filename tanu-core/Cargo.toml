@@ -53,6 +53,9 @@ tonic = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 urlencoding = { version = "2", optional = true }
 
+# GraphQL support (optional)
+graphql_client = { version = "0.16", optional = true }
+
 [dev-dependencies]
 mockito = "1.7"
 serial_test = "3"
@@ -64,3 +67,4 @@ json = []
 multipart = []
 cookies = ["cookie"]
 grpc = ["tonic", "tower", "urlencoding"]
+graphql = ["json", "graphql_client"]

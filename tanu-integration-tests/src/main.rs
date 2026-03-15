@@ -1,6 +1,7 @@
 mod assertion;
 #[cfg(feature = "fail-test")]
 mod fail_test;
+mod graphql;
 mod grpc;
 mod http;
 mod macros;
