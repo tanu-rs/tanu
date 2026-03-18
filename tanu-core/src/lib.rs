@@ -36,6 +36,8 @@
 pub mod assertion;
 pub mod config;
 pub mod error;
+#[cfg(feature = "graphql")]
+pub mod graphql;
 #[cfg(feature = "grpc")]
 pub mod grpc;
 pub mod http;
