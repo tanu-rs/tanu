@@ -57,6 +57,7 @@
 //!     Ok(())
 //! }
 //! ```
+use crate::get_config;
 use bytes::Bytes;
 pub use http::{header, Method, StatusCode, Version};
 use http_body_util::{BodyExt, Full};
@@ -470,6 +471,87 @@ impl Client {
         debug!("Requesting {url_str}");
         crate::graphql::GraphqlRequestBuilder::new(RequestBuilder::new(
             self.clone(),
+            Method::POST,
+            &url_str,
+        ))
+    }
+}
+
+pub struct ApiClient {
+    inner: Client,
+    base_url: String,
+}
+
+impl ApiClient {
+    pub fn new() -> Self {
+        let client = Client::new();
+        let project_config = get_config();
+
+        let base_url = project_config.get_str("base_url").unwrap_or_else(|_| {
+            panic!(
+                "\n\n[tanu] Missing `base_url` in tanu.toml\n\
+                   Add it like this:\n\n\
+                   [tanu]\n\
+                   base_url = \"https://your-api.com\"\n"
+            )
+        });
+
+        Self {
+            inner: client,
+            base_url: base_url.to_string(),
+        }
+    }
+
+    pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        RequestBuilder::new(
+            self.inner.clone(),
+            Method::GET,
+            &format!("{}{}", self.base_url, url_str),
+        )
+    }
+
+    pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        RequestBuilder::new(
+            self.inner.clone(),
+            Method::POST,
+            &format!("{}{}", self.base_url, url_str),
+        )
+    }
+
+    pub fn put<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        RequestBuilder::new(
+            self.inner.clone(),
+            Method::PUT,
+            &format!("{}{}", self.base_url, url_str),
+        )
+    }
+
+    pub fn delete<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        RequestBuilder::new(
+            self.inner.clone(),
+            Method::DELETE,
+            &format!("{}{}", self.base_url, url_str),
+        )
+    }
+
+    pub fn head<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        RequestBuilder::new(
+            self.inner.clone(),
+            Method::HEAD,
+            &format!("{}{}", self.base_url, url_str),
+        )
+    }
+
+    #[cfg(feature = "graphql")]
+    pub fn graphql<U: IntoUrl>(&self, url: U) -> crate::graphql::GraphqlRequestBuilder {
+        let url_str = url.into_url_string();
+        crate::graphql::GraphqlRequestBuilder::new(RequestBuilder::new(
+            self.inner.clone(),
             Method::POST,
             &url_str,
         ))
