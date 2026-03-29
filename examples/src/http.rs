@@ -1,4 +1,4 @@
-use tanu::{check, eyre, http::Client};
+use tanu::{check, eyre, http::Client, http::HttpClient};
 
 #[tanu::test]
 async fn get() -> eyre::Result<()> {

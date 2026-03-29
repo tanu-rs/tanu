@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Instant;
-use tanu::{check, check_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client, http::HttpClient};
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]

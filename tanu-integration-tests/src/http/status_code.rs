@@ -1,6 +1,6 @@
 use tanu::{
     check_eq, eyre,
-    http::{Client, StatusCode},
+    http::{Client, HttpClient, StatusCode},
 };
 
 #[tanu::test]

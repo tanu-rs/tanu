@@ -1,7 +1,7 @@
 // filepath: /home/yukinari/repos/r/tanu/tanu-integration-tests/src/http/patch.rs
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tanu::{check, check_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client, http::HttpClient};
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]

@@ -1,7 +1,7 @@
 // filepath: /home/yukinari/repos/r/tanu/tanu-integration-tests/src/http/head.rs
 use tanu::{
     check, check_eq, eyre,
-    http::{Client, StatusCode},
+    http::{Client, HttpClient, StatusCode},
 };
 
 #[tanu::test]

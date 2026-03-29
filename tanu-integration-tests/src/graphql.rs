@@ -1,5 +1,5 @@
 use graphql_client::GraphQLQuery;
-use tanu::{check, check_eq, eyre, graphql, http::Client};
+use tanu::{check, check_eq, eyre, graphql, http::Client, http::HttpClient};
 
 #[derive(GraphQLQuery)]
 #[graphql(

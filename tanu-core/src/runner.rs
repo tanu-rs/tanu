@@ -793,7 +793,7 @@ impl Filter for TestIgnoreFilter {
 ///
 /// Tests are executed in separate tokio tasks with:
 /// - Project-scoped configuration
-/// - Test-scoped context for event publishing  
+/// - Test-scoped context for event publishing
 /// - Semaphore-based concurrency control
 /// - Panic recovery and error handling
 /// - Automatic retry with configurable backoff
@@ -1002,7 +1002,7 @@ impl Runner {
     /// # Parameters
     ///
     /// - `project_names`: Only run tests from these projects (empty = all projects)
-    /// - `module_names`: Only run tests from these modules (empty = all modules)  
+    /// - `module_names`: Only run tests from these modules (empty = all modules)
     /// - `test_names`: Only run these specific tests (empty = all tests)
     ///
     /// # Examples
@@ -1415,6 +1415,7 @@ impl Runner {
 mod test {
     use super::*;
     use crate::config::RetryConfig;
+    use crate::http::HttpClient;
     use crate::ProjectConfig;
     use std::sync::Arc;
 

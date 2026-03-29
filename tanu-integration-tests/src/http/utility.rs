@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tanu::{check, check_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client, http::HttpClient};
 
 #[derive(Debug, Deserialize)]
 struct IpResponse {

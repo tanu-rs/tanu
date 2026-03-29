@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use tanu::{check, check_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client, http::HttpClient};
 
 #[tanu::test("Hello, World!")]
 #[tanu::test("Test data")]

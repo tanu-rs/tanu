@@ -1,4 +1,4 @@
-use tanu::{check, check_eq, eyre, http::Client};
+use tanu::{check, check_eq, eyre, http::Client, http::HttpClient};
 
 //#[tanu::test]
 //async fn stream_bytes() -> eyre::Result<()> {

@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tanu::{
     check, check_eq, eyre,
-    http::{Client, StatusCode},
+    http::{Client, HttpClient, StatusCode},
 };
 
 #[allow(dead_code)]

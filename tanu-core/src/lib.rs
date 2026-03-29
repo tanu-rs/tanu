@@ -75,6 +75,9 @@ pub type ModuleName = String;
 /// identification for each test case in the system.
 pub type TestName = String;
 
+// Re-export key types and traits
+pub use http::HttpClient;
+
 // Re-export key functionality
 pub use config::{get_config, get_tanu_config, CaptureHttpMode, Config, ProjectConfig};
 pub use error::{Error, Result};
