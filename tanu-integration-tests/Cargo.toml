@@ -14,6 +14,11 @@ name = "third-runner"
 path = "src/bin/third_runner.rs"
 
 [features]
+default = ["native-tls"]
+native-tls = ["tanu/native-tls"]
+rustls-tls = ["tanu/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu/rustls-tls-native-roots"]
 fail-test = []
 
 [dependencies]
