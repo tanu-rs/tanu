@@ -8,7 +8,7 @@ grpc = ["tanu/grpc", "tonic"]
 
 [dependencies]
 serde = { workspace = true }
-tanu = { path = "../tanu" }
+tanu = { path = "../tanu", default-features = false }
 tokio = { workspace = true }
 tonic = { workspace = true, optional = true }
 url = { version = "2", features = ["serde"] }

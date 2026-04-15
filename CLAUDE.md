@@ -29,14 +29,17 @@ Tanu is an async-friendly WebAPI testing framework for Rust with CLI and TUI mod
 - `cargo build --workspace` builds all crates in the workspace.
 - `cargo test --workspace` runs Rust unit tests across crates.
 - `cargo fmt --all` formats Rust code using rustfmt defaults.
-- `cargo clippy --workspace --all-targets --all-features` runs lint checks.
-- `cargo build --workspace --all-targets --all-features` builds all targets with full feature coverage.
+- `cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"` runs lint checks (native-tls).
+- `cargo clippy --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"` runs lint checks (rustls-tls).
+- `cargo build --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"` builds all targets with full feature coverage (native-tls).
+- `cargo build --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"` builds all targets with full feature coverage (rustls-tls).
+- Note: `--all-features` cannot be used because `native-tls` and `rustls-tls` are mutually exclusive.
 - `cargo run -p tanu-integration-tests -- test` runs the integration suite with the tanu runner (requires Docker for the httpbin container).
 
 ## Required Post-Change Workflow
 After every code change, always run these three commands in order:
 1. `cargo fmt --all`
-2. `cargo clippy --workspace --all-targets --all-features`
+2. `cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"`
 3. `TANU_CONFIG=./tanu-integration-tests/tanu.toml cargo run -p tanu-integration-tests -- test`
 - `cargo run -p tanu-integration-tests -- tui` launches the interactive TUI test runner.
 - `cargo run -p tanu-integration-tests -- ls` lists all available test cases.
