@@ -29,7 +29,7 @@ serde_json = "1"
 strum = { workspace = true }
 tanu-core = { version = "=0.20.0", path = "../tanu-core", default-features = false }
 tanu-derive = { version = "=0.20.0", path = "../tanu-derive" }
-tanu-tui = { version = "=0.20.0", path = "../tanu-tui" }
+tanu-tui = { version = "=0.20.0", path = "../tanu-tui", default-features = false }
 thiserror = "1"
 tokio = { workspace = true }
 toml = "0.8"
@@ -38,10 +38,10 @@ tracing-subscriber = { workspace = true }
 
 [features]
 default = ["native-tls"]
-native-tls = ["tanu-core/native-tls"]
-rustls-tls = ["tanu-core/rustls-tls"]
-rustls-tls-webpki-roots = ["tanu-core/rustls-tls-webpki-roots"]
-rustls-tls-native-roots = ["tanu-core/rustls-tls-native-roots"]
+native-tls = ["tanu-core/native-tls", "tanu-tui/native-tls"]
+rustls-tls = ["tanu-core/rustls-tls", "tanu-tui/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu-core/rustls-tls-webpki-roots", "tanu-tui/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu-core/rustls-tls-native-roots", "tanu-tui/rustls-tls-native-roots"]
 json = ["tanu-core/json"]
 multipart = ["tanu-core/multipart"]
 cookies = ["tanu-core/cookies"]

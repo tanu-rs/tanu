@@ -46,5 +46,9 @@ pretty_assertions = { workspace = true }
 eyre = { workspace = true }
 
 [features]
-default = []
+default = ["native-tls"]
+native-tls = ["tanu-core/native-tls"]
+rustls-tls = ["tanu-core/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu-core/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu-core/rustls-tls-native-roots"]
 grpc = ["tanu-core/grpc", "tonic"]
