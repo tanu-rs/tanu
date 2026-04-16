@@ -28,7 +28,13 @@ once_cell = { workspace = true }
 pretty_assertions = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-hyper-tls = { workspace = true }
+hyper-tls = { workspace = true, optional = true }
+
+# rustls support (optional)
+hyper-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
 http-body-util = { workspace = true }
 bytes = { workspace = true }
 base64 = "0.22"
@@ -62,7 +68,11 @@ serial_test = "3"
 test-case = { workspace = true }
 
 [features]
-default = []
+default = ["native-tls"]
+native-tls = ["hyper-tls"]
+rustls-tls = ["hyper-rustls", "rustls"]
+rustls-tls-webpki-roots = ["rustls-tls", "webpki-roots"]
+rustls-tls-native-roots = ["rustls-tls", "rustls-native-certs"]
 json = []
 multipart = []
 cookies = ["cookie"]

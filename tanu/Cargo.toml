@@ -27,7 +27,7 @@ pretty_assertions = { workspace = true }
 serde = { workspace = true }
 serde_json = "1"
 strum = { workspace = true }
-tanu-core = { version = "=0.19.0", path = "../tanu-core" }
+tanu-core = { version = "=0.19.0", path = "../tanu-core", default-features = false }
 tanu-derive = { version = "=0.19.0", path = "../tanu-derive" }
 tanu-tui = { version = "=0.19.0", path = "../tanu-tui" }
 thiserror = "1"
@@ -37,7 +37,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
-default = []
+default = ["native-tls"]
+native-tls = ["tanu-core/native-tls"]
+rustls-tls = ["tanu-core/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu-core/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu-core/rustls-tls-native-roots"]
 json = ["tanu-core/json"]
 multipart = ["tanu-core/multipart"]
 cookies = ["tanu-core/cookies"]

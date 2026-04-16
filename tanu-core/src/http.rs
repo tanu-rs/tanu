@@ -70,6 +70,15 @@ use tracing::*;
 
 use crate::masking;
 
+// Ensure exactly one TLS backend is selected
+#[cfg(all(feature = "native-tls", feature = "rustls-tls"))]
+compile_error!(
+    "Features `native-tls` and `rustls-tls` are mutually exclusive. Please enable only one."
+);
+
+#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
+compile_error!("Either feature `native-tls` or `rustls-tls` must be enabled for TLS support.");
+
 #[cfg(feature = "cookies")]
 use std::collections::HashMap;
 
@@ -126,8 +135,12 @@ pub enum Error {
     Uri(#[from] http::uri::InvalidUri),
     #[error("HeaderError: {0}")]
     Header(#[from] http::Error),
+    #[cfg(feature = "native-tls")]
     #[error("TlsError: {0}")]
     Tls(#[from] hyper_tls::native_tls::Error),
+    #[cfg(feature = "rustls-tls")]
+    #[error("TlsError: {0}")]
+    Tls(#[from] rustls::Error),
     #[error("Request timed out after {0:?}")]
     Timeout(Duration),
     #[error("failed to deserialize http response into the specified type: {0}")]
@@ -388,8 +401,14 @@ impl Response {
 /// ```
 #[derive(Clone)]
 pub struct Client {
+    #[cfg(feature = "native-tls")]
     pub(crate) inner: HyperClient<
         hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+        Full<Bytes>,
+    >,
+    #[cfg(feature = "rustls-tls")]
+    pub(crate) inner: HyperClient<
+        hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
         Full<Bytes>,
     >,
     #[cfg(feature = "cookies")]
@@ -418,8 +437,42 @@ impl Client {
     /// let client = Client::new();
     /// ```
     pub fn new() -> Client {
-        let https = hyper_tls::HttpsConnector::new();
-        let inner = HyperClient::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https);
+        #[cfg(feature = "native-tls")]
+        let inner = {
+            let https = hyper_tls::HttpsConnector::new();
+            HyperClient::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https)
+        };
+
+        #[cfg(feature = "rustls-tls")]
+        let inner = {
+            let mut root_store = rustls::RootCertStore::empty();
+
+            #[cfg(feature = "rustls-tls-native-roots")]
+            {
+                let native_certs = rustls_native_certs::load_native_certs();
+                for cert in native_certs {
+                    root_store.add(cert).ok();
+                }
+            }
+
+            #[cfg(feature = "rustls-tls-webpki-roots")]
+            {
+                root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            }
+
+            let tls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+
+            let https = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(tls_config)
+                .https_or_http()
+                .enable_http1()
+                .enable_http2()
+                .build();
+
+            HyperClient::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https)
+        };
 
         Client {
             inner,

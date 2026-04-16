@@ -22,12 +22,18 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy, rustfmt
-    - name: build crates and examples
+    - name: build crates and examples (native-tls)
       run: |
-        cargo build --workspace --all-targets --all-features
-    - name: run clippy
+        cargo build --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"
+    - name: build crates and examples (rustls-tls)
       run: |
-        cargo clippy --workspace --all-targets --all-features -- --deny clippy::all
+        cargo build --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"
+    - name: run clippy (native-tls)
+      run: |
+        cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls" -- --deny clippy::all
+    - name: run clippy (rustls-tls)
+      run: |
+        cargo clippy --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots" -- --deny clippy::all
     - name: install nextest
       uses: taiki-e/install-action@nextest
     - name: run unit tests

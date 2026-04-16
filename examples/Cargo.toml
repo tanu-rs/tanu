@@ -4,11 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["native-tls"]
+native-tls = ["tanu/native-tls"]
+rustls-tls = ["tanu/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu/rustls-tls-native-roots"]
 grpc = ["tanu/grpc", "tonic"]
 
 [dependencies]
 serde = { workspace = true }
-tanu = { path = "../tanu" }
+tanu = { path = "../tanu", default-features = false }
 tokio = { workspace = true }
 tonic = { workspace = true, optional = true }
 url = { version = "2", features = ["serde"] }

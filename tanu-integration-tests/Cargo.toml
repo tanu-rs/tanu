@@ -14,6 +14,11 @@ name = "third-runner"
 path = "src/bin/third_runner.rs"
 
 [features]
+default = ["native-tls"]
+native-tls = ["tanu/native-tls"]
+rustls-tls = ["tanu/rustls-tls"]
+rustls-tls-webpki-roots = ["tanu/rustls-tls-webpki-roots"]
+rustls-tls-native-roots = ["tanu/rustls-tls-native-roots"]
 fail-test = []
 
 [dependencies]
@@ -24,7 +29,7 @@ dtor = "0.0.6"
 prost = "0.14.1"
 serde = { workspace = true }
 serde_json = "1"
-tanu = { path = "../tanu", features = ["json", "cookies", "grpc", "graphql"] }
+tanu = { path = "../tanu", default-features = false, features = ["json", "cookies", "grpc", "graphql"] }
 testcontainers = "0.24"
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
