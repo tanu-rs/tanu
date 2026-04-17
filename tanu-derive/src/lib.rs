@@ -310,10 +310,8 @@ fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
                 }
             }
         }
-        Expr::Path(ExprPath { path, .. }) => {
-            if path.get_ident()? == "None" {
-                return Some("None".into());
-            }
+        Expr::Path(ExprPath { path, .. }) if path.get_ident()? == "None" => {
+            return Some("None".into());
         }
         _ => {}
     }

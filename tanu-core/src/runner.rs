@@ -1093,7 +1093,7 @@ impl Runner {
             let mut all_tests: Vec<_> = self
                 .test_cases
                 .iter()
-                .cartesian_product(projects.into_iter())
+                .cartesian_product(projects)
                 .map(|((info, factory), project)| (project, Arc::clone(info), factory.clone()))
                 .filter(move |(project, info, _)| test_name_filter.filter(project, info))
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
