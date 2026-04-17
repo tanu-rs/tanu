@@ -16,6 +16,46 @@ cargo add tanu
 cargo add tokio --features full
 ```
 
+## TLS Backends
+
+Tanu supports two TLS backends, controlled by Cargo feature flags. Only one TLS backend can be active at a time.
+
+### `native-tls` (default)
+
+Uses the platform's native TLS stack: **OpenSSL** on Linux, **SChannel** on Windows, and **Secure Transport** on macOS. This is the default and requires no extra configuration.
+
+```toml
+[dependencies]
+tanu = "0.x"  # native-tls is enabled by default
+```
+
+### `rustls-tls`
+
+Tanu also ships three variants of the [rustls](https://github.com/rustls/rustls) TLS backend. Rustls is a pure-Rust TLS library that does not depend on OpenSSL or any system TLS library, making it easier to cross-compile and deploy in minimal environments.
+
+To switch to rustls, disable the default features and enable one of the variants:
+
+| Feature flag | Root certificate source | When to use |
+|---|---|---|
+| `rustls-tls-webpki-roots` | Bundled [Mozilla WebPKI roots](https://github.com/rustls/webpki-roots) | Recommended for most rustls users; behaviour is identical across all platforms |
+| `rustls-tls-native-roots` | System certificate store (same as `native-tls`) | Needed when your environment has custom/corporate CA certificates installed at the OS level |
+| `rustls-tls` | None – you must supply roots yourself | Advanced use; prefer one of the variants above |
+
+```toml
+# Example: rustls with bundled WebPKI roots
+[dependencies]
+tanu = { version = "0.x", default-features = false, features = ["rustls-tls-webpki-roots"] }
+```
+
+```toml
+# Example: rustls with the system native certificate store
+[dependencies]
+tanu = { version = "0.x", default-features = false, features = ["rustls-tls-native-roots"] }
+```
+
+!!! note
+    `native-tls` and the `rustls-tls*` flags are mutually exclusive. Always set `default-features = false` when enabling a rustls variant, otherwise both backends will be enabled and the build will fail.
+
 Open `src/main.rs` in your editor, and replace its contents with the following code:
 
 ```rust
