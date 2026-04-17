@@ -450,7 +450,7 @@ impl Client {
             #[cfg(feature = "rustls-tls-native-roots")]
             {
                 let native_certs = rustls_native_certs::load_native_certs();
-                for cert in native_certs {
+                for cert in native_certs.certs {
                     root_store.add(cert).ok();
                 }
             }
