@@ -771,12 +771,12 @@ impl Filter for TestIgnoreFilter {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use tanu_core::{Runner, reporter::TableReporter};
+/// use tanu_core::{Runner, reporter::ListReporter};
 ///
 /// let mut runner = Runner::new();
 /// runner.capture_http();
 /// runner.set_concurrency(8);
-/// runner.add_reporter(TableReporter::new());
+/// runner.add_reporter(ListReporter::new(false));
 ///
 /// // Add tests (typically done by procedural macros)
 /// runner.add_test("health_check", "api", None, test_factory);
@@ -897,10 +897,10 @@ impl Runner {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// use tanu_core::{Runner, reporter::TableReporter};
+    /// use tanu_core::{Runner, reporter::ListReporter};
     ///
     /// let mut runner = Runner::new();
-    /// runner.add_reporter(TableReporter::new());
+    /// runner.add_reporter(ListReporter::new(false));
     /// ```
     pub fn add_reporter(&mut self, reporter: impl Reporter + 'static + Send) {
         self.reporters.push(Box::new(reporter));

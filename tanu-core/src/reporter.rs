@@ -9,7 +9,6 @@
 //!
 //! - **`NullReporter`**: No output (useful for testing)
 //! - **`ListReporter`**: Real-time streaming output with detailed logs
-//! - **`TableReporter`**: Summary table output after all tests complete
 //!
 //! ## Custom Reporters
 //!
@@ -36,18 +35,13 @@
 //! ```
 
 use console::{style, StyledObject, Term};
-use eyre::WrapErr;
 use indexmap::IndexMap;
-use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    sync::{LazyLock, Mutex},
-};
+use std::sync::{LazyLock, Mutex};
 use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
-    get_tanu_config, http,
+    http,
     runner::{self, Event, EventBody, Test},
     ModuleName, ProjectName, TestName,
 };
@@ -61,14 +55,12 @@ use crate::{
 ///
 /// - `Null`: No output, useful for testing or when output is not needed
 /// - `List`: Real-time streaming output with detailed information
-/// - `Table`: Summary table displayed after all tests complete
 #[derive(Debug, Clone, Default, strum::EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ReporterType {
     Null,
     #[default]
     List,
-    Table,
 }
 
 async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> {
@@ -652,11 +644,6 @@ impl Reporter for ListReporter {
     }
 }
 
-fn write(term: &Term, s: impl AsRef<str>) -> eyre::Result<()> {
-    let colored = style(s.as_ref()).dim();
-    term.write_line(&format!("{colored}"))
-        .wrap_err("failed to write character on terminal")
-}
 
 fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
     match test.result {
@@ -673,12 +660,6 @@ fn symbol_error() -> StyledObject<&'static str> {
     style("✘").red()
 }
 
-fn emoji_symbol_test_result(test: &Test) -> char {
-    match test.result {
-        Ok(_) => '🟢',
-        Err(_) => '🔴',
-    }
-}
 
 /// Color HTTP methods for visual distinction
 fn style_http_method(method: &str) -> StyledObject<&str> {
@@ -740,160 +721,4 @@ fn style_project(name: &str) -> StyledObject<String> {
 /// Style module path with cyan color and test name in bold blue
 fn style_module_path(module: &str, test: &str) -> String {
     format!("{}::{}", style(module).cyan(), style(test).blue().bold())
-}
-
-#[allow(clippy::vec_box, dead_code)]
-/// A reporter that displays test results in a summary table after all tests complete.
-///
-/// This reporter buffers all test results and displays them in a formatted table
-/// at the end of execution. Useful for getting an overview of all test results
-/// without the noise of real-time output.
-///
-/// # Features
-///
-/// - **Summary table**: Clean tabular output after test completion
-/// - **Project ordering**: Results ordered by project configuration
-/// - **Emoji indicators**: Visual success/failure indicators
-/// - **Modern styling**: Attractive table borders and formatting
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// use tanu_core::{Runner, reporter::TableReporter};
-///
-/// let mut runner = Runner::new();
-/// runner.add_reporter(TableReporter::new(false)); // No HTTP details in table
-/// ```
-///
-/// # Output Format
-///
-/// ```text
-/// ┌─────────┬────────┬──────────────┬────────┐
-/// │ Project │ Module │ Test         │ Result │
-/// ├─────────┼────────┼──────────────┼────────┤
-/// │ staging │ api    │ health_check │   🟢   │
-/// │ staging │ auth   │ login        │   🔴   │
-/// │ prod    │ api    │ status       │   🟢   │
-/// └─────────┴────────┴──────────────┴────────┘
-/// ```
-pub struct TableReporter {
-    terminal: Term,
-    buffer: HashMap<(ProjectName, ModuleName, TestName), Test>,
-    capture_http: bool,
-}
-
-impl TableReporter {
-    /// Creates a new table reporter.
-    ///
-    /// # Parameters
-    ///
-    /// - `capture_http`: Whether to capture HTTP details (currently unused in table output)
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use tanu_core::reporter::TableReporter;
-    ///
-    /// let reporter = TableReporter::new(false);
-    /// ```
-    pub fn new(capture_http: bool) -> TableReporter {
-        TableReporter {
-            terminal: Term::stdout(),
-            buffer: HashMap::new(),
-            capture_http,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Reporter for TableReporter {
-    async fn run(&mut self) -> eyre::Result<()> {
-        run(self).await?;
-
-        let project_order: Vec<_> = get_tanu_config().projects.iter().map(|p| &p.name).collect();
-
-        let mut builder = tabled::builder::Builder::default();
-        builder.push_record(["Project", "Module", "Test", "Result"]);
-        self.buffer
-            .drain()
-            .sorted_by(|(a, _), (b, _)| {
-                let project_order_a = project_order
-                    .iter()
-                    .position(|&p| *p == a.0)
-                    .unwrap_or(usize::MAX);
-                let project_order_b = project_order
-                    .iter()
-                    .position(|&p| *p == b.0)
-                    .unwrap_or(usize::MAX);
-
-                project_order_a
-                    .cmp(&project_order_b)
-                    .then(a.1.cmp(&b.1))
-                    .then(a.2.cmp(&b.2))
-            })
-            .for_each(|((p, m, t), test)| {
-                builder.push_record([p, m, t, emoji_symbol_test_result(&test).to_string()])
-            });
-
-        let mut table = builder.build();
-        table.with(tabled::settings::Style::modern()).with(
-            tabled::settings::Modify::new(tabled::settings::object::Columns::single(3))
-                .with(tabled::settings::Alignment::center()),
-        );
-
-        write(&self.terminal, format!("{table}")).wrap_err("failed to write table on terminal")?;
-
-        Ok(())
-    }
-
-    async fn on_end(
-        &mut self,
-        project_name: String,
-        module_name: String,
-        test_name: String,
-        test: Test,
-    ) -> eyre::Result<()> {
-        self.buffer
-            .insert((project_name, module_name, test_name), test);
-        Ok(())
-    }
-
-    async fn on_summary(&mut self, summary: runner::TestSummary) -> eyre::Result<()> {
-        let runner::TestSummary {
-            total_tests,
-            passed_tests,
-            failed_tests,
-            total_time,
-            test_prep_time,
-        } = summary;
-
-        self.terminal.write_line("")?;
-        self.terminal.write_line(&format!(
-            "{}: {} {}, {} {}, {} {}",
-            style("Tests").bold(),
-            style(passed_tests).green().bold(),
-            style("passed").green(),
-            if failed_tests > 0 {
-                style(failed_tests).red().bold()
-            } else {
-                style(failed_tests).bold()
-            },
-            if failed_tests > 0 {
-                style("failed").red()
-            } else {
-                style("failed")
-            },
-            style(total_tests).bold(),
-            style("total").dim()
-        ))?;
-        self.terminal.write_line(&format!(
-            "{}: {} ({}: {})",
-            style("Time").bold(),
-            style(format!("{total_time:.2?}")).cyan(),
-            style("prep").dim(),
-            style(format!("{test_prep_time:.2?}")).dim()
-        ))?;
-
-        Ok(())
-    }
 }

@@ -11,7 +11,7 @@ use std::{
 };
 use tanu_core::Filter;
 
-use crate::{get_tanu_config, ListReporter, ReporterType, TableReporter};
+use crate::{get_tanu_config, ListReporter, ReporterType};
 
 /// Define CLI color styles
 fn cli_styles() -> Styles {
@@ -28,7 +28,6 @@ fn cli_styles() -> Styles {
 /// Build the CLI with clap's builder pattern
 fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> ClapCommand {
     let mut reporter_choices: VecDeque<_> = third_party_reporters.map(|s| s.to_string()).collect();
-    reporter_choices.push_front(ReporterType::Table.to_string());
     reporter_choices.push_front(ReporterType::List.to_string());
     ClapCommand::new("tanu")
         .styles(cli_styles())
@@ -295,20 +294,13 @@ impl App {
                 runner.terminate_channel();
 
                 let mut reporters = std::mem::take(&mut self.third_party_reporters);
-                reporters.extend([
-                    (
-                        ReporterType::Table.to_string(),
-                        Box::new(TableReporter::new(capture_http)),
-                    ),
-                    (
-                        ReporterType::List.to_string(),
-                        Box::new(ListReporter::new(capture_http)),
-                    ),
-                ]
-                    as [(
-                        String,
-                        Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
-                    ); 2]);
+                reporters.extend([(
+                    ReporterType::List.to_string(),
+                    Box::new(ListReporter::new(capture_http)),
+                )] as [(
+                    String,
+                    Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
+                ); 1]);
 
                 for reporter in reporters_arg {
                     runner.add_boxed_reporter(
