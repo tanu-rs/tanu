@@ -924,6 +924,7 @@ mod test {
                         url: "https://example.com/1".parse()?,
                         method: http::Method::GET,
                         headers: http::header::HeaderMap::new(),
+                        body: None,
                     },
                     response: tanu_core::http::LogResponse {
                         status: StatusCode::OK,
@@ -937,6 +938,7 @@ mod test {
                         url: "https://example.com/2".parse()?,
                         method: http::Method::GET,
                         headers: http::header::HeaderMap::new(),
+                        body: None,
                     },
                     response: tanu_core::http::LogResponse {
                         status: StatusCode::OK,
