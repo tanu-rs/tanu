@@ -1,10 +1,18 @@
 //! Sensitive data masking utilities for HTTP logging.
 //!
 //! This module provides utilities for masking sensitive data in HTTP logs,
-//! such as API keys in query strings and authorization headers.
+//! such as API keys in query strings, authorization headers, and response
+//! bodies containing tokens or credentials.
+//!
+//! Matching uses substring logic — a field named `client_secret` is masked
+//! because it contains `secret`. The sensitive keyword lists can be extended
+//! at runtime via [`set_extra_sensitive_keys`] and
+//! [`set_extra_sensitive_headers`], which are wired through `tanu.toml`'s
+//! `extra_sensitive_keys` / `extra_sensitive_headers` runner settings.
 
 use http::header::{HeaderMap, HeaderValue};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use url::Url;
 
 /// The mask string used to replace sensitive values.
@@ -12,6 +20,20 @@ const MASK: &str = "*****";
 
 /// Global flag for masking (set by Runner at startup).
 static MASK_SENSITIVE: AtomicBool = AtomicBool::new(true);
+
+/// Extra sensitive key substrings added via config (lower-cased at set time).
+static EXTRA_KEYS: OnceLock<std::sync::RwLock<Vec<String>>> = OnceLock::new();
+
+/// Extra sensitive header names added via config (lower-cased, exact match).
+static EXTRA_HEADERS: OnceLock<std::sync::RwLock<Vec<String>>> = OnceLock::new();
+
+fn extra_keys() -> &'static std::sync::RwLock<Vec<String>> {
+    EXTRA_KEYS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+fn extra_headers() -> &'static std::sync::RwLock<Vec<String>> {
+    EXTRA_HEADERS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
 
 /// Sets whether sensitive data should be masked.
 ///
@@ -25,25 +47,91 @@ pub fn should_mask_sensitive() -> bool {
     MASK_SENSITIVE.load(Ordering::Relaxed)
 }
 
-/// Query parameter names to mask (case-insensitive comparison).
-const SENSITIVE_QUERY_PARAMS: &[&str] = &[
+/// Adds extra field/query-param substrings to treat as sensitive (lowercased).
+///
+/// Called by the Runner at startup from `extra_sensitive_keys` in `tanu.toml`.
+pub fn set_extra_sensitive_keys(keys: Vec<String>) {
+    let lowered: Vec<String> = keys.into_iter().map(|k| k.to_lowercase()).collect();
+    *extra_keys().write().expect("extra_keys lock poisoned") = lowered;
+}
+
+/// Adds extra header names to treat as sensitive (lowercased, exact match).
+///
+/// Called by the Runner at startup from `extra_sensitive_headers` in `tanu.toml`.
+pub fn set_extra_sensitive_headers(headers: Vec<String>) {
+    let lowered: Vec<String> = headers.into_iter().map(|h| h.to_lowercase()).collect();
+    *extra_headers()
+        .write()
+        .expect("extra_headers lock poisoned") = lowered;
+}
+
+/// Built-in substrings that trigger masking of a query-param / body field
+/// (case-insensitive substring match — `client_secret` matches via `secret`).
+const SENSITIVE_KEY_SUBSTRINGS: &[&str] = &[
     "access_token",
     "api_key",
     "apikey",
     "token",
     "secret",
     "password",
+    "passwd",
+    "pwd",
     "key",
     "auth",
+    "credential",
+    "credentials",
+    "private_key",
+    "session",
+    "session_id",
+    "id_token",
+    "signature",
+    "client_id",
 ];
 
-/// Header names to mask (case-insensitive comparison).
-const SENSITIVE_HEADERS: &[&str] = &["authorization", "x-api-key", "x-auth-token", "cookie"];
+/// Built-in header names to mask (case-insensitive exact match).
+const SENSITIVE_HEADERS: &[&str] = &[
+    "authorization",
+    "x-api-key",
+    "x-auth-token",
+    "cookie",
+    "set-cookie",
+    "proxy-authorization",
+    "x-amz-security-token",
+    "x-csrf-token",
+    "x-csrf",
+    "api-key",
+];
 
 /// Returns true if the given key (field/query-param name) is sensitive.
+///
+/// Uses substring matching: `client_secret` is sensitive because it contains
+/// `secret`.
 fn is_sensitive_key(key: &str) -> bool {
     let key_lower = key.to_lowercase();
-    SENSITIVE_QUERY_PARAMS.iter().any(|&p| key_lower == p)
+    if SENSITIVE_KEY_SUBSTRINGS
+        .iter()
+        .any(|&p| key_lower.contains(p))
+    {
+        return true;
+    }
+    extra_keys()
+        .read()
+        .expect("extra_keys lock poisoned")
+        .iter()
+        .any(|p| key_lower.contains(p.as_str()))
+}
+
+/// Returns true if the given header name is sensitive (exact match).
+fn is_sensitive_header(name: &str) -> bool {
+    let name_lower = name.to_lowercase();
+    if SENSITIVE_HEADERS.iter().any(|&h| name_lower == h) {
+        return true;
+    }
+    extra_headers()
+        .read()
+        .expect("extra_headers lock poisoned")
+        .iter()
+        .any(|h| name_lower == h.as_str())
 }
 
 /// Masks sensitive query parameters in a URL.
@@ -110,8 +198,7 @@ pub fn mask_headers(headers: &HeaderMap) -> HeaderMap {
     let mut masked = HeaderMap::new();
 
     for (name, value) in headers.iter() {
-        let name_lower = name.as_str().to_lowercase();
-        let masked_value = if SENSITIVE_HEADERS.iter().any(|&h| name_lower == h) {
+        let masked_value = if is_sensitive_header(name.as_str()) {
             HeaderValue::from_static(MASK)
         } else {
             value.clone()
@@ -421,5 +508,132 @@ mod tests {
         let body = b"some raw bytes";
         let masked = mask_body(body, None);
         assert_eq!(masked, "some raw bytes");
+    }
+
+    // --- Substring matching ---
+
+    #[test]
+    fn test_is_sensitive_key_substring_client_secret() {
+        // "client_secret" contains "secret"
+        assert!(is_sensitive_key("client_secret"));
+    }
+
+    #[test]
+    fn test_is_sensitive_key_substring_refresh_token() {
+        // "refresh_token" contains "token"
+        assert!(is_sensitive_key("refresh_token"));
+    }
+
+    #[test]
+    fn test_is_sensitive_key_substring_id_token() {
+        assert!(is_sensitive_key("id_token"));
+    }
+
+    #[test]
+    fn test_is_sensitive_key_substring_session_id() {
+        // "session_id" contains "session"
+        assert!(is_sensitive_key("session_id"));
+    }
+
+    #[test]
+    fn test_is_sensitive_key_substring_user_password() {
+        // "user_password" contains "password"
+        assert!(is_sensitive_key("user_password"));
+    }
+
+    #[test]
+    fn test_is_sensitive_key_non_sensitive_name() {
+        // "name" should not match any built-in substring
+        assert!(!is_sensitive_key("name"));
+        assert!(!is_sensitive_key("page"));
+        assert!(!is_sensitive_key("limit"));
+        assert!(!is_sensitive_key("user_id"));
+    }
+
+    #[test]
+    fn test_mask_url_substring_client_secret() {
+        let url = Url::parse("https://api.example.com/token?client_secret=s3cr3t&grant_type=code")
+            .unwrap();
+        let masked = mask_url(&url);
+        assert!(masked.to_string().contains("client_secret=*****"));
+        assert!(masked.to_string().contains("grant_type=code"));
+    }
+
+    #[test]
+    fn test_mask_body_json_substring_client_secret() {
+        let body = br#"{"client_secret":"s3cr3t","grant_type":"code"}"#;
+        let masked = mask_body(body, Some("application/json"));
+        let v: serde_json::Value = serde_json::from_str(&masked).unwrap();
+        assert_eq!(v["client_secret"], "*****");
+        assert_eq!(v["grant_type"], "code");
+    }
+
+    // --- New sensitive headers ---
+
+    #[test]
+    fn test_mask_headers_set_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert("set-cookie", "session_id=abc123; HttpOnly".parse().unwrap());
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let masked = mask_headers(&headers);
+        assert_eq!(masked.get("set-cookie").unwrap(), "*****");
+        assert_eq!(masked.get("content-type").unwrap(), "application/json");
+    }
+
+    #[test]
+    fn test_mask_headers_proxy_authorization() {
+        let mut headers = HeaderMap::new();
+        headers.insert("proxy-authorization", "Basic dXNlcjpwYXNz".parse().unwrap());
+        let masked = mask_headers(&headers);
+        assert_eq!(masked.get("proxy-authorization").unwrap(), "*****");
+    }
+
+    #[test]
+    fn test_mask_headers_x_amz_security_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-amz-security-token", "FwoGZXIvYXdzEJ...".parse().unwrap());
+        let masked = mask_headers(&headers);
+        assert_eq!(masked.get("x-amz-security-token").unwrap(), "*****");
+    }
+
+    #[test]
+    fn test_mask_headers_api_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("api-key", "my-secret-key".parse().unwrap());
+        let masked = mask_headers(&headers);
+        assert_eq!(masked.get("api-key").unwrap(), "*****");
+    }
+
+    // --- User-extensible lists ---
+
+    #[test]
+    fn test_extra_sensitive_keys_masks_custom_key() {
+        set_extra_sensitive_keys(vec!["my_custom_token".to_string()]);
+
+        let body = br#"{"my_custom_token":"val","other":"ok"}"#;
+        let masked = mask_body(body, Some("application/json"));
+        let v: serde_json::Value = serde_json::from_str(&masked).unwrap();
+        assert_eq!(v["my_custom_token"], "*****");
+        assert_eq!(v["other"], "ok");
+
+        // Reset
+        set_extra_sensitive_keys(vec![]);
+    }
+
+    #[test]
+    fn test_extra_sensitive_headers_masks_custom_header() {
+        set_extra_sensitive_headers(vec!["x-my-custom-secret".to_string()]);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-my-custom-secret", "super-secret".parse().unwrap());
+        headers.insert("accept", "application/json".parse().unwrap());
+
+        let masked = mask_headers(&headers);
+        assert_eq!(masked.get("x-my-custom-secret").unwrap(), "*****");
+        assert_eq!(masked.get("accept").unwrap(), "application/json");
+
+        // Reset
+        set_extra_sensitive_headers(vec![]);
     }
 }
