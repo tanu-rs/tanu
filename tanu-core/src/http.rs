@@ -154,6 +154,9 @@ pub struct LogRequest {
     pub url: url::Url,
     pub method: Method,
     pub headers: header::HeaderMap,
+    /// Captured request body, if any. Sensitive field values are masked when
+    /// masking is enabled. `None` means no body was sent.
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -718,6 +721,17 @@ impl RequestBuilder {
             } else {
                 self.headers.clone()
             },
+            body: self.body.as_ref().map(|b| {
+                let content_type = self
+                    .headers
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok());
+                if masking::should_mask_sensitive() {
+                    masking::mask_body(b, content_type)
+                } else {
+                    String::from_utf8_lossy(b).into_owned()
+                }
+            }),
         };
 
         let started_at = SystemTime::now();
