@@ -544,7 +544,6 @@ impl Reporter for ListReporter {
     }
 }
 
-
 fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
     match test.result {
         Ok(_) => symbol_success(),
@@ -559,7 +558,6 @@ fn symbol_success() -> StyledObject<&'static str> {
 fn symbol_error() -> StyledObject<&'static str> {
     style("✘").red()
 }
-
 
 /// Color HTTP methods for visual distinction
 fn style_http_method(method: &str) -> StyledObject<&str> {
@@ -624,6 +622,69 @@ fn style_module_path(module: &str, test: &str) -> String {
     format!("{}::{}", style(module).cyan(), style(test).blue().bold())
 }
 
+/// Recursively formats a JSON value with ANSI terminal colors.
+///
+/// Keys are rendered in bold cyan, strings in green, numbers in yellow,
+/// booleans in magenta, and null in dim. Structural characters are dim.
+fn colorize_json(value: &serde_json::Value, indent: usize) -> String {
+    let pad = "  ".repeat(indent);
+    let inner = "  ".repeat(indent + 1);
+    match value {
+        serde_json::Value::Null => style("null").dim().to_string(),
+        serde_json::Value::Bool(b) => style(b.to_string()).magenta().to_string(),
+        serde_json::Value::Number(n) => style(n.to_string()).yellow().to_string(),
+        serde_json::Value::String(s) => {
+            let repr = serde_json::to_string(s).unwrap_or_else(|_| format!("\"{s}\""));
+            style(repr).green().to_string()
+        }
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                return style("[]").dim().to_string();
+            }
+            let items: Vec<String> = arr
+                .iter()
+                .map(|v| format!("{}{}", inner, colorize_json(v, indent + 1)))
+                .collect();
+            let comma = style(",").dim().to_string();
+            format!(
+                "{}\n{}\n{}{}",
+                style("[").dim(),
+                items.join(&format!("{comma}\n")),
+                pad,
+                style("]").dim()
+            )
+        }
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                return style("{}").dim().to_string();
+            }
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    let key_repr = serde_json::to_string(k).unwrap_or_else(|_| format!("\"{k}\""));
+                    let key = style(key_repr).cyan().bold().to_string();
+                    let colon = style(":").dim().to_string();
+                    format!("{}{}{} {}", inner, key, colon, colorize_json(v, indent + 1))
+                })
+                .collect();
+            let comma = style(",").dim().to_string();
+            let open = style("{").dim().to_string();
+            let close = format!("{}{}", pad, style("}").dim());
+            format!("{}\n{}\n{}", open, items.join(&format!("{comma}\n")), close)
+        }
+    }
+}
+
+/// Formats a body string for terminal display. Parses and colorizes JSON when
+/// the content-type is `application/json`; otherwise returns the text as-is.
+fn format_body_for_display(body: &str, content_type: &str) -> String {
+    if content_type.to_lowercase().starts_with("application/json") {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+            return colorize_json(&json, 0);
+        }
+    }
+    body.to_string()
+}
 
 fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
     terminal.write_line(&format!(
@@ -650,6 +711,24 @@ fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
             style(log.request.headers.get(key).unwrap().to_str().unwrap()).dim()
         ))?;
     }
+    if let Some(ref body) = log.request.body {
+        if !body.is_empty() {
+            terminal.write_line(&format!(
+                "    {} {}",
+                style(">").cyan(),
+                style("body:").dim()
+            ))?;
+            let req_ct = log
+                .request
+                .headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            for line in format_body_for_display(body, req_ct).lines() {
+                terminal.write_line(&format!("       {}", line))?;
+            }
+        }
+    }
     terminal.write_line(&format!(
         "  {} {}",
         style("<").yellow(),
@@ -675,11 +754,21 @@ fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
         ))?;
     }
     terminal.write_line(&format!(
-        "    {} {} {}",
+        "    {} {}",
         style("<").yellow(),
-        style("body:").dim(),
-        style(&log.response.body).dim()
+        style("body:").dim()
     ))?;
+    if !log.response.body.is_empty() {
+        let res_ct = log
+            .response
+            .headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        for line in format_body_for_display(&log.response.body, res_ct).lines() {
+            terminal.write_line(&format!("       {}", line))?;
+        }
+    }
     Ok(())
 }
 

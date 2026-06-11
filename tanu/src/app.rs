@@ -314,10 +314,11 @@ impl App {
                 reporters.extend([(
                     ReporterType::List.to_string(),
                     Box::new(ListReporter::new(capture_http)),
-                )] as [(
-                    String,
-                    Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
-                ); 1]);
+                )]
+                    as [(
+                        String,
+                        Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
+                    ); 1]);
 
                 for reporter in reporters_arg {
                     runner.add_boxed_reporter(

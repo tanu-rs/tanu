@@ -648,30 +648,10 @@ impl InfoWidget {
 
         #[cfg(feature = "grpc")]
         let (theme_bg, highlighted_text) = match call {
-            SelectedCall::Http(http_call) => {
-                let body = &http_call.response.body;
-                if body.is_empty() {
-                    return;
-                }
-
-                let content_type = http_call
-                    .response
-                    .headers
-                    .get("content-type")
-                    .map(|v| v.to_str().unwrap_or_default());
-
-                if content_type == Some("application/json") {
-                    let json: serde_json::Value = match serde_json::from_str(body) {
-                        Ok(json) => json,
-                        Err(_) => return,
-                    };
-                    let json_str = serde_json::to_string_pretty(&json).unwrap();
-                    let (theme_bg, highlighted_json) = highlight_source_code(json_str);
-                    (Some(theme_bg), highlighted_json)
-                } else {
-                    (None, body.to_string())
-                }
-            }
+            SelectedCall::Http(http_call) => match build_http_payload_text(http_call) {
+                Some(result) => result,
+                None => return,
+            },
             SelectedCall::Grpc(grpc_call) => {
                 let req_msg = tanu_core::grpc::format_message(&grpc_call.request.message);
                 let res_msg = tanu_core::grpc::format_message(&grpc_call.response.message);
@@ -684,29 +664,9 @@ impl InfoWidget {
         };
 
         #[cfg(not(feature = "grpc"))]
-        let (theme_bg, highlighted_text) = {
-            let body = &call.response.body;
-            if body.is_empty() {
-                return;
-            }
-
-            let content_type = call
-                .response
-                .headers
-                .get("content-type")
-                .map(|v| v.to_str().unwrap_or_default());
-
-            if content_type == Some("application/json") {
-                let json: serde_json::Value = match serde_json::from_str(body) {
-                    Ok(json) => json,
-                    Err(_) => return,
-                };
-                let json_str = serde_json::to_string_pretty(&json).unwrap();
-                let (theme_bg, highlighted_json) = highlight_source_code(json_str);
-                (Some(theme_bg), highlighted_json)
-            } else {
-                (None, body.to_string())
-            }
+        let (theme_bg, highlighted_text) = match build_http_payload_text(call) {
+            Some(result) => result,
+            None => return,
         };
 
         // Split the highlighted JSON into lines
@@ -843,6 +803,80 @@ static THEME: Lazy<Theme> = Lazy::new(|| {
 
 // Include the generated themes module
 include!(concat!(env!("OUT_DIR"), "/themes.rs"));
+
+/// Formats a request body for display: pretty-prints if valid JSON and the
+/// content-type advertises JSON, otherwise returns the raw text unchanged.
+fn pretty_print_if_json(body: &str, content_type: &str) -> String {
+    if content_type.starts_with("application/json") {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+            return serde_json::to_string_pretty(&json).unwrap_or_else(|_| body.to_string());
+        }
+    }
+    body.to_string()
+}
+
+/// Builds the payload panel text for an HTTP call.
+///
+/// Returns `None` when both the request and response bodies are empty (the
+/// panel should then be hidden). Returns `Some((theme_bg, text))` where
+/// `theme_bg` is set when syntax-highlighting was applied.
+///
+/// Behaviour:
+/// - If there is **no request body**, mirrors the original behaviour: JSON
+///   response bodies are syntax-highlighted; others are shown as plain text.
+/// - If a **request body is present**, both bodies are shown under labelled
+///   sections ("Request Body:" / "Response Body:") without syntax highlighting,
+///   mirroring the gRPC combined-message display.
+fn build_http_payload_text(
+    http_call: &tanu_core::http::Log,
+) -> Option<(Option<syntect::highlighting::Color>, String)> {
+    let req_body = http_call.request.body.as_deref().unwrap_or("").trim();
+    let res_body = http_call.response.body.trim();
+
+    if req_body.is_empty() && res_body.is_empty() {
+        return None;
+    }
+
+    // No request body — keep original behaviour for response-only display.
+    if req_body.is_empty() {
+        let content_type = http_call
+            .response
+            .headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if content_type.starts_with("application/json") {
+            let json: serde_json::Value = serde_json::from_str(res_body).ok()?;
+            let json_str = serde_json::to_string_pretty(&json).unwrap();
+            let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+            return Some((Some(theme_bg), highlighted_json));
+        }
+        return Some((None, res_body.to_string()));
+    }
+
+    // Request body present — build a combined section display.
+    let req_ct = http_call
+        .request
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let res_ct = http_call
+        .response
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let mut text = format!("Request Body:\n{}", pretty_print_if_json(req_body, req_ct));
+    if !res_body.is_empty() {
+        text.push_str(&format!(
+            "\n\nResponse Body:\n{}",
+            pretty_print_if_json(res_body, res_ct)
+        ));
+    }
+    Some((None, text))
+}
 
 #[memoize::memoize]
 fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, String) {
