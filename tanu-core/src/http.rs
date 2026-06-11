@@ -789,7 +789,15 @@ impl RequestBuilder {
                     } else {
                         response.headers.clone()
                     },
-                    body: response.text.clone(),
+                    body: if masking::should_mask_sensitive() {
+                        let content_type = response
+                            .headers
+                            .get(header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok());
+                        masking::mask_body(response.text.as_bytes(), content_type)
+                    } else {
+                        response.text.clone()
+                    },
                     status: response.status(),
                     duration_req,
                 };
@@ -856,7 +864,15 @@ impl RequestBuilder {
                     } else {
                         final_response.headers.clone()
                     },
-                    body: final_response.text.clone(),
+                    body: if masking::should_mask_sensitive() {
+                        let content_type = final_response
+                            .headers
+                            .get(header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok());
+                        masking::mask_body(final_response.text.as_bytes(), content_type)
+                    } else {
+                        final_response.text.clone()
+                    },
                     status: final_response.status(),
                     duration_req,
                 };
@@ -917,7 +933,15 @@ impl RequestBuilder {
                         } else {
                             final_response.headers.clone()
                         },
-                        body: final_response.text.clone(),
+                        body: if masking::should_mask_sensitive() {
+                            let content_type = final_response
+                                .headers
+                                .get(header::CONTENT_TYPE)
+                                .and_then(|v| v.to_str().ok());
+                            masking::mask_body(final_response.text.as_bytes(), content_type)
+                        } else {
+                            final_response.text.clone()
+                        },
                         status: final_response.status(),
                         duration_req,
                     };
