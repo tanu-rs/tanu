@@ -232,10 +232,10 @@ pub struct Runner {
     /// Each entry is matched as a case-insensitive substring of the field name,
     /// so `"my_token"` also masks `"x_my_token"`.
     #[serde(default)]
-    pub extra_sensitive_keys: Option<Vec<String>>,
+    pub extra_sensitive_keys: Vec<String>,
     /// Additional HTTP header names (exact, case-insensitive) to mask.
     #[serde(default)]
-    pub extra_sensitive_headers: Option<Vec<String>>,
+    pub extra_sensitive_headers: Vec<String>,
 }
 
 impl Config {
