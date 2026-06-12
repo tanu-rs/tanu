@@ -59,6 +59,8 @@ capture_rust = false        # Capture Rust "log" crate logs (default: false)
 show_sensitive = false      # Show sensitive data in HTTP logs (default: false)
 concurrency = 4             # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
 fail_fast = false           # Abort after the first failure (default: false)
+extra_sensitive_keys = ["my_company_token", "internal_secret"]  # Extra field/param substrings to mask
+extra_sensitive_headers = ["x-my-custom-auth", "x-internal-token"]  # Extra headers to mask
 ```
 
 ### Options
@@ -68,6 +70,24 @@ fail_fast = false           # Abort after the first failure (default: false)
 - `show_sensitive`: When enabled, displays sensitive data (API keys, tokens, passwords) in HTTP logs instead of masking them with `*****`. Use with caution as this may expose secrets. Default is `false`. Can be overridden with `--show-sensitive`.
 - `concurrency`: Maximum number of tests to run in parallel. If not specified, CLI mode runs all tests in parallel (unlimited), while TUI mode defaults to the number of CPU cores. Can be overridden with `-c` or `--concurrency`.
 - `fail_fast`: When enabled, aborts test execution after the first failure. Remaining tests are skipped and counted as skipped in the summary. Default is `false`. Can be overridden with `--fail-fast`.
+- `extra_sensitive_keys`: A list of additional substrings to treat as sensitive in query parameters, URL params, and request/response body fields. Matching is case-insensitive and uses substring logic — an entry of `"company_token"` will mask any field whose name contains `company_token`. Adds to the built-in list; does not replace it.
+- `extra_sensitive_headers`: A list of additional HTTP header names (exact match, case-insensitive) to mask in both request and response logs. Adds to the built-in list; does not replace it.
+
+### Credential masking
+
+By default, tanu masks sensitive data in all HTTP logs (both `--capture-http` output and the TUI payload view). Masking is applied to:
+
+- **Request and response headers** — values are replaced with `*****` for headers including `authorization`, `x-api-key`, `x-auth-token`, `cookie`, `set-cookie`, `proxy-authorization`, `x-amz-security-token`, `x-csrf-token`, `x-csrf`, and `api-key`.
+- **URL query parameters** — values are masked for any parameter whose name contains a sensitive keyword (e.g. a param named `client_secret` is masked because it contains `secret`).
+- **Request and response bodies** — for `application/json` and `application/x-www-form-urlencoded` content types, field values are masked recursively when the field name matches a sensitive keyword.
+
+Built-in sensitive keywords (substring-matched, case-insensitive): `token`, `secret`, `password`, `passwd`, `pwd`, `key`, `auth`, `credential`, `credentials`, `private_key`, `session`, `session_id`, `id_token`, `signature`, `client_id`, `access_token`, `api_key`, `apikey`.
+
+!!! warning
+    Substring matching intentionally errs on the side of over-masking. Fields like `token_type` or `public_key` will be masked because they contain `token` / `key`. Use `show_sensitive = true` when you need to inspect such values during debugging.
+
+!!! note
+    Use `extra_sensitive_keys` and `extra_sensitive_headers` to mask project-specific secrets beyond the built-in list — for example, internal header names or proprietary credential field names used by your API.
 
 !!! note
     Command-line flags always take precedence over configuration file settings. Use configuration file settings to establish project defaults and command-line flags for one-off overrides.
