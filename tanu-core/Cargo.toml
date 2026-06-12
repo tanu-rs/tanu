@@ -17,7 +17,7 @@ backon = "1.4"
 chrono = "0.4"
 console = { version = "0.15" }
 cookie = { version = "0.18", optional = true }
-dotenv = { workspace = true }
+dotenvy = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }

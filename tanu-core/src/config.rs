@@ -155,7 +155,7 @@ impl<'de> serde::Deserialize<'de> for CaptureHttpMode {
 const TANU_CONFIG_ENV: &str = "TANU_CONFIG";
 
 static CONFIG: Lazy<Config> = Lazy::new(|| {
-    let _ = dotenv::dotenv();
+    let _ = dotenvy::dotenv();
     Config::load().unwrap_or_default()
 });
 

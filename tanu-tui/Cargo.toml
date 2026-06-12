@@ -15,7 +15,7 @@ ansi-to-tui = "8"
 async-trait = { workspace = true }
 chrono = "0.4"
 crossterm = { version = "0.29", features = ["event-stream"] }
-dotenv = { workspace = true }
+dotenvy = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }

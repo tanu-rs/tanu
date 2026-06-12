@@ -1072,7 +1072,7 @@ pub async fn run(
         std::env::set_var("COLORBT_SHOW_HIDDEN", "1");
     }
 
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     install_panic_hook();
     PANIC_OCCURRED.store(false, std::sync::atomic::Ordering::SeqCst);
