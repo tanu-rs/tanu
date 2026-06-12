@@ -112,7 +112,7 @@ async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
 |   🔧  | Dependencies/Tooling |
 |   🧹  | Cleanup/Sweeper      |
 - PRs should include a brief summary, testing notes, and links to related issues.
-- When modifying code, run `cargo clippy --workspace --all-targets --all-features` and `cargo build --workspace --all-targets --all-features`, and note results in the PR.
+- When modifying code, run the full Required Post-Change Workflow above, and note results in the PR.
 - Include screenshots or GIFs for user-facing CLI/TUI changes and doc updates that affect visuals.
 
 ## Configuration & Docs Tips
