@@ -300,6 +300,11 @@ impl App {
                 if show_sensitive {
                     runner.show_sensitive();
                 }
+                let extra_keys = cfg.runner.extra_sensitive_keys.clone();
+                let extra_headers = cfg.runner.extra_sensitive_headers.clone();
+                if !extra_keys.is_empty() || !extra_headers.is_empty() {
+                    runner.set_sensitive_overrides(extra_keys, extra_headers);
+                }
                 if let Some(concurrency) = concurrency {
                     runner.set_concurrency(concurrency);
                 }

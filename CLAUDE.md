@@ -37,10 +37,13 @@ Tanu is an async-friendly WebAPI testing framework for Rust with CLI and TUI mod
 - `cargo run -p tanu-integration-tests -- test` runs the integration suite with the tanu runner (requires Docker for the httpbin container).
 
 ## Required Post-Change Workflow
-After every code change, always run these three commands in order:
+After every code change, always run these commands in order:
 1. `cargo fmt --all`
 2. `cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"`
-3. `TANU_CONFIG=./tanu-integration-tests/tanu.toml cargo run -p tanu-integration-tests -- test`
+3. `cargo clippy --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"`
+4. `cargo build --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"`
+5. `cargo build --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"`
+6. `TANU_CONFIG=./tanu-integration-tests/tanu.toml cargo run -p tanu-integration-tests -- test`
 - `cargo run -p tanu-integration-tests -- tui` launches the interactive TUI test runner.
 - `cargo run -p tanu-integration-tests -- ls` lists all available test cases.
 - `mkdocs serve` previews documentation locally (uses Python deps from `pyproject.toml`).
@@ -109,7 +112,7 @@ async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
 |   🔧  | Dependencies/Tooling |
 |   🧹  | Cleanup/Sweeper      |
 - PRs should include a brief summary, testing notes, and links to related issues.
-- When modifying code, run `cargo clippy --workspace --all-targets --all-features` and `cargo build --workspace --all-targets --all-features`, and note results in the PR.
+- When modifying code, run the full Required Post-Change Workflow above, and note results in the PR.
 - Include screenshots or GIFs for user-facing CLI/TUI changes and doc updates that affect visuals.
 
 ## Configuration & Docs Tips

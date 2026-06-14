@@ -574,6 +574,10 @@ pub struct Options {
     pub mask_sensitive: bool,
     /// Whether to abort test execution after the first failure.
     pub fail_fast: bool,
+    /// Extra field/query-param substrings to treat as sensitive (see `tanu.toml`).
+    pub extra_sensitive_keys: Vec<String>,
+    /// Extra header names (exact, case-insensitive) to treat as sensitive (see `tanu.toml`).
+    pub extra_sensitive_headers: Vec<String>,
 }
 
 impl Default for Options {
@@ -586,6 +590,8 @@ impl Default for Options {
             concurrency: None,
             mask_sensitive: true, // Masked by default for security
             fail_fast: false,
+            extra_sensitive_keys: Vec::new(),
+            extra_sensitive_headers: Vec::new(),
         }
     }
 }
@@ -988,6 +994,14 @@ impl Runner {
         self.options.mask_sensitive = false;
     }
 
+    /// Sets additional field/query-param substrings and header names to treat as
+    /// sensitive. These are applied on top of the built-in lists and are loaded
+    /// from `extra_sensitive_keys` / `extra_sensitive_headers` in `tanu.toml`.
+    pub fn set_sensitive_overrides(&mut self, keys: Vec<String>, headers: Vec<String>) {
+        self.options.extra_sensitive_keys = keys;
+        self.options.extra_sensitive_headers = headers;
+    }
+
     /// Enables fail-fast mode: abort test execution after the first failure.
     pub fn set_fail_fast(&mut self, fail_fast: bool) {
         self.options.fail_fast = fail_fast;
@@ -1036,6 +1050,8 @@ impl Runner {
     ) -> eyre::Result<()> {
         // Set masking configuration for HTTP logs
         crate::masking::set_mask_sensitive(self.options.mask_sensitive);
+        crate::masking::set_extra_sensitive_keys(self.options.extra_sensitive_keys.clone());
+        crate::masking::set_extra_sensitive_headers(self.options.extra_sensitive_headers.clone());
 
         if self.options.capture_rust {
             tracing_subscriber::fmt::init();
@@ -1801,6 +1817,191 @@ mod test {
         }
 
         assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_masks_sensitive_fields_in_response_body() -> eyre::Result<()> {
+        use crate::masking;
+
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        // Return a JSON response body containing a sensitive field (access_token)
+        let _mock = server
+            .mock("POST", "/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"access_token":"super_secret_value","expires_in":3600}"#)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                let _res = client.post(format!("{url}/token")).send().await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.add_test(
+            "masking_response_body_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
+
+        runner.run(&[], &[], &[]).await?;
+
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.test != "masking_response_body_test" {
+                continue;
+            }
+            if let EventBody::Call(CallLog::Http(log)) = event.body {
+                found_http_event = true;
+                let body = &log.response.body;
+                let v: serde_json::Value = serde_json::from_str(body).unwrap();
+                assert_eq!(
+                    v["access_token"], "*****",
+                    "access_token in response body should be masked, got: {body}"
+                );
+                assert_eq!(
+                    v["expires_in"], 3600,
+                    "expires_in should not be masked, got: {body}"
+                );
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_masks_set_cookie_response_header() -> eyre::Result<()> {
+        use crate::masking;
+
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/login")
+            .with_status(200)
+            .with_header("set-cookie", "session_id=abc123; HttpOnly")
+            .with_header("content-type", "text/plain")
+            .with_body("ok")
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                let _res = client.get(format!("{url}/login")).send().await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.add_test(
+            "masking_set_cookie_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
+
+        runner.run(&[], &[], &[]).await?;
+
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.test != "masking_set_cookie_test" {
+                continue;
+            }
+            if let EventBody::Call(CallLog::Http(log)) = event.body {
+                found_http_event = true;
+                if let Some(sc) = log.response.headers.get("set-cookie") {
+                    assert_eq!(
+                        sc.to_str().unwrap(),
+                        "*****",
+                        "set-cookie response header should be masked"
+                    );
+                }
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn masking_extra_sensitive_keys_masks_custom_field() -> eyre::Result<()> {
+        use crate::masking;
+
+        masking::set_mask_sensitive(true);
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"my_company_token":"leaked","name":"alice"}"#)
+            .create_async()
+            .await;
+
+        let factory: TestCaseFactory = Arc::new(move || {
+            let url = server.url();
+            Box::pin(async move {
+                let client = crate::http::Client::new();
+                let _res = client.get(&url).send().await?;
+                Ok(())
+            })
+        });
+
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+        runner.set_sensitive_overrides(vec!["my_company_token".to_string()], vec![]);
+        runner.add_test(
+            "masking_extra_keys_test",
+            "masking_module",
+            None,
+            0,
+            false,
+            factory,
+        );
+
+        runner.run(&[], &[], &[]).await?;
+
+        let mut found_http_event = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.test != "masking_extra_keys_test" {
+                continue;
+            }
+            if let EventBody::Call(CallLog::Http(log)) = event.body {
+                found_http_event = true;
+                let body = &log.response.body;
+                let v: serde_json::Value = serde_json::from_str(body).unwrap();
+                assert_eq!(
+                    v["my_company_token"], "*****",
+                    "extra sensitive key should be masked, got: {body}"
+                );
+                assert_eq!(v["name"], "alice");
+            }
+        }
+
+        assert!(found_http_event, "Should have received HTTP event");
+        // Reset extra keys
+        masking::set_extra_sensitive_keys(vec![]);
         Ok(())
     }
 

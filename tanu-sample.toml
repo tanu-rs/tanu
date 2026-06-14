@@ -9,6 +9,8 @@ payload.color_theme = "apathy"  # color theme for the payload tab, default is "s
 # capture_rust = true     # capture Rust "log" crate logs, default is false
 # show_sensitive = true   # show sensitive data in HTTP logs instead of masking, default is false
 # concurrency = 4         # max parallel tests, default is unlimited (test mode) or CPU cores (tui mode)
+# extra_sensitive_keys = ["my_company_token", "internal_api_secret"]   # extra field/param substrings to mask (substring match)
+# extra_sensitive_headers = ["x-my-custom-auth", "x-internal-token"]   # extra header names to mask (exact match)
 
 [[projects]]
 name = "default"        # project name

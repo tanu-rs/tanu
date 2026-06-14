@@ -228,6 +228,14 @@ pub struct Runner {
     /// Whether to abort test execution after the first failure
     #[serde(default)]
     pub fail_fast: Option<bool>,
+    /// Additional query-param / body-field substrings to treat as sensitive.
+    /// Each entry is matched as a case-insensitive substring of the field name,
+    /// so `"my_token"` also masks `"x_my_token"`.
+    #[serde(default)]
+    pub extra_sensitive_keys: Vec<String>,
+    /// Additional HTTP header names (exact, case-insensitive) to mask.
+    #[serde(default)]
+    pub extra_sensitive_headers: Vec<String>,
 }
 
 impl Config {
