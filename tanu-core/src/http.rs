@@ -520,6 +520,12 @@ impl Client {
         RequestBuilder::new(self.clone(), Method::HEAD, &url_str)
     }
 
+    pub fn options<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+        let url_str = url.into_url_string();
+        debug!("Requesting {url_str}");
+        RequestBuilder::new(self.clone(), Method::OPTIONS, &url_str)
+    }
+
     #[cfg(feature = "graphql")]
     pub fn graphql<U: IntoUrl>(&self, url: U) -> crate::graphql::GraphqlRequestBuilder {
         let url_str = url.into_url_string();
