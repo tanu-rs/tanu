@@ -355,7 +355,7 @@ impl Response {
             }
             Some("br") => {
                 let mut decompressed = Vec::new();
-                match brotli::Decompressor::new(body_bytes.as_ref(), 4096)
+                match brotli_decompressor::Decompressor::new(body_bytes.as_ref(), 4096)
                     .read_to_end(&mut decompressed)
                 {
                     Ok(_) => String::from_utf8_lossy(&decompressed).to_string(),

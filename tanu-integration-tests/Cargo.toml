@@ -30,7 +30,7 @@ prost = "0.14.1"
 serde = { workspace = true }
 serde_json = "1"
 tanu = { path = "../tanu", default-features = false, features = ["json", "cookies", "grpc", "graphql"] }
-testcontainers = "0.24"
+testcontainers = "0.27"
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { version = "0.14.2", features = ["transport"] }

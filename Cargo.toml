@@ -13,7 +13,7 @@ resolver = "2"
 anyhow = { version = "1", features = ["backtrace"] }
 async-trait = "0.1"
 eyre = { version = "0.6", features = ["track-caller"] }
-dotenv = "0.15"
+dotenvy = "0.15"
 futures = "0.3"
 http = "1"
 inventory = "0.3"
