@@ -411,9 +411,9 @@ impl Reporter for ListReporter {
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
         let test_number = *buffer.test_number.get_or_insert_with(generate_test_number);
-        let http_logs: Vec<_> = buffer.http_logs.drain(..).collect();
+        let http_logs = std::mem::take(&mut buffer.http_logs);
         #[cfg(feature = "grpc")]
-        let grpc_logs: Vec<_> = buffer.grpc_logs.drain(..).collect();
+        let grpc_logs = std::mem::take(&mut buffer.grpc_logs);
 
         if let Err(e) = test.result {
             self.terminal.write_line(&format!(
