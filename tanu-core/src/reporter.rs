@@ -43,7 +43,7 @@ use tracing::*;
 use crate::{
     http,
     runner::{self, Event, EventBody, Test},
-    CaptureHttpMode, ModuleName, ProjectName, TestName,
+    CaptureHttpMode, MaxBodySize, ModuleName, ProjectName, TestName,
 };
 
 /// Available built-in reporter types.
@@ -323,6 +323,7 @@ pub struct ListReporter {
     terminal: Term,
     buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
     capture_http: CaptureHttpMode,
+    max_body_size: MaxBodySize,
 }
 
 impl ListReporter {
@@ -331,26 +332,28 @@ impl ListReporter {
     /// # Parameters
     ///
     /// - `capture_http`: Controls when HTTP request/response details are shown in output
+    /// - `max_body_size`: Caps how many body bytes are printed (`MaxBodySize(0)` = unlimited)
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// use tanu_core::{reporter::ListReporter, CaptureHttpMode};
+    /// use tanu_core::{reporter::ListReporter, CaptureHttpMode, MaxBodySize};
     ///
-    /// // Show HTTP logs for all tests
-    /// let reporter = ListReporter::new(CaptureHttpMode::All);
+    /// // Show HTTP logs for all tests, truncating bodies at the default 64KB
+    /// let reporter = ListReporter::new(CaptureHttpMode::All, MaxBodySize::default());
     ///
-    /// // Show HTTP logs only for failed tests
-    /// let reporter = ListReporter::new(CaptureHttpMode::OnFailure);
+    /// // Show HTTP logs only for failed tests, printing bodies in full
+    /// let reporter = ListReporter::new(CaptureHttpMode::OnFailure, MaxBodySize(0));
     ///
     /// // No HTTP logging
-    /// let reporter = ListReporter::new(CaptureHttpMode::Off);
+    /// let reporter = ListReporter::new(CaptureHttpMode::Off, MaxBodySize::default());
     /// ```
-    pub fn new(capture_http: CaptureHttpMode) -> ListReporter {
+    pub fn new(capture_http: CaptureHttpMode, max_body_size: MaxBodySize) -> ListReporter {
         ListReporter {
             terminal: Term::stdout(),
             buffer: IndexMap::new(),
             capture_http,
+            max_body_size,
         }
     }
 }
@@ -426,7 +429,7 @@ impl Reporter for ListReporter {
 
         if should_print {
             for log in &http_logs {
-                write_http_log(&self.terminal, log)?;
+                write_http_log(&self.terminal, log, self.max_body_size)?;
             }
             #[cfg(feature = "grpc")]
             for log in &grpc_logs {
@@ -484,7 +487,7 @@ impl Reporter for ListReporter {
 
         if should_print {
             for log in &buffer.http_logs {
-                write_http_log(&self.terminal, log)?;
+                write_http_log(&self.terminal, log, self.max_body_size)?;
             }
             #[cfg(feature = "grpc")]
             for log in &buffer.grpc_logs {
@@ -677,7 +680,13 @@ fn colorize_json(value: &serde_json::Value, indent: usize) -> String {
 
 /// Formats a body string for terminal display. Parses and colorizes JSON when
 /// the content-type is `application/json`; otherwise returns the text as-is.
-fn format_body_for_display(body: &str, content_type: &str) -> String {
+fn format_body_for_display(body: &str, content_type: &str, max_body_size: MaxBodySize) -> String {
+    // Over the cap, skip pretty-printing entirely: truncating colorized output
+    // would cut an ANSI escape in half, and colorizing a body we are about to
+    // discard most of is wasted work.
+    if let Some(truncated) = max_body_size.truncate(body) {
+        return truncated;
+    }
     if content_type.to_lowercase().starts_with("application/json") {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
             return colorize_json(&json, 0);
@@ -686,7 +695,11 @@ fn format_body_for_display(body: &str, content_type: &str) -> String {
     body.to_string()
 }
 
-fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
+fn write_http_log(
+    terminal: &Term,
+    log: &http::Log,
+    max_body_size: MaxBodySize,
+) -> eyre::Result<()> {
     terminal.write_line(&format!(
         " {} {} {}",
         style("=>").cyan(),
@@ -724,7 +737,7 @@ fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            for line in format_body_for_display(body, req_ct).lines() {
+            for line in format_body_for_display(body, req_ct, max_body_size).lines() {
                 terminal.write_line(&format!("       {}", line))?;
             }
         }
@@ -765,7 +778,7 @@ fn write_http_log(terminal: &Term, log: &http::Log) -> eyre::Result<()> {
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        for line in format_body_for_display(&log.response.body, res_ct).lines() {
+        for line in format_body_for_display(&log.response.body, res_ct, max_body_size).lines() {
             terminal.write_line(&format!("       {}", line))?;
         }
     }
@@ -862,4 +875,33 @@ fn write_grpc_log(terminal: &Term, log: &crate::grpc::Log) -> eyre::Result<()> {
         ))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn format_body_for_display_colorizes_json_within_the_cap() {
+        let out = format_body_for_display(r#"{"a":1}"#, "application/json", MaxBodySize(64 * 1024));
+        assert!(out.contains('\n'), "expected pretty-printed JSON: {out}");
+    }
+
+    #[test]
+    fn format_body_for_display_truncates_without_colorizing() {
+        let body = format!(r#"{{"a":"{}"}}"#, "x".repeat(2048));
+        let out = format_body_for_display(&body, "application/json", MaxBodySize(64));
+        assert!(out.starts_with(r#"{"a":"xxx"#));
+        assert!(out.contains("truncated: showing 64B of 2.0KB"));
+    }
+
+    #[test]
+    fn format_body_for_display_leaves_body_alone_when_unlimited() {
+        let body = "x".repeat(4096);
+        assert_eq!(
+            format_body_for_display(&body, "text/plain", MaxBodySize(0)),
+            body
+        );
+    }
 }

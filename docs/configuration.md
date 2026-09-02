@@ -57,6 +57,7 @@ capture_http = "on-failure" # Capture HTTP debug logs only for failed tests (def
 capture_http = "off"        # Suppress HTTP debug logs entirely
 capture_rust = false        # Capture Rust "log" crate logs (default: false)
 show_sensitive = false      # Show sensitive data in HTTP logs (default: false)
+max_body_size = "64KB"      # Max bytes of an HTTP body printed in logs (default: "64KB", 0 disables)
 concurrency = 4             # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
 fail_fast = false           # Abort after the first failure (default: false)
 extra_sensitive_keys = ["my_company_token", "internal_secret"]  # Extra field/param substrings to mask
@@ -68,6 +69,7 @@ extra_sensitive_headers = ["x-my-custom-auth", "x-internal-token"]  # Extra head
 - `capture_http`: Controls when HTTP request/response logs are captured and displayed. Accepts a boolean (`true` = `"all"`, `false` = `"off"`) or a string (`"all"`, `"on-failure"`, or `"off"`). Default is `"on-failure"` (show HTTP logs only for failed tests). Use `"all"` to show logs for every test, or `"off"` to suppress logs entirely. Can be overridden with `--capture-http[=MODE]` on the command line.
 - `capture_rust`: When enabled, captures logs from Rust's `log` crate. Useful for debugging tanu internals or test code that uses the log crate. Default is `false`. Can be overridden with `--capture-rust`.
 - `show_sensitive`: When enabled, displays sensitive data (API keys, tokens, passwords) in HTTP logs instead of masking them with `*****`. Use with caution as this may expose secrets. Default is `false`. Can be overridden with `--show-sensitive`.
+- `max_body_size`: Caps how many bytes of each HTTP request/response body are printed in logs. Accepts a byte count (`65536`) or a size string (`"64KB"`, `"1.5MB"`); unit suffixes are case-insensitive binary multiples, so `KB` means 1024 bytes and `KB`/`KiB` are equivalent. Set `0`, `"unlimited"`, `"none"`, or `"off"` to print bodies in full. Default is `"64KB"`. A body over the cap is printed as plain truncated text followed by a marker line, without JSON pretty-printing or syntax highlighting. Applies to both `--capture-http` output and the TUI payload view; can be overridden with `--max-body-size` in CLI mode only, since the TUI reads this value from `tanu.toml`.
 - `concurrency`: Maximum number of tests to run in parallel. If not specified, CLI mode runs all tests in parallel (unlimited), while TUI mode defaults to the number of CPU cores. Can be overridden with `-c` or `--concurrency`.
 - `fail_fast`: When enabled, aborts test execution after the first failure. Remaining tests are skipped and counted as skipped in the summary. Default is `false`. Can be overridden with `--fail-fast`.
 - `extra_sensitive_keys`: A list of additional substrings to treat as sensitive in query parameters, URL params, and request/response body fields. Matching is case-insensitive and uses substring logic — an entry of `"company_token"` will mask any field whose name contains `company_token`. Adds to the built-in list; does not replace it.

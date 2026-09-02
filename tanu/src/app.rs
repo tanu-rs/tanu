@@ -9,8 +9,8 @@ use std::{
     collections::{HashMap, VecDeque},
     str::FromStr,
 };
-use tanu_core::CaptureHttpMode;
 use tanu_core::Filter;
+use tanu_core::{config::parse_byte_size, CaptureHttpMode, MaxBodySize};
 
 use crate::{get_tanu_config, ListReporter, ReporterType};
 
@@ -44,6 +44,10 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                     .num_args(0..=1)
                     .default_missing_value("all")
                     .value_parser(["all", "off", "on-failure"]))
+                .arg(Arg::new("max-body-size")
+                    .long("max-body-size")
+                    .help("Max bytes of an HTTP request/response body to print in logs, e.g. 65536, 64KB, 2MB. 0 or \"unlimited\" disables the cap (default: 64KB)")
+                    .value_parser(parse_byte_size))
                 .arg(Arg::new("show-sensitive")
                     .long("show-sensitive")
                     .help("Show sensitive data (API keys, tokens) in HTTP logs instead of masking them with *****")
@@ -260,6 +264,11 @@ impl App {
                     })
                     .or_else(|| cfg.runner.capture_http.clone())
                     .unwrap_or_default();
+                let max_body_size = test_matches
+                    .get_one::<MaxBodySize>("max-body-size")
+                    .copied()
+                    .or(cfg.runner.max_body_size)
+                    .unwrap_or_default();
                 let capture_rust = test_matches.get_flag("capture-rust")
                     || cfg.runner.capture_rust.unwrap_or(false);
                 let show_sensitive = test_matches.get_flag("show-sensitive")
@@ -318,7 +327,7 @@ impl App {
                 let mut reporters = std::mem::take(&mut self.third_party_reporters);
                 reporters.extend([(
                     ReporterType::List.to_string(),
-                    Box::new(ListReporter::new(capture_http)),
+                    Box::new(ListReporter::new(capture_http, max_body_size)),
                 )]
                     as [(
                         String,

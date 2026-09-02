@@ -837,8 +837,15 @@ fn build_http_payload_text(
         return None;
     }
 
+    // Over the cap, skip pretty-printing and syntax highlighting: the highlighter
+    // is memoized, so a huge body would be cached for the rest of the session.
+    let max_body_size = get_tanu_config().max_body_size();
+
     // No request body — keep original behaviour for response-only display.
     if req_body.is_empty() {
+        if let Some(truncated) = max_body_size.truncate(res_body) {
+            return Some((None, truncated));
+        }
         let content_type = http_call
             .response
             .headers
@@ -868,11 +875,18 @@ fn build_http_payload_text(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let mut text = format!("Request Body:\n{}", pretty_print_if_json(req_body, req_ct));
+    let mut text = format!(
+        "Request Body:\n{}",
+        max_body_size
+            .truncate(req_body)
+            .unwrap_or_else(|| pretty_print_if_json(req_body, req_ct))
+    );
     if !res_body.is_empty() {
         text.push_str(&format!(
             "\n\nResponse Body:\n{}",
-            pretty_print_if_json(res_body, res_ct)
+            max_body_size
+                .truncate(res_body)
+                .unwrap_or_else(|| pretty_print_if_json(res_body, res_ct))
         ));
     }
     Some((None, text))

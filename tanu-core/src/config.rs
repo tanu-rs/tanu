@@ -61,6 +61,7 @@
 //! capture_rust = false     # Capture Rust "log" crate logs
 //! show_sensitive = false   # Show sensitive data in HTTP logs
 //! concurrency = 4          # Max parallel tests (default: unlimited)
+//! max_body_size = "64KB"   # Max body bytes printed in HTTP logs (0 disables)
 //!
 //! [[projects]]
 //! name = "staging"
@@ -151,6 +152,131 @@ impl<'de> serde::Deserialize<'de> for CaptureHttpMode {
     }
 }
 
+/// Default cap on how many body bytes are printed in HTTP logs: 64KB.
+const DEFAULT_MAX_BODY_SIZE: usize = 64 * 1024;
+
+/// Maximum number of body bytes to print in HTTP logs.
+///
+/// `MaxBodySize(0)` means unlimited. Deserializes from either a raw byte count
+/// (`max_body_size = 65536`) or a size string (`max_body_size = "64KB"`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaxBodySize(pub usize);
+
+impl Default for MaxBodySize {
+    fn default() -> Self {
+        MaxBodySize(DEFAULT_MAX_BODY_SIZE)
+    }
+}
+
+impl MaxBodySize {
+    /// Applies the cap to `body`.
+    ///
+    /// Returns [`None`] when the body fits and the caller should render it as
+    /// usual, or the truncated body with a trailing marker when it does not.
+    /// Truncation always lands on a UTF-8 character boundary.
+    pub fn truncate(&self, body: &str) -> Option<String> {
+        if self.0 == 0 || body.len() <= self.0 {
+            return None;
+        }
+        let mut end = self.0;
+        while end > 0 && !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        Some(format!(
+            "{body}\n… truncated: showing {shown} of {total} (set runner.max_body_size to change)",
+            body = &body[..end],
+            shown = format_byte_size(end),
+            total = format_byte_size(body.len()),
+        ))
+    }
+}
+
+/// Parses a byte size such as `65536`, `64KB`, `1.5MB` or `unlimited`.
+///
+/// Unit suffixes are case-insensitive binary multiples, so `KB` and `KiB` both
+/// mean 1024 bytes. `unlimited`, `none` and `off` all disable the cap.
+pub fn parse_byte_size(s: &str) -> std::result::Result<MaxBodySize, String> {
+    let s = s.trim();
+    if matches!(s.to_lowercase().as_str(), "unlimited" | "none" | "off") {
+        return Ok(MaxBodySize(0));
+    }
+
+    let split = s
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(s.len());
+    let (number, unit) = s.split_at(split);
+    let number: f64 = number.trim().parse().map_err(|_| {
+        format!(r#"invalid byte size "{s}", expected e.g. 65536, "64KB", "2MB" or "unlimited""#)
+    })?;
+    let multiplier: usize = match unit.trim().to_lowercase().as_str() {
+        "" | "b" => 1,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        _ => {
+            return Err(format!(
+                r#"unknown byte size unit "{unit}", expected one of B, KB, MB, GB"#
+            ))
+        }
+    };
+    Ok(MaxBodySize((number * multiplier as f64) as usize))
+}
+
+/// Formats a byte count for display, e.g. `3.2MB`.
+pub fn format_byte_size(bytes: usize) -> String {
+    const UNITS: [(usize, &str); 3] = [
+        (1024 * 1024 * 1024, "GB"),
+        (1024 * 1024, "MB"),
+        (1024, "KB"),
+    ];
+    for (factor, unit) in UNITS {
+        if bytes >= factor {
+            return format!("{:.1}{unit}", bytes as f64 / factor as f64);
+        }
+    }
+    format!("{bytes}B")
+}
+
+impl<'de> serde::Deserialize<'de> for MaxBodySize {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct MaxBodySizeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for MaxBodySizeVisitor {
+            type Value = MaxBodySize;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    r#"a byte count or a size string such as "64KB", "2MB" or "unlimited""#,
+                )
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> std::result::Result<Self::Value, E> {
+                Ok(MaxBodySize(v as usize))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> std::result::Result<Self::Value, E> {
+                if v < 0 {
+                    return Err(E::invalid_value(serde::de::Unexpected::Signed(v), &self));
+                }
+                Ok(MaxBodySize(v as usize))
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                parse_byte_size(v)
+                    .map_err(|_| E::invalid_value(serde::de::Unexpected::Str(v), &self))
+            }
+        }
+
+        deserializer.deserialize_any(MaxBodySizeVisitor)
+    }
+}
+
 /// Environment variable name for specifying the config file path.
 const TANU_CONFIG_ENV: &str = "TANU_CONFIG";
 
@@ -222,6 +348,11 @@ pub struct Runner {
     /// Whether to show sensitive data in HTTP logs (if false, masks with *****)
     #[serde(default)]
     pub show_sensitive: Option<bool>,
+    /// Maximum bytes of an HTTP request/response body to print in logs.
+    /// Accepts a byte count (`65536`) or a size string (`"64KB"`, `"2MB"`);
+    /// `0` or `"unlimited"` disables the cap.
+    #[serde(default)]
+    pub max_body_size: Option<MaxBodySize>,
     /// Maximum number of tests to run in parallel
     #[serde(default)]
     pub concurrency: Option<usize>,
@@ -388,6 +519,11 @@ impl Config {
     /// Get the current color theme
     pub fn color_theme(&self) -> Option<&str> {
         self.tui.payload.color_theme.as_deref()
+    }
+
+    /// Get the maximum number of body bytes to print in HTTP logs.
+    pub fn max_body_size(&self) -> MaxBodySize {
+        self.runner.max_body_size.unwrap_or_default()
     }
 }
 
@@ -582,6 +718,111 @@ mod test {
         #[test]
         fn default_is_on_failure() {
             assert_eq!(CaptureHttpMode::default(), CaptureHttpMode::OnFailure);
+        }
+    }
+
+    mod max_body_size {
+        use super::{format_byte_size, parse_byte_size, MaxBodySize};
+        use pretty_assertions::assert_eq;
+
+        fn from_toml(s: &str) -> Result<MaxBodySize, toml::de::Error> {
+            #[derive(serde::Deserialize)]
+            struct Wrapper {
+                size: MaxBodySize,
+            }
+            let w: Wrapper = toml::from_str(&format!("size = {s}"))?;
+            Ok(w.size)
+        }
+
+        #[test]
+        fn integer_is_a_byte_count() {
+            assert_eq!(from_toml("65536").unwrap(), MaxBodySize(65536));
+        }
+
+        #[test]
+        fn zero_means_unlimited() {
+            assert_eq!(from_toml("0").unwrap(), MaxBodySize(0));
+            assert_eq!(from_toml(r#""unlimited""#).unwrap(), MaxBodySize(0));
+            assert_eq!(from_toml(r#""none""#).unwrap(), MaxBodySize(0));
+            assert_eq!(from_toml(r#""off""#).unwrap(), MaxBodySize(0));
+        }
+
+        #[test]
+        fn size_strings_use_binary_multiples() {
+            assert_eq!(from_toml(r#""512B""#).unwrap(), MaxBodySize(512));
+            assert_eq!(from_toml(r#""64KB""#).unwrap(), MaxBodySize(64 * 1024));
+            assert_eq!(from_toml(r#""64KiB""#).unwrap(), MaxBodySize(64 * 1024));
+            assert_eq!(from_toml(r#""2MB""#).unwrap(), MaxBodySize(2 * 1024 * 1024));
+            assert_eq!(
+                from_toml(r#""1GB""#).unwrap(),
+                MaxBodySize(1024 * 1024 * 1024)
+            );
+        }
+
+        #[test]
+        fn size_strings_are_case_insensitive_and_allow_fractions() {
+            assert_eq!(from_toml(r#""1.5mb""#).unwrap(), MaxBodySize(1572864));
+            assert_eq!(from_toml(r#""64 kb""#).unwrap(), MaxBodySize(64 * 1024));
+        }
+
+        #[test]
+        fn invalid_string_returns_error() {
+            assert!(from_toml(r#""invalid""#).is_err());
+            assert!(from_toml(r#""12quux""#).is_err());
+            assert!(parse_byte_size("-1").is_err());
+        }
+
+        #[test]
+        fn runner_max_body_size_field_accepts_both_forms() {
+            #[derive(serde::Deserialize)]
+            struct R {
+                max_body_size: Option<MaxBodySize>,
+            }
+            let r: R = toml::from_str("max_body_size = 1024").unwrap();
+            assert_eq!(r.max_body_size, Some(MaxBodySize(1024)));
+
+            let r: R = toml::from_str(r#"max_body_size = "1KB""#).unwrap();
+            assert_eq!(r.max_body_size, Some(MaxBodySize(1024)));
+        }
+
+        #[test]
+        fn default_is_64kb() {
+            assert_eq!(MaxBodySize::default(), MaxBodySize(64 * 1024));
+        }
+
+        #[test]
+        fn truncate_returns_none_when_body_fits() {
+            assert_eq!(MaxBodySize(10).truncate("short"), None);
+            assert_eq!(MaxBodySize(5).truncate("exact"), None);
+        }
+
+        #[test]
+        fn truncate_returns_none_when_unlimited() {
+            assert_eq!(MaxBodySize(0).truncate(&"x".repeat(10_000)), None);
+        }
+
+        #[test]
+        fn truncate_cuts_and_appends_marker() {
+            let body = "x".repeat(2048);
+            let truncated = MaxBodySize(1024).truncate(&body).unwrap();
+            assert!(truncated.starts_with(&"x".repeat(1024)));
+            assert!(!truncated.starts_with(&"x".repeat(1025)));
+            assert!(truncated.contains("truncated: showing 1.0KB of 2.0KB"));
+        }
+
+        #[test]
+        fn truncate_lands_on_a_char_boundary() {
+            // "あ" is 3 bytes, so a 4 byte cap must fall back to 3.
+            let body = "あああ";
+            let truncated = MaxBodySize(4).truncate(body).unwrap();
+            assert!(truncated.starts_with("あ\n"));
+        }
+
+        #[test]
+        fn format_byte_size_picks_a_unit() {
+            assert_eq!(format_byte_size(512), "512B");
+            assert_eq!(format_byte_size(1024), "1.0KB");
+            assert_eq!(format_byte_size(3 * 1024 * 1024 + 209_715), "3.2MB");
         }
     }
 

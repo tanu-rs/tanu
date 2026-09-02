@@ -55,6 +55,7 @@ After every code change, always run these commands in order:
   - `-t, --tests` - Filter by test names (comma-separated)
   - `-c, --concurrency` - Max parallel tests
   - `--capture-http` - Log HTTP requests/responses
+  - `--max-body-size` - Cap printed HTTP body size (e.g. `64KB`, `2MB`; `0` disables)
   - `--fail-fast` - Abort after first failure, skipping remaining tests
 - **tui**: Interactive TUI mode for test execution.
   - `-c, --concurrency` - Max parallel tests (default: CPU cores)
@@ -123,6 +124,10 @@ async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
 ```toml
 [tui]
 payload.color_theme = "apathy"
+
+[runner]
+capture_http = "on-failure"
+max_body_size = "64KB"
 
 [[projects]]
 name = "default"
