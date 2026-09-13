@@ -134,6 +134,7 @@ name = "default"
 base_url = "https://api.example.com"
 timeout = 30000
 test_ignore = ["slow_test"]
+test_only = []  # allowlist; empty runs all tests
 
 [retry]
 count = 3

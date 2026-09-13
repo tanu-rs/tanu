@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, HighlightSpacing, List, ListState},
 };
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
-use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo};
+use tanu_core::{self, Filter, TestIgnoreFilter, TestInfo, TestOnlyFilter};
 use throbber_widgets_tui::ThrobberState;
 
 use crate::{TestResult, SELECTED_STYLE};
@@ -530,6 +530,7 @@ impl TestListState {
         test_cases: &[TestInfo],
     ) -> TestListState {
         let test_ignore_filter = TestIgnoreFilter::default();
+        let test_only_filter = TestOnlyFilter::default();
         let grouped_by_module = test_cases
             .iter()
             .cloned()
@@ -555,6 +556,7 @@ impl TestListState {
                         tests: tests
                             .into_iter()
                             .filter(|test| test_ignore_filter.filter(proj, &test.info))
+                            .filter(|test| test_only_filter.filter(proj, &test.info))
                             .collect(),
                         execution_state: ExecutionState::default(),
                     })
