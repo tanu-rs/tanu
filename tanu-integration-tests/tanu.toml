@@ -3,3 +3,12 @@ name = "docker"
 test_ignore = ["tanu_integration_tests::task_local::spawned_task_without_scope_current_panics"]
 retry.count = 3
 retry.min_delay = "100ms"
+
+# Exercises test_only / test_ignore; see src/test_only.rs.
+[[projects]]
+name = "allowlist"
+test_only = [
+  "tanu_integration_tests::test_only::listed_test_runs",
+  "tanu_integration_tests::test_only::listed_but_ignored_test_is_skipped",
+]
+test_ignore = ["tanu_integration_tests::test_only::listed_but_ignored_test_is_skipped"]

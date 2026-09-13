@@ -147,6 +147,14 @@ name = "default"
 test_ignore = ["slow_test", "flaky_test"]
 ```
 
+### Can I run only specific tests in a project?
+Yes, use the `test_only` configuration. Tests are matched by full name (`module::test_name`), and an empty list runs all tests:
+```toml
+[[projects]]
+name = "production"
+test_only = ["health::health_check", "auth::login"]
+```
+
 ### How do I configure retry behavior?
 Add retry configuration to your project:
 ```toml

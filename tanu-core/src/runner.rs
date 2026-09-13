@@ -762,6 +762,63 @@ impl Filter for TestIgnoreFilter {
     }
 }
 
+/// Filters tests to only run those configured in `test_only`.
+///
+/// This filter reads the `test_only` configuration from each project
+/// and restricts execution to those tests. Tests are matched by their
+/// full name (module::test_name). If the list is empty or absent,
+/// all tests are included. When combined with `test_ignore`, a test
+/// must be listed in `test_only` and not listed in `test_ignore`.
+///
+/// # Configuration
+///
+/// In `tanu.toml`:
+/// ```toml
+/// [[projects]]
+/// name = "production"
+/// test_only = ["api::health_check", "auth::login"]
+/// ```
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::TestOnlyFilter;
+///
+/// let filter = TestOnlyFilter::default();
+/// // Only tests listed in test_only config will run
+/// ```
+pub struct TestOnlyFilter {
+    test_onlys: HashMap<String, Vec<String>>,
+}
+
+impl Default for TestOnlyFilter {
+    fn default() -> TestOnlyFilter {
+        TestOnlyFilter {
+            test_onlys: get_tanu_config()
+                .projects
+                .iter()
+                .map(|proj| (proj.name.clone(), proj.test_only.clone()))
+                .collect(),
+        }
+    }
+}
+
+impl Filter for TestOnlyFilter {
+    fn filter(&self, project: &ProjectConfig, info: &TestInfo) -> bool {
+        let Some(test_only) = self.test_onlys.get(&project.name) else {
+            return true;
+        };
+
+        if test_only.is_empty() {
+            return true;
+        }
+
+        test_only
+            .iter()
+            .any(|test_name| &info.full_name() == test_name)
+    }
+}
+
 /// The main test execution engine for tanu.
 ///
 /// `Runner` is responsible for orchestrating the entire test execution pipeline:
@@ -1075,6 +1132,7 @@ impl Runner {
         let module_filter = ModuleFilter { module_names };
         let test_name_filter = TestNameFilter { test_names };
         let test_ignore_filter = TestIgnoreFilter::default();
+        let test_only_filter = TestOnlyFilter::default();
 
         let start = std::time::Instant::now();
         let fail_fast = self.options.fail_fast;
@@ -1115,6 +1173,7 @@ impl Runner {
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
                 .filter(move |(project, info, _)| project_filter.filter(project, info))
                 .filter(move |(project, info, _)| test_ignore_filter.filter(project, info))
+                .filter(move |(project, info, _)| test_only_filter.filter(project, info))
                 .collect();
 
             // Separate ordered and non-ordered tests
@@ -1442,6 +1501,62 @@ mod test {
             })],
             ..Default::default()
         }
+    }
+
+    fn test_info(module: &str, name: &str) -> TestInfo {
+        TestInfo {
+            module: module.into(),
+            name: name.into(),
+            serial_group: None,
+            line: 0,
+            ordered: false,
+        }
+    }
+
+    #[test]
+    fn test_ignore_filter() {
+        let filter = TestIgnoreFilter {
+            test_ignores: HashMap::from([(
+                "staging".to_string(),
+                vec!["api::health_check".to_string()],
+            )]),
+        };
+        let project = |name: &str| ProjectConfig {
+            name: name.into(),
+            ..Default::default()
+        };
+
+        // Listed tests are ignored
+        assert!(!filter.filter(&project("staging"), &test_info("api", "health_check")));
+        assert!(filter.filter(&project("staging"), &test_info("api", "login")));
+
+        // Unknown project allows all tests
+        assert!(filter.filter(&project("unknown"), &test_info("api", "health_check")));
+    }
+
+    #[test]
+    fn test_only_filter() {
+        let filter = TestOnlyFilter {
+            test_onlys: HashMap::from([
+                ("staging".to_string(), vec!["api::health_check".to_string()]),
+                ("production".to_string(), vec![]),
+            ]),
+        };
+        let project = |name: &str| ProjectConfig {
+            name: name.into(),
+            ..Default::default()
+        };
+
+        // Non-empty list allows only listed tests
+        assert!(filter.filter(&project("staging"), &test_info("api", "health_check")));
+        assert!(!filter.filter(&project("staging"), &test_info("api", "login")));
+        assert!(!filter.filter(&project("staging"), &test_info("auth", "health_check")));
+
+        // Empty list allows all tests
+        assert!(filter.filter(&project("production"), &test_info("api", "login")));
+
+        // Unknown project allows all tests
+        assert!(filter.filter(&project("unknown"), &test_info("api", "login")));
     }
 
     fn create_config_with_retry() -> Config {

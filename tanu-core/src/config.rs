@@ -535,9 +535,12 @@ pub struct ProjectConfig {
     /// Keys and values specified by user.
     #[serde(flatten)]
     pub data: HashMap<String, TomlValue>,
-    /// List of files to ignore in the project.
+    /// List of tests to ignore in the project.
     #[serde(default)]
     pub test_ignore: Vec<String>,
+    /// List of tests to run exclusively in the project. Empty means all tests.
+    #[serde(default)]
+    pub test_only: Vec<String>,
     #[serde(default)]
     pub retry: RetryConfig,
 }
@@ -844,12 +847,30 @@ mod test {
         let project = &cfg.projects[0];
         assert_eq!(project.name, "default");
         assert_eq!(project.test_ignore, Vec::<String>::new());
+        assert_eq!(project.test_only, Vec::<String>::new());
         assert_eq!(project.retry.count, Some(0));
         assert_eq!(project.retry.factor, Some(2.0));
         assert_eq!(project.retry.jitter, Some(false));
         assert_eq!(project.retry.min_delay, Some(Duration::from_secs(1)));
         assert_eq!(project.retry.max_delay, Some(Duration::from_secs(60)));
 
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_test_only_and_ignore() -> eyre::Result<()> {
+        let project: ProjectConfig = toml::from_str(
+            r#"
+            name = "staging"
+            test_only = ["api::health_check", "auth::login"]
+            test_ignore = ["auth::login"]
+            "#,
+        )?;
+        assert_eq!(
+            project.test_only,
+            vec!["api::health_check".to_string(), "auth::login".to_string()]
+        );
+        assert_eq!(project.test_ignore, vec!["auth::login".to_string()]);
         Ok(())
     }
 

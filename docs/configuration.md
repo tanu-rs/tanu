@@ -10,6 +10,7 @@ The `tanu.toml` file consists of multiple `[[projects]]` tables, each representi
 
 - `name`: The name of the project (e.g., "dev", "staging", "production").
 - `test_ignore`: A list of test cases to ignore for the environment.
+- `test_only`: A list of test cases to run exclusively for the environment. If empty or omitted, all test cases run. When combined with `test_ignore`, a test case must be listed in `test_only` and not listed in `test_ignore`.
 
 ## Example
 
@@ -38,6 +39,9 @@ retry.max_delay = "60s"
 [[projects]]
 name = "production"
 test_ignore = []
+test_only = [
+  "health::health_check",
+]
 retry.count = 3
 retry.factor = 2.0
 retry.jitter = true

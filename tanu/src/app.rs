@@ -388,6 +388,7 @@ impl App {
                 use console::style;
 
                 let filter = tanu_core::runner::TestIgnoreFilter::default();
+                let only_filter = tanu_core::runner::TestOnlyFilter::default();
                 let list = runner.list();
                 let test_case_by_module = list.iter().into_group_map_by(|test| test.module.clone());
                 for module in test_case_by_module.keys() {
@@ -401,7 +402,9 @@ impl App {
                             .get(module)
                             .ok_or_eyre("module not found")?
                         {
-                            if !filter.filter(project, test_case) {
+                            if !filter.filter(project, test_case)
+                                || !only_filter.filter(project, test_case)
+                            {
                                 continue;
                             }
                             term.write_line(&format!(
