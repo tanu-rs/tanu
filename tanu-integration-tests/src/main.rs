@@ -12,6 +12,7 @@ mod retry;
 mod serial;
 mod task_local;
 mod tcp;
+mod test_only;
 
 use std::sync::Arc;
 

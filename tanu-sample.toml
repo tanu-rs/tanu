@@ -16,6 +16,7 @@ payload.color_theme = "apathy"  # color theme for the payload tab, default is "s
 [[projects]]
 name = "default"        # project name
 test_ignore = []        # list of test names to exclude
+test_only = []          # list of test names to run exclusively, empty runs all tests
 retry.count = 0         # retry count, default is 0
 retry.factor = 2.0      # factor for backoff, default is 2.0
 retry.jitter = false    # true to enable backoff jitter, default is false

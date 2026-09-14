@@ -83,5 +83,5 @@ pub use error::{Error, Result};
 pub use reporter::{ListReporter, NullReporter, Reporter};
 pub use runner::{
     CallLog, Filter, ModuleFilter, ProjectFilter, Runner, TestIgnoreFilter, TestInfo,
-    TestNameFilter,
+    TestNameFilter, TestOnlyFilter,
 };
