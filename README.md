@@ -6,65 +6,63 @@
 <a href="https://github.com/tanu-rs/tanu/blob/main/LICENSE"><img src="https://img.shields.io/crates/l/tanu"/></a>
 <a href="https://docs.rs/tanu"><img src="https://docs.rs/tanu/badge.svg"/></a>
 </p>
+<p align="center">
+<a href="https://tanu-rs.github.io/tanu/">Documentation</a> ·
+<a href="https://tanu-rs.github.io/tanu/getting-started/">Getting Started</a> ·
+<a href="https://docs.rs/tanu">API Reference</a> ·
+<a href="https://github.com/tanu-rs/tanu/tree/main/examples">Examples</a>
+</p>
 
-## Motivation
+tanu is a framework for writing end-to-end tests against HTTP, gRPC, and GraphQL APIs in plain Rust. Tests are ordinary `async` functions; tanu discovers them at compile time, runs them concurrently, and gives you a CLI and an interactive TUI to run and inspect them.
 
-As a long time backend engineer, I have always been passionate about building reliable and efficient systems. When working with WebAPIs, ensuring correctness, stability, and performance is crucial, yet I often found existing testing frameworks lacking in speed, flexibility, or Rust-native support. This led me to create a WebAPI testing framework in Rust.
+## Features
 
-While some WebAPI testing tools exist for Rust, they often lack ergonomics, are too low-level, or don't integrate well with modern Rust web frameworks. My goal was to create a framework that is:
+- **Plain async Rust tests** – annotate an `async fn` with `#[tanu::test]`; no harness boilerplate.
+- **Parameterized tests** – stack `#[tanu::test(args...)]` attributes to generate one test case per input.
+- **Concurrent by default** – tests run in parallel, with `serial` groups and `ordered` modules when you need sequencing.
+- **Built-in HTTP client** – every request and response is captured for debugging, with credentials masked automatically.
+- **gRPC and GraphQL** – capture tonic calls through Tower middleware, and send runtime or type-safe GraphQL queries.
+- **Assertion macros** – `check!`, `check_eq!`, `check_ne!`, `check_str_eq!` with colored diffs.
+- **Multi-environment projects** – run the same suite against `dev`, `staging`, and `production` from one `tanu.toml`.
+- **Retries, filters, fail-fast** – configurable exponential backoff, project/module/test filters, and allowlists.
+- **CLI and TUI** – run in CI with the CLI, or browse requests, headers, and payloads interactively in the TUI.
+- **Pluggable reporters** – write your own or use [tanu-allure](https://github.com/tanu-rs/tanu-allure) for Allure reports.
 
-- **Fast and lightweight** – Leveraging Rust’s zero-cost abstractions to minimize unnecessary overhead.
-- **Type-safe and ergonomic** – Taking advantage of Rust’s strong type system to prevent common errors at compile time.
-- **Easily extensible** – Allowing developers to integrate custom assertions, mocking, and performance metrics seamlessly.
-- **Concurrency and async-friendly** – Supporting asynchronous requests and concurrent execution to test APIs efficiently.
+## Quick Start
 
-I tried multiple solutions in the past but encountered significant limitations:
+Create a binary crate and add tanu with tokio:
 
-- **Postman** - Postman is a great tool but not designed for API end-to-end testing. You need a GUI and have to write assertions in JavaScript, which results in massive JSON files that become difficult to manage.
-- **Playwright** - Playwright is an excellent framework for web end-to-end testing. While it does support API testing, I wanted to use the same language for both API implementation and tests, which Playwright does not offer.
-- **Rust Standard Test Framework** - I attempted multiple times to write API tests using `#[test]`, along with [tokio](https://crates.io/crates/tokio), [test-case](https://crates.io/crates/test-case), and [reqwest](https://crates.io/crates/reqwest) crates. While functional, this approach lacked structure and ergonomics for writing effective tests at scale. I wanted a dedicated framework to simplify and streamline the process.
+```bash
+cargo new my-api-tests
+cd my-api-tests
+cargo add tanu
+cargo add tokio --features full
+```
 
-## Writing Tests with Tanu
-
-Writing API tests with tanu is designed to be intuitive and ergonomic. Here's what a typical test looks like:
+Replace `src/main.rs` with:
 
 ```rust
 use tanu::{check, check_eq, eyre, http::Client};
 
 #[tanu::test]
-async fn get_user_profile() -> eyre::Result<()> {
-    let client = Client::new();
-
-    // Make HTTP request
-    let response = client
-        .get("https://api.example.com/users/123")
-        .header("authorization", "Bearer token123")
-        .send()
-        .await?;
-
-    // Verify response
-    check!(response.status().is_success(), "Expected successful response");
-
-    // Parse and validate JSON
-    let user: serde_json::Value = response.json().await?;
-    check_eq!(123, user["id"].as_i64().unwrap());
-    check_eq!("John Doe", user["name"].as_str().unwrap());
-
+async fn get_returns_200() -> eyre::Result<()> {
+    let http = Client::new();
+    let res = http.get("https://httpbin.org/get").send().await?;
+    check!(res.status().is_success(), "unexpected status: {}", res.status());
     Ok(())
 }
 
-// Parameterized tests for testing multiple scenarios
+// One test case is generated per attribute.
 #[tanu::test(200)]
 #[tanu::test(404)]
 #[tanu::test(500)]
-async fn test_status_codes(expected_status: u16) -> eyre::Result<()> {
-    let client = Client::new();
-    let response = client
-        .get(&format!("https://httpbin.org/status/{expected_status}"))
+async fn status_codes(expected: u16) -> eyre::Result<()> {
+    let http = Client::new();
+    let res = http
+        .get(format!("https://httpbin.org/status/{expected}"))
         .send()
         .await?;
-
-    check_eq!(expected_status, response.status().as_u16());
+    check_eq!(expected, res.status().as_u16());
     Ok(())
 }
 
@@ -78,31 +76,125 @@ async fn main() -> eyre::Result<()> {
 }
 ```
 
-### Key Features Highlighted:
+Run the tests:
 
-- **Simple and Clean**: Tests look like regular Rust functions with the `#[tanu::test]` attribute
-- **Async/Await Native**: Full support for async operations without boilerplate
-- **Type-Safe**: Leverage Rust's type system for robust API testing
-- **Ergonomic Assertions**: Use `check!`, `check_eq!`, and other assertion macros for clear test validation
-- **Parameterized Testing**: Test multiple scenarios with different inputs using multiple `#[tanu::test(param)]` attributes
-- **Serial Execution Control**: Run tests sequentially when needed with `#[tanu::test(serial)]` or grouped serial execution for tests that share mutable state
-- **Built-in HTTP Client**: No need to set up reqwest or other HTTP clients manually
-- **Automatic Sensitive Data Masking**: API keys, tokens, and passwords in HTTP logs are automatically masked with `*****` for security
-- **Error Handling**: Clean error propagation with `eyre::Result`
+```bash
+cargo run -- test               # run all tests in CLI mode
+cargo run -- test --capture-http # also print HTTP requests/responses
+cargo run -- tui                # interactive terminal UI
+cargo run -- ls                 # list discovered tests
+```
+
+```text
+✓ 1 [default] my_api_tests::get_returns_200 (412.08ms)
+✓ 2 [default] my_api_tests::status_codes::200 (398.51ms)
+✓ 3 [default] my_api_tests::status_codes::404 (401.77ms)
+✓ 4 [default] my_api_tests::status_codes::500 (405.12ms)
+
+Tests: 4 passed, 0 failed, 4 total
+```
+
+See the [Getting Started guide](https://tanu-rs.github.io/tanu/getting-started/) for a full walkthrough.
+
+## Configuration
+
+Projects in `tanu.toml` let you run the same tests against several environments. Arbitrary keys are available to tests through `tanu::get_config()`:
+
+```toml
+[runner]
+capture_http = "on-failure"
+concurrency = 8
+
+[[projects]]
+name = "staging"
+base_url = "https://staging.api.example.com"
+retry.count = 3
+
+[[projects]]
+name = "production"
+base_url = "https://api.example.com"
+test_ignore = ["my_api_tests::destructive::delete_account"]
+```
+
+```rust
+#[tanu::test]
+async fn health() -> eyre::Result<()> {
+    let base_url = tanu::get_config().get_str("base_url")?.to_string();
+    let res = Client::new().get(format!("{base_url}/health")).send().await?;
+    check!(res.status().is_success());
+    Ok(())
+}
+```
+
+Values can also come from environment variables or a `.env` file (`TANU_API_KEY`, `TANU_STAGING_API_KEY`). See [Configuration](https://tanu-rs.github.io/tanu/configuration/).
+
+## Feature Flags
+
+| Feature | Default | Description |
+|---|---|---|
+| `native-tls` | ✓ | TLS via the platform's native stack |
+| `rustls-tls-webpki-roots` | | TLS via rustls with bundled Mozilla roots (use with `default-features = false`) |
+| `rustls-tls-native-roots` | | TLS via rustls with the OS certificate store (use with `default-features = false`) |
+| `json` | | `RequestBuilder::json` for sending JSON bodies (`Response::json` is always available) |
+| `cookies` | | `Response::cookies` |
+| `grpc` | | gRPC call capture for [tonic](https://github.com/hyperium/tonic) channels |
+| `graphql` | | GraphQL request builder (enables `json`) |
+
+```toml
+[dependencies]
+tanu = { version = "0.22", features = ["json", "cookies"] }
+```
 
 ## Screenshots
 
-CLI allows you to run tests and see results in a terminal easily.
+The CLI runs tests and prints results in your terminal.
 <p><img src="cli.gif" width="100%"></p>
 
-TUI allows you to run tests and see results in a terminal interactively.
+The TUI lets you run tests and inspect HTTP calls interactively.
 <p><img src="tui.gif" width="100%"></p>
 
-Beautiful backtrace by color-eyre.
+Failures come with colored backtraces from color-eyre.
 <p><img src="backtrace.png" width="100%"></p>
 
-Test report with Allure.
+Test reports with [tanu-allure](https://github.com/tanu-rs/tanu-allure).
 <p><img src="allure.png" width="100%"></p>
+
+## Documentation
+
+| Topic | |
+|---|---|
+| [Getting Started](https://tanu-rs.github.io/tanu/getting-started/) | Install tanu and write your first test |
+| [Test Attributes](https://tanu-rs.github.io/tanu/attribute/) | `#[tanu::test]`, parameterized tests, serial groups |
+| [Ordered Execution](https://tanu-rs.github.io/tanu/ordered-execution/) | Run a module's tests in source order |
+| [Assertions](https://tanu-rs.github.io/tanu/assertion/) | `check!` and friends |
+| [gRPC](https://tanu-rs.github.io/tanu/grpc/) / [GraphQL](https://tanu-rs.github.io/tanu/graphql/) | Protocol-specific testing |
+| [Configuration](https://tanu-rs.github.io/tanu/configuration/) | `tanu.toml`, env vars, retries, masking |
+| [Command Line Options](https://tanu-rs.github.io/tanu/command-line-option/) | `test`, `tui`, `ls` |
+| [Reporters](https://tanu-rs.github.io/tanu/report/) | Custom reporters and Allure |
+| [FAQ](https://tanu-rs.github.io/tanu/faq/) | Common questions and troubleshooting |
+
+## Why tanu?
+
+As a long-time backend engineer, I wanted API tests that were fast, type-safe, and written in the same language as the services they test. The tools I tried each fell short:
+
+- **Postman** is a great tool, but not designed for end-to-end API testing. It needs a GUI, assertions are written in JavaScript, and collections become huge JSON files that are hard to review and maintain.
+- **Playwright** is excellent for web end-to-end testing and supports API testing, but I wanted to write tests in the same language as the API implementation.
+- **Rust's built-in `#[test]`** with [tokio](https://crates.io/crates/tokio), [test-case](https://crates.io/crates/test-case), and [reqwest](https://crates.io/crates/reqwest) works, but lacks the structure needed at scale: multiple environments, request capture, retries, reporting, and a way to browse results.
+
+tanu aims to be a dedicated framework for that job while staying plain Rust.
+
+## Contributing
+
+Issues and pull requests are welcome. To work on tanu itself:
+
+```bash
+cargo build --workspace
+cargo test --workspace
+cargo run -p tanu-integration-tests -- test   # requires Docker (httpbin container)
+mkdocs serve                                  # preview the documentation site
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full pre-PR checklist (fmt, clippy for both TLS backends, builds, integration tests) and commit conventions.
 
 ## Contributors
 
@@ -145,13 +237,4 @@ Your support helps make tanu better for everyone. Thank you! 🙏
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-The Apache License 2.0 is a permissive open source license that allows you to:
-- Use the software for any purpose
-- Distribute it
-- Modify it
-- Distribute modified versions
-- Place warranty
-
-For more information about the Apache License 2.0, visit: http://www.apache.org/licenses/LICENSE-2.0
+Licensed under the [Apache License 2.0](LICENSE).

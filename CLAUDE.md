@@ -22,7 +22,7 @@ Tanu is an async-friendly WebAPI testing framework for Rust with CLI and TUI mod
 - `tanu-core/src/http.rs` - HTTP client wrapper around reqwest with automatic logging
 - `tanu-core/src/assertion.rs` - Custom assertion macros (check!, check_eq!, etc.)
 - `tanu-core/src/config.rs` - TOML configuration loading with env var support
-- `tanu-core/src/reporter.rs` - Pluggable test result formatters (List, Table, Null)
+- `tanu-core/src/reporter.rs` - Pluggable test result formatters (List, Null)
 - `tanu-derive/src/lib.rs` - Procedural macros for test discovery
 
 ## Build, Test, and Development Commands
@@ -135,13 +135,11 @@ base_url = "https://api.example.com"
 timeout = 30000
 test_ignore = ["slow_test"]
 test_only = []  # allowlist; empty runs all tests
-
-[retry]
-count = 3
-factor = 2.0
-jitter = false
-min_delay = "1s"
-max_delay = "60s"
+retry.count = 3       # retries re-run a failed test; configured per project
+retry.factor = 2.0
+retry.jitter = false
+retry.min_delay = "1s"
+retry.max_delay = "60s"
 ```
 
 ### Environment Variable Support

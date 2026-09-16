@@ -1,50 +1,66 @@
-# Frequently Asked Questions (FAQ)
+# Frequently Asked Questions
 
----
-tags:
-  - FAQ
-  - Getting Started
-  - Configuration
-  - HTTP
----
-
-## General Questions
+## General
 
 ### What is tanu?
-Tanu is a high-performance, async-friendly WebAPI testing framework for Rust. It's designed to be fast, type-safe, ergonomic, and easily extensible with full support for concurrency and async operations.
 
-### How is tanu different from using standard Rust test framework with reqwest?
-While you can write API tests using `#[test]` with tokio and reqwest, tanu provides:
-- Dedicated test discovery and execution system
-- Built-in HTTP client with logging
-- Ergonomic assertion macros designed for API testing
-- Terminal UI for interactive test execution
-- Configuration system for multiple environments
-- Parameterized test support
+tanu is an async-friendly framework for end-to-end testing of HTTP, gRPC, and GraphQL APIs in Rust. Tests are plain `async` functions annotated with `#[tanu::test]`; tanu discovers them at compile time and runs them concurrently from a CLI or an interactive TUI.
 
-### Is tanu production-ready?
-Yes, tanu is actively developed and used for testing production APIs. The framework follows semantic versioning and maintains backward compatibility.
+### How is tanu different from `#[test]` with tokio and reqwest?
+
+You can write API tests with the standard test harness, but you end up building the surrounding infrastructure yourself. tanu provides:
+
+- Test discovery with parameterized, serial, and ordered tests
+- An HTTP client that captures every request and response, with credentials masked
+- Assertion macros that report into the runner
+- Projects for running the same suite against multiple environments
+- Test-level retries, fail-fast, and filters
+- A TUI for browsing results and payloads
+- Pluggable reporters, including Allure
+
+### Is tanu stable?
+
+tanu is actively developed and used to test real APIs. It is still pre-1.0, so minor releases may contain breaking changes; check the [release notes](https://github.com/tanu-rs/tanu/releases) when upgrading.
 
 ## Installation & Setup
 
-### What are the minimum requirements?
-- Rust 1.70 or later
-- Cargo package manager
-- tokio runtime for async support
-
 ### How do I install tanu?
-Add tanu to your Cargo.toml:
+
+tanu tests live in a binary crate:
+
 ```bash
+cargo new my-api-tests
+cd my-api-tests
 cargo add tanu
 cargo add tokio --features full
 ```
 
-### Can I use tanu in an existing Rust project?
-Yes! Tanu can be added to any Rust project. You can create a separate binary for your tests or integrate them into your existing test suite.
+Then follow [Getting Started](getting-started.md) to set up `main`.
+
+### Can I add tanu to an existing project?
+
+Yes. The usual approach is a dedicated binary crate in your workspace (for example `api-tests/`) so that test dependencies stay out of your service. Your tests can depend on your service's crates to reuse request and response types.
+
+### Which feature flags do I need?
+
+| Feature | Needed for |
+|---|---|
+| `json` | `RequestBuilder::json` (sending JSON bodies) |
+| `cookies` | `Response::cookies` |
+| `grpc` | [gRPC testing](grpc.md) |
+| `graphql` | [GraphQL testing](graphql.md) |
+| `rustls-tls-webpki-roots` / `rustls-tls-native-roots` | Using rustls instead of native TLS (with `default-features = false`) |
+
+```toml
+tanu = { version = "0.22", features = ["json", "cookies"] }
+```
+
+If you get a "no method named `json`" error on a request builder, the `json` feature is missing.
 
 ## Writing Tests
 
 ### How do I write a basic test?
+
 ```rust
 use tanu::{check, eyre, http::Client};
 
@@ -58,64 +74,74 @@ async fn my_test() -> eyre::Result<()> {
 ```
 
 ### Can I use parameterized tests?
-Yes! Use multiple `#[tanu::test(param)]` attributes:
+
+Yes. Add one `#[tanu::test(...)]` attribute per case:
+
 ```rust
 #[tanu::test(200)]
 #[tanu::test(404)]
 #[tanu::test(500)]
-async fn test_status_codes(status: u16) -> eyre::Result<()> {
-    // Test implementation
+async fn status_codes(status: u16) -> eyre::Result<()> {
     Ok(())
 }
 ```
 
+See [Test Attributes](attribute.md#parameterized-tests) for naming rules.
+
 ### How do I handle authentication?
-Add headers to your requests:
+
+Use `bearer_auth`, `basic_auth`, or a header, and keep the secret in an environment variable:
+
 ```rust
+let token = tanu::get_config().get_str("api_token")?.to_string(); // from TANU_API_TOKEN
 let response = client
     .get("https://api.example.com/protected")
-    .header("authorization", "Bearer your-token")
+    .bearer_auth(token)
     .send()
     .await?;
 ```
 
+Credentials in headers, query parameters, and JSON/form bodies are masked in HTTP logs by default.
+
 ### What assertion macros are available?
-- `check!(condition)` - Basic boolean assertion
-- `check_eq!(expected, actual)` - Equality assertion
-- `check_ne!(expected, actual)` - Non-equality assertion
-- `check_str_eq!(expected, actual)` - String equality with better diff output
+
+| Macro | Checks |
+|---|---|
+| `check!(cond)` | A boolean condition |
+| `check_eq!(left, right)` | Equality, with a colored diff |
+| `check_ne!(left, right)` | Inequality |
+| `check_str_eq!(left, right)` | String equality, with a line-by-line diff |
+
+All accept an optional format string and arguments. See [Assertions](assertion.md).
+
+### Can tests run in a specific order?
+
+Yes. Use `#[tanu::test(serial)]` or `#[tanu::test(serial = "group")]` to stop tests from overlapping, and `#[tanu::test(ordered)]` on a module to run its tests in source order. See [Ordered Execution](ordered-execution.md).
 
 ## HTTP Features
 
-### Does tanu support cookies?
-Yes! Enable the cookies feature:
-```toml
-tanu = { version = "*", features = ["cookies"] }
-```
-
-Then use the cookies API:
-```rust
-let cookies = response.cookies();
-for cookie in cookies {
-    println!("{}={}", cookie.name(), cookie.value());
-}
-```
-
 ### What HTTP methods are supported?
-All standard HTTP methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS.
 
-### Can I send JSON data?
-Yes, with the json feature enabled:
+`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`.
+
+### How do I send JSON?
+
+Enable the `json` feature:
+
 ```rust
 let response = client
     .post("https://api.example.com/users")
-    .json(&user_data)
+    .json(&serde_json::json!({ "name": "Alice" }))
     .send()
     .await?;
 ```
 
-### How do I handle different content types?
-Use appropriate headers:
+Reading JSON with `response.json::<T>()` works without the feature.
+
+### How do I send other content types?
+
+Use `form` for URL-encoded bodies, or `body` with an explicit content type:
+
 ```rust
 let response = client
     .post("https://api.example.com/data")
@@ -125,10 +151,32 @@ let response = client
     .await?;
 ```
 
+### Does tanu support cookies?
+
+Yes, with the `cookies` feature:
+
+```rust
+for cookie in response.cookies() {
+    println!("{}={}", cookie.name(), cookie.value());
+}
+```
+
+### How do I set a request timeout?
+
+```rust
+let response = client
+    .get("https://api.example.com/slow")
+    .timeout(std::time::Duration::from_secs(30))
+    .send()
+    .await?;
+```
+
 ## Configuration
 
 ### How do I configure different environments?
-Create a `tanu.toml` file:
+
+Define one project per environment in `tanu.toml`:
+
 ```toml
 [[projects]]
 name = "staging"
@@ -139,24 +187,32 @@ name = "production"
 base_url = "https://api.example.com"
 ```
 
-### Can I ignore specific tests?
-Yes, use the `test_ignore` configuration:
-```toml
-[[projects]]
-name = "default"
-test_ignore = ["slow_test", "flaky_test"]
-```
+Every test runs once per project. Read values with `tanu::get_config().get_str("base_url")`, and select projects with `-p`. See [Configuration](configuration.md).
 
-### Can I run only specific tests in a project?
-Yes, use the `test_only` configuration. Tests are matched by full name (`module::test_name`), and an empty list runs all tests:
+### Can I skip specific tests in a project?
+
+Yes, with `test_ignore`. Use full test names, including the crate name:
+
 ```toml
 [[projects]]
 name = "production"
-test_only = ["health::health_check", "auth::login"]
+test_ignore = ["my_api_tests::users::delete_account"]
 ```
 
-### How do I configure retry behavior?
-Add retry configuration to your project:
+### Can I run only specific tests in a project?
+
+Yes, with `test_only`. An empty list runs all tests:
+
+```toml
+[[projects]]
+name = "production"
+test_only = ["my_api_tests::health::health_check", "my_api_tests::auth::login"]
+```
+
+### How do I configure retries?
+
+Retries re-run a failed test with exponential backoff:
+
 ```toml
 [[projects]]
 name = "default"
@@ -165,42 +221,41 @@ retry.factor = 2.0
 retry.jitter = true
 ```
 
+See [Retry](configuration.md#retry).
+
 ## Running Tests
 
 ### How do I run tests?
+
 ```bash
-cargo run                    # Run all tests
-cargo run test             # Run all tests (explicit)
-cargo run test -t pattern  # Run tests matching pattern
+cargo run -- test                               # run all tests
+cargo run -- test -p staging                    # one project
+cargo run -- test -m my_api_tests::users        # one module
+cargo run -- test -t my_api_tests::users::login # one test
+cargo run -- ls                                 # list test names
 ```
+
+Module and test filters match full names exactly; they are not patterns. See [Command Line Options](command-line-option.md).
 
 ### Can I run tests in parallel?
-Yes, tanu runs tests concurrently by default. You can control concurrency using:
 
-- Command-line flag: `--concurrency 4` or `-c 4`
-- Configuration file: `runner.concurrency = 4` in `tanu.toml`
+Tests run in parallel by default, with no limit in CLI mode. Limit concurrency with `-c 4` or `runner.concurrency = 4` in `tanu.toml`.
 
-See the [Runner Configuration](configuration.md#runner) section for more details.
+### How do I use the TUI?
 
-### How do I use the TUI mode?
 ```bash
-cargo run tui
+cargo run -- tui
 ```
 
-This opens an interactive terminal interface for running and monitoring tests.
+See [TUI](tui.md) for key bindings.
 
 ## Troubleshooting
 
-### My tests are failing with connection errors
-- Check if the API endpoint is accessible
-- Verify network connectivity
-- Consider timeouts and retry configuration
-- Check if authentication is required
-
 ### I see a panic: "cannot access a task-local storage value without setting it first"
-This usually happens when you spawn background tasks (e.g. `tokio::spawn`, `JoinSet::spawn`) from inside a `#[tanu::test]` and the spawned task calls `tanu::get_config()` or uses tanu assertion macros (`check!`, `check_eq!`, etc.).
 
-Tokio task-local context is not propagated automatically into spawned tasks. Wrap the spawned future with `tanu::scope_current(...)`:
+This happens when you spawn a task (e.g. `tokio::spawn`, `JoinSet::spawn`) from a `#[tanu::test]` and the spawned task calls `tanu::get_config()` or a `check!` macro.
+
+Tokio task-locals are not propagated into spawned tasks. Wrap the future with `tanu::scope_current(...)`:
 
 ```rust
 #[tanu::test]
@@ -215,70 +270,62 @@ async fn spawned_task_uses_tanu_apis() -> eyre::Result<()> {
 }
 ```
 
-### I'm getting "function not found" errors
-Make sure you've added the required features to your Cargo.toml:
-```toml
-tanu = { version = "*", features = ["json", "cookies"] }
-```
+### `get_int` returns "value not found" for a number in `tanu.toml`
 
-### Tests work individually but fail when run together
-This might be due to:
-- Shared state between tests
-- Rate limiting from the API
-- Authentication token expiration
-- Resource cleanup issues
+The typed accessors parse string values. Quote the value (`timeout = "5000"`) or read the raw TOML value with `get`. See [User-defined settings](configuration.md#user-defined-settings).
+
+### My test is listed but doesn't run with `-t` or `test_ignore`
+
+Test names include the crate name, e.g. `my_api_tests::users::login` rather than `users::login`. Run `cargo run -- ls` and copy the name from there.
+
+### Tests pass individually but fail together
+
+Common causes:
+
+- Shared state between tests — use [serial groups](attribute.md#serial-execution)
+- API rate limiting — lower concurrency with `-c`
+- Tests depending on data created by other tests — use [ordered execution](ordered-execution.md) or make them independent
+- Expired authentication tokens
 
 ### How do I debug HTTP requests?
-Use the `--capture-http` flag to capture HTTP request/response logs:
+
+By default, captured HTTP logs are printed for failed tests. To print them for every test:
 
 ```bash
 cargo run -- test --capture-http
 ```
 
-You can also enable this by default in `tanu.toml`:
+Or set it in `tanu.toml`:
+
 ```toml
 [runner]
-capture_http = true
+capture_http = "all"
 ```
 
-For interactive debugging, use TUI mode to inspect detailed request information. See [Best Practices - HTTP Debugging](best-practices.md#http-debugging) for more details on automatic sensitive data masking.
-
-## Performance
-
-### How fast is tanu compared to other tools?
-Tanu is built in Rust and leverages zero-cost abstractions for minimal overhead. It typically outperforms JavaScript and Python-based testing frameworks.
-
-### Can I control test execution speed?
-Yes, through configuration:
-- Adjust concurrency levels with `--concurrency` flag or `runner.concurrency` in config
-- Configure timeouts in your HTTP client
-- Use retry settings appropriately (see [Retry Configuration](configuration.md#retry))
-- Consider rate limiting for API protection
+Large bodies are truncated at 64KB; raise the limit with `--max-body-size`. Use `--show-sensitive` locally if you need to see masked values. The TUI shows the same information interactively.
 
 ## Integration
 
-### Can I use tanu in CI/CD pipelines?
-Yes! Tanu works well in CI/CD environments. Use the CLI mode for automated testing:
+### Can I use tanu in CI?
+
+Yes. Use the CLI mode; the process exits with a non-zero status when tests fail:
+
 ```bash
-cargo run test --reporter json > results.json
+cargo run -- test --color always --fail-fast
 ```
 
-### How do I integrate with existing test suites?
-Tanu tests can run alongside standard Rust tests. You can organize them in separate modules or binaries as needed.
-
 ### Can I generate test reports?
-Yes, tanu supports various output formats including JSON for integration with reporting tools.
+
+Yes. Use [tanu-allure](report.md#allure) for Allure reports, or implement the [`Reporter`](report.md#writing-a-custom-reporter) trait for your own format.
 
 ## Contributing
 
-### How can I contribute to tanu?
-- Report bugs and feature requests on GitHub
-- Submit pull requests with improvements
-- Write documentation and examples
-- Share your experience with the community
+### How can I contribute?
+
+- Report bugs and request features in [GitHub issues](https://github.com/tanu-rs/tanu/issues)
+- Submit pull requests
+- Improve documentation and examples
 
 ### Where can I get help?
-- Check this FAQ and documentation
-- Search existing GitHub issues
-- Create a new issue for bugs or feature requests
-- Join community discussions
+
+Search the [existing issues](https://github.com/tanu-rs/tanu/issues) or open a new one.
