@@ -61,7 +61,7 @@
 //! capture_rust = false     # Capture Rust "log" crate logs
 //! show_sensitive = false   # Show sensitive data in HTTP logs
 //! concurrency = 4          # Max parallel tests (default: unlimited)
-//! max_body_size = "64KB"   # Max body bytes printed in HTTP logs (0 disables)
+//! max_body_size = "16KB"   # Max body bytes printed in HTTP logs (0 disables)
 //!
 //! [[projects]]
 //! name = "staging"
@@ -152,8 +152,8 @@ impl<'de> serde::Deserialize<'de> for CaptureHttpMode {
     }
 }
 
-/// Default cap on how many body bytes are printed in HTTP logs: 64KB.
-const DEFAULT_MAX_BODY_SIZE: usize = 64 * 1024;
+/// Default cap on how many body bytes are printed in HTTP logs: 16KB.
+const DEFAULT_MAX_BODY_SIZE: usize = 16 * 1024;
 
 /// Maximum number of body bytes to print in HTTP logs.
 ///
@@ -789,8 +789,8 @@ mod test {
         }
 
         #[test]
-        fn default_is_64kb() {
-            assert_eq!(MaxBodySize::default(), MaxBodySize(64 * 1024));
+        fn default_is_16kb() {
+            assert_eq!(MaxBodySize::default(), MaxBodySize(16 * 1024));
         }
 
         #[test]

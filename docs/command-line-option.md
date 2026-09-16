@@ -34,7 +34,7 @@ The `test_ignore` and `test_only` lists in `tanu.toml` are applied in addition t
 | Option | Description |
 |---|---|
 | `--capture-http[=MODE]` | When to print captured HTTP requests and responses: `all`, `on-failure` (default), or `off`. A bare `--capture-http` means `all`. |
-| `--max-body-size <SIZE>` | Maximum bytes of each request/response body to print. Accepts a byte count (`65536`) or a size (`64KB`, `2MB`, `1.5MB`); `0` or `unlimited` prints bodies in full. Default `64KB`. Truncated bodies are printed as plain text with a marker line, without JSON pretty-printing. |
+| `--max-body-size <SIZE>` | Maximum bytes of each request/response body to print. Accepts a byte count (`65536`) or a size (`64KB`, `2MB`, `1.5MB`); `0` or `unlimited` prints bodies in full. Default `16KB`. Truncated bodies are printed as plain text with a marker line, without JSON pretty-printing. |
 | `--show-sensitive` | Print credentials in HTTP logs instead of masking them with `*****`. See [credential masking](configuration.md#credential-masking). |
 
 ### Execution

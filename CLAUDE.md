@@ -127,7 +127,7 @@ payload.color_theme = "apathy"
 
 [runner]
 capture_http = "on-failure"
-max_body_size = "64KB"
+max_body_size = "16KB"
 
 [[projects]]
 name = "default"
