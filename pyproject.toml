@@ -12,10 +12,10 @@ dependencies = [
     "mkdocstrings>=0.24.0",
     "mkdocs-macros-plugin>=1.0.0",
     "mike>=2.2.0",
-    "pymdown-extensions>=10.21.3",
+    "pymdown-extensions>=11.0.1",
 ]
 readme = "README.md"
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 
 [build-system]
 requires = ["hatchling"]
