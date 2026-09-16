@@ -1,5 +1,3 @@
-# Best Practices
-
 ---
 tags:
   - Testing
@@ -7,7 +5,12 @@ tags:
   - Configuration
 ---
 
+# Best Practices
+
 This guide covers best practices for writing effective API tests with tanu, based on real-world experience and established patterns.
+
+!!! note
+    To keep examples short, many snippets below use a `client` variable and relative paths such as `/users/123`. tanu's `Client` has no built-in base URL, so in real tests build full URLs, for example from a [project setting](#read-the-base-url-from-configuration).
 
 ## Test Organization
 
@@ -291,6 +294,29 @@ async fn handle_optional_fields_with_serde() -> eyre::Result<()> {
 
 ## Configuration Management
 
+### Read the Base URL from Configuration
+Don't hardcode hosts in tests. Put them in `tanu.toml` so the same test runs against every environment:
+
+```toml
+[[projects]]
+name = "staging"
+base_url = "https://staging.api.example.com"
+```
+
+```rust
+fn url(path: &str) -> eyre::Result<String> {
+    let base_url = tanu::get_config().get_str("base_url")?.to_string();
+    Ok(format!("{base_url}{path}"))
+}
+
+#[tanu::test]
+async fn get_user() -> eyre::Result<()> {
+    let res = Client::new().get(url("/users/123")?).send().await?;
+    check!(res.status().is_success());
+    Ok(())
+}
+```
+
 ### Use Environment-Specific Configurations
 Create separate configurations for different environments:
 
@@ -299,21 +325,23 @@ Create separate configurations for different environments:
 [[projects]]
 name = "local"
 base_url = "http://localhost:8080"
-timeout = 5000
+timeout = "5000"
 
 [[projects]]
 name = "staging"
 base_url = "https://staging.api.example.com"
-timeout = 10000
+timeout = "10000"
 retry.count = 2
 
 [[projects]]
 name = "production" 
 base_url = "https://api.example.com"
-timeout = 15000
+timeout = "15000"
 retry.count = 3
 retry.factor = 2.0
 ```
+
+`base_url` and `timeout` here are [user-defined settings](configuration.md#user-defined-settings): tanu doesn't interpret them, your tests read them with `get_config()`.
 
 ### Ignore Flaky or Slow Tests Appropriately
 Use test_ignore for tests that shouldn't run in certain environments:
@@ -322,11 +350,13 @@ Use test_ignore for tests that shouldn't run in certain environments:
 [[projects]]
 name = "ci"
 test_ignore = [
-    "slow_integration_test",
-    "external_dependency_test",
-    "load_test"
+    "my_api_tests::slow_integration_test",
+    "my_api_tests::external_dependency_test",
+    "my_api_tests::load_test",
 ]
 ```
+
+Entries are full test names including the crate name; run `cargo run -- ls` to list them. Use `test_only` to do the opposite and run just a small allowlist, such as smoke tests in production.
 
 ## Performance Considerations
 
@@ -353,6 +383,8 @@ async fn update_user_created_above() -> eyre::Result<()> {
     Ok(())
 }
 ```
+
+When steps genuinely have to happen in sequence (create → update → delete), put them in an [ordered module](ordered-execution.md) rather than relying on luck.
 
 ### Use Serial Execution When Needed
 
@@ -541,121 +573,22 @@ Always use HTTPS endpoints when testing production or staging environments.
 
 ### Automatic Sensitive Data Masking
 
-Tanu automatically masks sensitive data in HTTP logs when using the `--capture-http` flag to prevent accidental credential leakage. This feature helps you debug HTTP requests safely without exposing API keys, tokens, or passwords in your terminal output or CI/CD logs.
+tanu masks credentials in every HTTP log it prints, both in `--capture-http` output and the TUI. Header values such as `authorization`, `cookie`, and `x-api-key` are replaced with `*****`, as are query parameters and JSON/form body fields whose names contain keywords like `token`, `secret`, `password`, or `key`. The requests sent to the server are unchanged; only the logs are masked.
 
-**What Gets Masked:**
-
-Sensitive query parameters (case-insensitive):
-- `api_key`
-- `apikey`
-- `access_token`
-- `token`
-- `secret`
-- `password`
-- `key`
-- `auth`
-
-Sensitive headers (case-insensitive):
-- `authorization`
-- `x-api-key`
-- `x-auth-token`
-- `cookie`
-
-**How It Works:**
-
-```bash
-# Run tests with HTTP logging - sensitive data will be masked
-cargo run -- test --capture-http
-
-# Example output (masked):
-# => GET https://api.example.com/users?api_key=*****&user=alice
-#   > request:
-#     > headers:
-#        > authorization: *****
-#        > content-type: application/json
+```text
+=> GET https://api.example.com/users?api_key=*****&user=alice
+  > request:
+    > headers:
+       > authorization: *****
 ```
 
-The actual HTTP requests sent to the server contain the real values - only the logs are masked. This means your tests work correctly while keeping your logs secure.
+See [Credential masking](configuration.md#credential-masking) for the full keyword list and how to add your own with `extra_sensitive_keys` and `extra_sensitive_headers`.
 
-**Show Sensitive Data for Debugging:**
+**Recommendations:**
 
-During local development or debugging, you may want to see the actual values:
-
-```bash
-# Show sensitive data in logs (use with caution)
-cargo run -- test --capture-http --show-sensitive
-
-# Example output (unmasked):
-# => GET https://api.example.com/users?api_key=sk-1234567890&user=alice
-#   > request:
-#     > headers:
-#        > authorization: Bearer my-secret-token
-#        > content-type: application/json
-```
-
-**Best Practices:**
-
-1. **Never use `--show-sensitive` in CI/CD**: Always use the default masked mode in continuous integration environments to prevent credential leaks in build logs.
-
-2. **Review logs before sharing**: Even with masking enabled, review captured HTTP logs before sharing them publicly to ensure no sensitive data is exposed.
-
-3. **Use environment variables**: Store credentials in environment variables rather than hardcoding them:
-
-```rust
-#[tanu::test]
-async fn api_call_with_credentials() -> eyre::Result<()> {
-    let api_key = std::env::var("API_KEY")
-        .map_err(|_| eyre::eyre!("API_KEY not set"))?;
-
-    let response = client
-        .get("https://api.example.com/protected")
-        .query(&[("api_key", api_key)])
-        .send()
-        .await?;
-
-    check!(response.status().is_success());
-    Ok(())
-}
-```
-
-4. **URL encoding is preserved**: The masking feature preserves URL encoding in query parameters, so `name=john%20doe` remains properly encoded even after masking nearby sensitive params.
-
-5. **Test your integrations safely**: With automatic masking, you can capture HTTP logs even when testing against real APIs with actual credentials, making debugging production issues much safer.
-
-**Example Test:**
-
-```rust
-use tanu::{check, check_eq, eyre, http::Client};
-
-#[tanu::test]
-async fn test_authenticated_api_call() -> eyre::Result<()> {
-    let api_key = std::env::var("API_KEY")?;
-
-    let client = Client::new();
-    let response = client
-        .get("https://api.example.com/data")
-        .header("x-api-key", api_key)
-        .query(&[
-            ("access_token", "secret_token_123"),
-            ("user_id", "alice"),
-        ])
-        .send()
-        .await?;
-
-    check!(response.status().is_success());
-
-    // When run with --capture-http, the logs will show:
-    // => GET https://api.example.com/data?access_token=*****&user_id=alice
-    //   > request:
-    //     > headers:
-    //        > x-api-key: *****
-    //        > content-type: application/json
-
-    Ok(())
-}
-```
-
-This automatic masking feature ensures you can debug HTTP requests safely without compromising security, making it ideal for both local development and CI/CD environments.
+1. **Never use `--show-sensitive` in CI.** Keep the default masked mode wherever logs are stored or shared.
+2. **Add project-specific names.** If your API uses non-standard header or field names for secrets, list them in `[runner]` so they're masked too.
+3. **Still review logs before sharing.** Masking is keyword-based; a secret in a field with an unusual name, or inside a plain-text body, is not detected.
 
 ## Error Handling
 

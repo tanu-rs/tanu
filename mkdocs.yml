@@ -4,62 +4,88 @@ site_url: https://tanu-rs.github.io/tanu/
 repo_name: tanu-rs/tanu
 repo_url: https://github.com/tanu-rs/tanu
 edit_uri: edit/main/docs/
-copyright: Copyright &copy; 2025 Yukinari Tani
+copyright: Copyright &copy; 2025&ndash;2026 Yukinari Tani
 
 theme:
   name: material
   favicon: assets/tanu.png
   logo: assets/tanu.png
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
-    # Palette toggle for dark mode (default)
-    - scheme: slate
-      primary: black
-      accent: black
+    # Follow the operating system preference
+    - media: "(prefers-color-scheme)"
       toggle:
-        icon: material/brightness-7
+        icon: material/brightness-auto
         name: Switch to light mode
-    # Palette toggle for light mode
-    - scheme: default
-      primary: black
-      accent: black
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-sunny
         name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to system preference
   features:
-    - navigation.instant
-    - navigation.tracking
-    - navigation.sections
-    - navigation.expand
+    - announce.dismiss
+    - content.action.edit
     - content.code.annotate
     - content.code.copy
+    - content.code.select
     - content.tabs.link
-    - content.action.edit
-    - toc.integrate
-    - toc.follow
-    - navigation.path
-    - navigation.top
-    - navigation.tabs
+    - content.tooltips
     - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - navigation.tracking
     - search.highlight
     - search.share
     - search.suggest
+    - toc.follow
   icon:
     repo: fontawesome/brands/github
+    edit: material/pencil
+extra_css:
+  - stylesheets/extra.css
 nav:
-  - Welcome: index.md
-  - User Guide:
+  - Home: index.md
+  - Guide:
       - Getting Started: getting-started.md
-      - Test Attributes: attribute.md
-      - Ordered Execution: ordered-execution.md
-      - Test Assertions: assertion.md
-      - gRPC Testing: grpc.md
-      - GraphQL Testing: graphql.md
-      - Configuration: configuration.md
-      - Command Line Options: command-line-option.md
-      - TUI: tui.md
-      - Report: report.md
-      - Best Practices: best-practices.md
-      - FAQ: faq.md
+      - Writing Tests:
+          - Test Attributes: attribute.md
+          - Assertions: assertion.md
+          - Ordered Execution: ordered-execution.md
+      - Protocols:
+          - gRPC: grpc.md
+          - GraphQL: graphql.md
+      - Running Tests:
+          - Configuration: configuration.md
+          - Command Line Options: command-line-option.md
+          - TUI: tui.md
+          - Reporters: report.md
+  - Best Practices: best-practices.md
+  - FAQ: faq.md
+  - API Reference: https://docs.rs/tanu
+validation:
+  omitted_files: info
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+not_in_nav: |
+  /tags.md
+  /includes/
 plugins:
   - search:
       separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
@@ -114,6 +140,7 @@ markdown_extensions:
   - pymdownx.tilde
 
 extra:
+  generator: false
   analytics:
     provider: google
     property: !ENV GOOGLE_ANALYTICS_KEY

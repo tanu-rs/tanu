@@ -1,62 +1,25 @@
 # Getting Started
 
-To install `tanu` from [crates.io](https://crates.io), you need to have Rust and Cargo installed on your system. If you don't have Rust installed, you can install it by following the instructions on the [official Rust website](https://www.rust-lang.org/learn/get-started).
+This guide walks you through creating a tanu test project, writing a first test, and running it from the CLI and the TUI.
 
-Once you have Rust and Cargo installed, create an example project by running the following commands in your terminal:
+## Prerequisites
+
+You need Rust and Cargo. If you don't have them yet, follow the instructions on the [official Rust website](https://www.rust-lang.org/learn/get-started).
+
+## Create a project
+
+tanu tests live in an ordinary binary crate. Create one and add `tanu` and `tokio`:
 
 ```bash
 cargo new example
 cd example
-```
-
-Next, you can install `tanu` and `tokio` by running the following commands in your terminal:
-
-```bash
 cargo add tanu
 cargo add tokio --features full
 ```
 
-## TLS Backends
+## Set up the entry point
 
-Tanu supports two TLS backends, controlled by Cargo feature flags. Only one TLS backend can be active at a time.
-
-### `native-tls` (default)
-
-Uses the platform's native TLS stack: **OpenSSL** on Linux, **SChannel** on Windows, and **Secure Transport** on macOS. This is the default and requires no extra configuration.
-
-```toml
-[dependencies]
-tanu = "0.x"  # native-tls is enabled by default
-```
-
-### `rustls-tls`
-
-Tanu also ships three variants of the [rustls](https://github.com/rustls/rustls) TLS backend. Rustls is a pure-Rust TLS library that does not depend on OpenSSL or any system TLS library, making it easier to cross-compile and deploy in minimal environments.
-
-To switch to rustls, disable the default features and enable one of the variants:
-
-| Feature flag | Root certificate source | When to use |
-|---|---|---|
-| `rustls-tls-webpki-roots` | Bundled [Mozilla WebPKI roots](https://github.com/rustls/webpki-roots) | Recommended for most rustls users; behaviour is identical across all platforms |
-| `rustls-tls-native-roots` | System certificate store (same as `native-tls`) | Needed when your environment has custom/corporate CA certificates installed at the OS level |
-| `rustls-tls` | None – you must supply roots yourself | Advanced use; prefer one of the variants above |
-
-```toml
-# Example: rustls with bundled WebPKI roots
-[dependencies]
-tanu = { version = "0.x", default-features = false, features = ["rustls-tls-webpki-roots"] }
-```
-
-```toml
-# Example: rustls with the system native certificate store
-[dependencies]
-tanu = { version = "0.x", default-features = false, features = ["rustls-tls-native-roots"] }
-```
-
-!!! note
-    `native-tls` and the `rustls-tls*` flags are mutually exclusive. Always set `default-features = false` when enabling a rustls variant, otherwise both backends will be enabled and the build will fail.
-
-Open `src/main.rs` in your editor, and replace its contents with the following code:
+Replace the contents of `src/main.rs` with:
 
 ```rust
 use tanu::eyre;
@@ -71,19 +34,18 @@ async fn main() -> eyre::Result<()> {
 }
 ```
 
-This code sets up a basic `tanu` application using `tokio` for asynchronous runtime and `eyre` for error handling.
+`#[tanu::main]` generates the `run()` function, which builds a test runner containing every `#[tanu::test]` function in the crate. `App::run` parses the command line and runs the requested subcommand.
 
-To run your application, use the following command in your terminal:
+Run the binary without arguments to see the available commands:
 
 ```bash
 cargo run
 ```
 
-you will see the output as follows:
-```bash
-tanu - High-performance and async-friendly WebAPI testing framework for Rust
+```text
+tanu CLI offers various commands, including listing and executing test cases
 
-Usage: tanu-examples <COMMAND>
+Usage: example <COMMAND>
 
 Commands:
   test  Run tests in CLI mode
@@ -96,37 +58,12 @@ Options:
   -V, --version  Print version
 ```
 
-If you want to run tests, you can use:
+!!! tip
+    Arguments after `--` are passed to your test binary rather than to Cargo, so use `cargo run -- test --capture-http` when you pass flags.
 
-```bash
-cargo run test
-```
+## Write your first test
 
-If there are no tests defined, you should see the following output:
-
-```bash
-No tests have been defined yet.
-```
-
-Next, define your test case. As you can see below, the function has the `#[tanu::test]` attribute. This attribute parses the test function and automatically registers it in the tanu's test runner. The test function has to be "async" and return a `Result<T, E>` type.
-
-!!! note "Supported Error Types"
-    Tanu supports various Result types for flexible error handling:
-
-    - **`eyre::Result<()>`** (recommended) - Provides colored backtraces and seamless integration with tanu's assertion macros
-    - **`anyhow::Result<()>`** - Compatible with existing anyhow-based code
-    - **`std::result::Result<(), E>`** - Standard Rust Result type with custom error types or simple errors like `String`
-
-    For the best experience, we recommend using `eyre::Result` as it integrates perfectly with tanu's `check!` macros and provides excellent error reporting. For more details on error handling best practices, see our [Best Practices](best-practices.md#result-type-flexibility) guide.
-
-```rust
-#[tanu::test]
-async fn get() -> eyre::Result<()> {
-    Ok(())
-}
-```
-
-Now, define the test assertions in the function:
+Add a test function annotated with `#[tanu::test]`. Test functions must be `async` and return a `Result`:
 
 ```rust
 use tanu::{check, eyre, http::Client};
@@ -140,22 +77,128 @@ async fn get() -> eyre::Result<()> {
 }
 ```
 
-Run the tanu test runner again:
+The attribute registers the function with tanu's runner at compile time, so there is nothing else to wire up.
 
-```sh
-cargo run test
+!!! note "Supported error types"
+    tanu accepts several `Result` types and converts their errors for reporting:
+
+    - **`eyre::Result<()>`** (recommended) – works directly with the `check!` macros and gives colored backtraces.
+    - **`anyhow::Result<()>`** – for existing anyhow-based code.
+    - **`Result<(), E>`** – with your own error type or a simple `String`.
+
+    The `check!` macros return early with an `eyre::Report`, so they can only be used in tests that return `eyre::Result`. See [Best Practices](best-practices.md#result-type-flexibility) for details.
+
+## Run the tests
+
+```bash
+cargo run -- test
 ```
 
-This time you should see the test execution in your terminal like this:
+```text
+✓ 1 [default] example::get (412.08ms)
 
-```sh
-✓ [default] crate::get
+Tests: 1 passed, 0 failed, 1 total
+Time: 413.51ms (prep: 180.22µs)
 ```
 
-tanu offers a TUI-based test runner. To run in TUI mode, use the following command:
+Each line shows the result, a sequence number, the project name in brackets, and the full test name (`crate::module::function`). Without a `tanu.toml`, tanu runs every test in a single project named `default`.
 
-```sh
-cargo run tui
+To debug a request, print the captured HTTP traffic:
+
+```bash
+cargo run -- test --capture-http
 ```
 
-Congratulations! You have successfully set up a basic `tanu` application. For more advanced usage and features, please refer to the [official documentation](https://docs.rs/tanu).
+To browse tests and their requests interactively, launch the TUI:
+
+```bash
+cargo run -- tui
+```
+
+## Add configuration
+
+Create a `tanu.toml` next to `Cargo.toml` to run the same tests against multiple environments:
+
+```toml
+[[projects]]
+name = "staging"
+base_url = "https://staging.httpbin.org"
+
+[[projects]]
+name = "production"
+base_url = "https://httpbin.org"
+```
+
+Read project values from your tests with `tanu::get_config()`:
+
+```rust
+#[tanu::test]
+async fn get() -> eyre::Result<()> {
+    let base_url = tanu::get_config().get_str("base_url")?.to_string();
+    let http = Client::new();
+    let res = http.get(format!("{base_url}/get")).send().await?;
+    check!(res.status().is_success());
+    Ok(())
+}
+```
+
+Now every test runs once per project. Use `-p` to pick one:
+
+```bash
+cargo run -- test -p staging
+```
+
+## TLS backends
+
+tanu supports two TLS backends, selected by Cargo feature flags. Only one can be active at a time.
+
+### `native-tls` (default)
+
+Uses the platform's native TLS stack: **OpenSSL** on Linux, **SChannel** on Windows, and **Secure Transport** on macOS. It is enabled by default and needs no configuration.
+
+```toml
+[dependencies]
+tanu = "0.22"  # native-tls is enabled by default
+```
+
+### `rustls-tls`
+
+[rustls](https://github.com/rustls/rustls) is a pure-Rust TLS library with no dependency on OpenSSL or system TLS libraries, which makes cross-compiling and minimal container images easier. tanu ships three variants. Disable default features and enable one:
+
+| Feature flag | Root certificate source | When to use |
+|---|---|---|
+| `rustls-tls-webpki-roots` | Bundled [Mozilla WebPKI roots](https://github.com/rustls/webpki-roots) | Recommended for most rustls users; behaves identically on all platforms |
+| `rustls-tls-native-roots` | System certificate store (same as `native-tls`) | Your environment has custom or corporate CA certificates installed at the OS level |
+| `rustls-tls` | None – you supply roots yourself | Advanced use; prefer one of the variants above |
+
+```toml
+# rustls with bundled WebPKI roots
+[dependencies]
+tanu = { version = "0.22", default-features = false, features = ["rustls-tls-webpki-roots"] }
+```
+
+```toml
+# rustls with the system certificate store
+[dependencies]
+tanu = { version = "0.22", default-features = false, features = ["rustls-tls-native-roots"] }
+```
+
+!!! note
+    `native-tls` and the `rustls-tls*` flags are mutually exclusive. Always set `default-features = false` when enabling a rustls variant; otherwise both backends are enabled and the build fails.
+
+## Other feature flags
+
+| Feature | Enables |
+|---|---|
+| `json` | `RequestBuilder::json` for sending JSON request bodies |
+| `cookies` | `Response::cookies` |
+| `grpc` | gRPC call capture – see [gRPC Testing](grpc.md) |
+| `graphql` | GraphQL request builder – see [GraphQL Testing](graphql.md) |
+
+## Next steps
+
+- [Test Attributes](attribute.md) – parameterized tests and serial execution
+- [Assertions](assertion.md) – `check!`, `check_eq!`, `check_ne!`, `check_str_eq!`
+- [Configuration](configuration.md) – projects, retries, environment variables, and credential masking
+- [Command Line Options](command-line-option.md) – filtering, concurrency, and reporters
+- [API reference on docs.rs](https://docs.rs/tanu)

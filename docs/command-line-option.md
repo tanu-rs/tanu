@@ -1,40 +1,95 @@
 # Command Line Options
 
+The binary built with `#[tanu::main]` exposes three subcommands: `test`, `tui`, and `ls`. When running through Cargo, put the subcommand and its flags after `--`:
+
+```bash
+cargo run -- test --capture-http -p staging
+```
+
 !!! tip
-    Many command-line options can be configured as defaults in `tanu.toml` under the `[runner]` section. See the [Configuration](configuration.md#runner) page for details. Command-line flags always override configuration file settings.
+    Many options can be set as defaults in the `[runner]` section of `tanu.toml`. Command-line flags always take precedence. See [Configuration](configuration.md#runner).
 
 ## `test`
-Run tests with tanu.
 
-### Options
-* `--capture-http[=MODE]`  Capture HTTP debug logs. Accepts `all`, `on-failure` (default), or `off`. Bare `--capture-http` is equivalent to `--capture-http=all`. Use `--capture-http=off` to suppress HTTP logs entirely. Can also be set in `tanu.toml` as `runner.capture_http = "all"`, `"on-failure"`, or `"off"` (and `true` as a backward-compatible alias for `"all"`).
-* `--max-body-size <SIZE>` Cap how many bytes of each HTTP request/response body are printed in logs. Accepts a byte count (`65536`) or a size string (`64KB`, `2MB`, `1.5MB`); `0` or `unlimited` prints bodies in full. Default is `64KB`. Bodies over the cap are printed as plain truncated text with a marker line, without JSON pretty-printing. Can also be set in `tanu.toml` as `runner.max_body_size = "64KB"`.
-* `--show-sensitive`       Show sensitive data in HTTP logs instead of masking them. By default, tanu masks sensitive values with `*****` in URL query parameters, request/response headers (e.g. `authorization`, `set-cookie`, `x-api-key`), and request/response bodies (JSON and form-encoded). Masking uses substring matching on field names — any field containing `token`, `secret`, `password`, `key`, `auth`, etc. is masked. Use this flag to display actual values during debugging. Can also be set in `tanu.toml` as `runner.show_sensitive = true`. See [credential masking](configuration.md#credential-masking) for the full list of masked patterns and how to add custom ones.
-* `--capture-rust`         Capture Rust "log" crate based logs. This is usefull in the following two cases 1) tanu failed unexpectedly and you would want to see the tanu's internal logs. 2) you would want to see logs produced from your tests that uses "log" crate. Can also be set in `tanu.toml` as `runner.capture_rust = true`.
-* `-p, --projects <PROJECTS>`  Run only the specified projects. This option can be specified multiple times e.g. --projects dev --projects staging
-* `-m, --modules <MODULES>`    Run only the specified modules. This option can be specified multiple times e.g. --modules foo --modules bar
-* `-t, --tests <TESTS>`        Run only the specified test cases. This option can be specified multiple times e.g. --tests a ---tests b
-* `--reporter <REPORTER>`  Specify the reporter to use. Default is "table". Possible values are "table", "list" and "null"
-* `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. When unspecified, all tests run in parallel. Can also be set in `tanu.toml` as `runner.concurrency = 4`.
-* `--fail-fast`            Abort test execution after the first failure. Remaining tests are skipped and reported as skipped in the summary. Can also be set in `tanu.toml` as `runner.fail_fast = true`.
-* `--color <WHEN>`         Control when colored output is used. Possible values are "auto" (default), "always", or "never". Environment variable `CARGO_TERM_COLOR` is also respected.
+Run tests in CLI mode and print results to the terminal.
+
+```bash
+cargo run -- test [OPTIONS]
+```
+
+### Filtering
+
+| Option | Description |
+|---|---|
+| `-p, --projects <PROJECTS>` | Run only the given projects. |
+| `-m, --modules <MODULES>` | Run only tests in the given modules, by full module path (e.g. `example::http`). |
+| `-t, --tests <TESTS>` | Run only the given tests, by full name (e.g. `example::http::get`). |
+
+Each filter accepts a comma-separated list and can be repeated: `-t a,b` is the same as `-t a -t b`. Filters combine, so `-p staging -m example::http` runs the `example::http` tests in the `staging` project only. Names must match exactly; run `cargo run -- ls` to see them.
+
+The `test_ignore` and `test_only` lists in `tanu.toml` are applied in addition to these flags.
+
+### HTTP capture
+
+| Option | Description |
+|---|---|
+| `--capture-http[=MODE]` | When to print captured HTTP requests and responses: `all`, `on-failure` (default), or `off`. A bare `--capture-http` means `all`. |
+| `--max-body-size <SIZE>` | Maximum bytes of each request/response body to print. Accepts a byte count (`65536`) or a size (`64KB`, `2MB`, `1.5MB`); `0` or `unlimited` prints bodies in full. Default `64KB`. Truncated bodies are printed as plain text with a marker line, without JSON pretty-printing. |
+| `--show-sensitive` | Print credentials in HTTP logs instead of masking them with `*****`. See [credential masking](configuration.md#credential-masking). |
+
+### Execution
+
+| Option | Description |
+|---|---|
+| `-c, --concurrency <NUMBER>` | Maximum number of tests running in parallel. Unlimited when unspecified. |
+| `--fail-fast` | Stop after the first failure. Remaining tests are reported as skipped. |
+
+### Output
+
+| Option | Description |
+|---|---|
+| `--reporters <REPORTERS>` | Comma-separated reporters to use. Default `list`. Reporters registered with `App::install_reporter` are also available here; see [Reporters](report.md). |
+| `--color <WHEN>` | `auto` (default), `always`, or `never`. The `CARGO_TERM_COLOR` environment variable is also respected. |
+| `--capture-rust` | Print logs emitted through the Rust [`log`](https://crates.io/crates/log) crate, both from tanu internals and from your tests. |
+
+### Examples
+
+```bash
+# Run everything against staging, printing HTTP logs for failures (the default)
+cargo run -- test -p staging
+
+# Debug one test with full HTTP output
+cargo run -- test -t example::users::create_user --capture-http
+
+# CI: limit parallelism and stop at the first failure
+cargo run -- test -c 4 --fail-fast --color always
+```
 
 ## `tui`
-Launch the TUI (Text User Interface) for tanu.
 
-### Options
-* `--log-level <LOG_LEVEL>`            [default: Info]
-* `--tanu-log-level <TANU_LOG_LEVEL>`  [default: Info]
-* `-c, --concurrency <NUMBER>` Specify the maximum number of tests to run in parallel. Default is the number of logical CPU cores. Can also be set in `tanu.toml` as `runner.concurrency = 4`.
+Launch the interactive [terminal UI](tui.md).
+
+| Option | Description |
+|---|---|
+| `-c, --concurrency <NUMBER>` | Maximum number of tests running in parallel. Default: number of logical CPU cores. |
+| `--log-level <LEVEL>` | Log level for the logger pane. Default `Info`. |
+| `--tanu-log-level <LEVEL>` | Log level for tanu's internal logs. Default `Info`. |
 
 ## `ls`
-List test cases.
 
-## `help`
-Print this message or the help of the given subcommand(s).
+List all discovered tests, grouped by module, once per project:
 
-## Options
-* `-h, --help`
-Print help.
-* `-V, --version`
-Print version.
+```text
+* example::http
+  - [default] example::http::get
+* example::parameterized
+  - [default] example::parameterized::add::10_10_20
+  - [default] example::parameterized::add::20_20_40
+```
+
+## Global options
+
+| Option | Description |
+|---|---|
+| `-h, --help` | Print help. Works on subcommands too, e.g. `test --help`. |
+| `-V, --version` | Print version. |

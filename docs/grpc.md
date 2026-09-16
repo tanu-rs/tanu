@@ -1,11 +1,11 @@
-# gRPC Testing
-
 ---
 tags:
   - gRPC
   - Testing
   - API
 ---
+
+# gRPC Testing
 
 Tanu provides automatic request/response capture for gRPC calls through Tower middleware integration. This allows seamless testing of gRPC services with full observability of method calls, metadata, status codes, and performance metrics.
 
@@ -16,7 +16,7 @@ To use gRPC testing features, enable the `grpc` feature flag in your `Cargo.toml
 ```toml
 [dependencies]
 tanu = { version = "0.22.0", features = ["grpc"] }
-tonic = "0.12"  # or your preferred version
+tonic = "0.14"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -257,9 +257,9 @@ let response = client.unary(request).await?;
 let stream = client.server_stream(request).await?;
 ```
 
-## Integration with TUI
+## CLI and TUI output
 
-All captured gRPC calls are visible in the TUI test runner, showing:
+Captured gRPC calls are printed alongside HTTP calls by `--capture-http` in CLI mode, and are visible in the TUI, showing:
 
 - Method paths
 - Metadata (request and response)
@@ -279,6 +279,5 @@ The gRPC logging feature is built using:
 
 - **Tower middleware**: Wraps Tonic channels with logging layer
 - **Event system**: Publishes `CallLog::Grpc` events to the test runner
-- **Zero overhead**: Logging only activates when tests run with capture enabled
 
 The middleware implementation is in `tanu-core/src/grpc.rs` and integrates with the existing event-driven test runner architecture.

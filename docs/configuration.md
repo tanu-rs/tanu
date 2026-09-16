@@ -1,34 +1,31 @@
-# tanu.toml Configuration
+# Configuration
 
-The `tanu.toml` file is used to configure different project environments for the tanu application.
+tanu reads its configuration from `tanu.toml` in the current directory, or from the path in the `TANU_CONFIG` environment variable. The file is optional: without it, tanu runs every test in a single project named `default`.
 
-## Structure
+A `tanu.toml` has three kinds of sections:
 
-The [[projects]] tables in the tanu.toml file allow you to define different configurations for various environments. This is inspired by Playwright and enables you to iterate the same set of tests with different configurations or environments. You can make as many projects as you want.
-
-The `tanu.toml` file consists of multiple `[[projects]]` tables, each representing a different environment. Each table contains the following fields:
-
-- `name`: The name of the project (e.g., "dev", "staging", "production").
-- `test_ignore`: A list of test cases to ignore for the environment.
-- `test_only`: A list of test cases to run exclusively for the environment. If empty or omitted, all test cases run. When combined with `test_ignore`, a test case must be listed in `test_only` and not listed in `test_ignore`.
+| Section | Purpose |
+|---|---|
+| `[[projects]]` | One entry per environment (dev, staging, production, ...). Tests run once per project. |
+| `[runner]` | Global defaults for test execution, such as HTTP capture and concurrency. |
+| `[tui]` | Appearance of the TUI. |
 
 ## Example
 
-Below is an example of a `tanu.toml` file:
-
 ```toml
 [tui]
-payload.color_theme = "tomorrow-night"  # Replace with your preferred theme name
+payload.color_theme = "tomorrow-night"
 
 [runner]
-capture_http = true     # Capture HTTP debug logs
-concurrency = 4         # Run up to 4 tests in parallel
+capture_http = "on-failure"
+concurrency = 4
 
 [[projects]]
 name = "staging"
+base_url = "https://staging.api.example.com"
 test_ignore = [
-  "feature_flag::feature_flag_enabled",
-  "feature_flag::feature_flag_disabled",
+  "example::feature_flag::feature_flag_enabled",
+  "example::feature_flag::feature_flag_disabled",
 ]
 retry.count = 3
 retry.factor = 2.0
@@ -38,16 +35,26 @@ retry.max_delay = "60s"
 
 [[projects]]
 name = "production"
-test_ignore = []
+base_url = "https://api.example.com"
 test_only = [
-  "health::health_check",
+  "example::health::health_check",
 ]
-retry.count = 3
-retry.factor = 2.0
-retry.jitter = true
-retry.min_delay = "1s"
-retry.max_delay = "60s"
 ```
+
+## Projects
+
+Inspired by Playwright, `[[projects]]` let you run the same set of tests against different environments or settings. You can define as many projects as you like; use `--projects` on the command line to pick a subset.
+
+Each project supports the following keys. Any other key is a [user-defined setting](#user-defined-settings).
+
+| Key | Description |
+|---|---|
+| `name` | **Required.** Project name shown in test output and used by `--projects`. |
+| `test_ignore` | Tests to skip in this project. |
+| `test_only` | If non-empty, run only these tests in this project. An empty or omitted list runs all tests. |
+| `retry.*` | Retry policy for failed tests. See [Retry](#retry). |
+
+`test_ignore` and `test_only` take full test names: `<crate>::<module path>::<function>`, for example `example::health::health_check`. Parameterized cases include the case name, such as `example::status::status_codes::404`. Run `cargo run -- ls` to list the exact names. When both lists are set, a test runs only if it is listed in `test_only` and not listed in `test_ignore`.
 
 ## Runner
 
@@ -55,16 +62,13 @@ The `[runner]` section configures global test execution behavior. All values are
 
 ```toml
 [runner]
-capture_http = true         # Capture HTTP debug logs for all tests (equivalent to "all")
-capture_http = "all"        # Capture HTTP debug logs for all tests
-capture_http = "on-failure" # Capture HTTP debug logs only for failed tests (default)
-capture_http = "off"        # Suppress HTTP debug logs entirely
+capture_http = "on-failure" # "all", "on-failure" (default), or "off"; true/false also accepted
 capture_rust = false        # Capture Rust "log" crate logs (default: false)
 show_sensitive = false      # Show sensitive data in HTTP logs (default: false)
 max_body_size = "64KB"      # Max bytes of an HTTP body printed in logs (default: "64KB", 0 disables)
 concurrency = 4             # Max parallel tests (default: unlimited for CLI, CPU cores for TUI)
 fail_fast = false           # Abort after the first failure (default: false)
-extra_sensitive_keys = ["my_company_token", "internal_secret"]  # Extra field/param substrings to mask
+extra_sensitive_keys = ["my_company_token", "internal_secret"]      # Extra field/param substrings to mask
 extra_sensitive_headers = ["x-my-custom-auth", "x-internal-token"]  # Extra headers to mask
 ```
 
@@ -100,165 +104,119 @@ Built-in sensitive keywords (substring-matched, case-insensitive): `token`, `sec
 
 ## Retry
 
-This section describes the HTTP retry configuration for the project. All values are optional. If the retry configuration is entirely omitted, retries are disabled by default. If configured, the Tanu runner will perform retry attempts if a request fails.
-- `retry.count`: The number of retry attempts. Default is 0.
-- `retry.factor`: The factor for exponential backoff. Default is 2.0.
-- `retry.jitter`: A boolean to enable or disable backoff jitter. Default is false.
-- `retry.min_delay`: The minimum delay for backoff. Default is "1s".
-- `retry.max_delay`: The maximum delay for backoff. Default is "60s".
+Retries re-run a **whole test** when it returns an error (including a failed `check!`), using exponential backoff. Retries are configured per project and are disabled by default. Individual HTTP requests are not retried on their own.
 
-## User defined settings
-
-tanu allows you to set user-defined settings in `tanu.toml`. You can set arbitrary key-value pairs under each project setting.
-
-Here is an example specifying different `base_url` values for staging and production environments:
+| Key | Default | Description |
+|---|---|---|
+| `retry.count` | `0` | Number of retry attempts after the first failure. |
+| `retry.factor` | `2.0` | Backoff multiplier between attempts. |
+| `retry.jitter` | `false` | Add random jitter to the backoff delay. |
+| `retry.min_delay` | `"1s"` | Initial delay. Accepts human-readable durations such as `"100ms"` or `"2s"`. |
+| `retry.max_delay` | `"60s"` | Upper bound for the delay. |
 
 ```toml
 [[projects]]
 name = "staging"
-base_url = "https://api.production.foobar.com"
+retry.count = 3
+retry.min_delay = "500ms"
+```
+
+In CLI output, failed attempts that will be retried are marked `retrying...`.
+
+## User-defined settings
+
+Any key in a `[[projects]]` entry other than the ones above is stored as a user-defined setting. This is the idiomatic place for values that differ between environments, like base URLs:
+
+```toml
+[[projects]]
+name = "staging"
+base_url = "https://api.staging.example.com"
 
 [[projects]]
 name = "production"
-base_url = "https://api.staging.foobar.com"
+base_url = "https://api.example.com"
 ```
 
-In your test code, you can retrieve the value for the current project using the following method:
+Read a value for the currently running project with `tanu::get_config()`:
+
 ```rust
-tanu::get_config().get_str("base_url")?;
+use tanu::{check, eyre, http::Client};
+
+#[tanu::test]
+async fn health() -> eyre::Result<()> {
+    let base_url = tanu::get_config().get_str("base_url")?.to_string();
+    let res = Client::new().get(format!("{base_url}/health")).send().await?;
+    check!(res.status().is_success());
+    Ok(())
+}
 ```
 
-If the value is not string, you can use other methods to retrieve it:
+`get_config()` returns the configuration of the project the test is running in, so the same test hits a different server in each project.
 
-- [get_int](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_int)
-- [get_float](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_float)
-- [get_bool](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_bool)
-- [get_datetime](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_datetime)
-- [get_array](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_array)
-- [get_object](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_object)
+Other accessors:
+
+| Method | Returns |
+|---|---|
+| [`get`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get) | The raw `toml::Value` |
+| [`get_str`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_str) | `&str` |
+| [`get_int`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_int) | `i64` |
+| [`get_float`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_float) | `f64` |
+| [`get_bool`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_bool) | `bool` |
+| [`get_datetime`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_datetime) | `DateTime<Utc>` |
+| [`get_array`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_array) | `Vec<T>` deserialized from a JSON string |
+| [`get_object`](https://docs.rs/tanu/latest/tanu/struct.ProjectConfig.html#method.get_object) | `T` deserialized from a JSON string |
+
+!!! note
+    The typed accessors (`get_int`, `get_float`, `get_bool`, `get_datetime`, `get_array`, `get_object`) parse **string** values, because values from environment variables are always strings. In `tanu.toml`, write these values as quoted strings (`timeout = "5000"`, `ids = "[1, 2, 3]"`), or read native TOML values with `get`.
+
+!!! tip "Accessing config from spawned tasks"
+    `get_config()` relies on Tokio task-local storage. If you call it inside `tokio::spawn`, wrap the future with `tanu::scope_current(...)`. See the [FAQ](faq.md#i-see-a-panic-cannot-access-a-task-local-storage-value-without-setting-it-first).
 
 ## Environment variables
 
 ### Config file location
 
-By default, tanu looks for `tanu.toml` in the current directory. You can specify a custom config file path using the `TANU_CONFIG` environment variable:
+By default, tanu reads `tanu.toml` from the current directory. Set `TANU_CONFIG` to use a different file:
 
 ```bash
-# Use a custom config file
-TANU_CONFIG=/path/to/my-config.toml tanu test
-
-# Or export it
-export TANU_CONFIG=/path/to/my-config.toml
-tanu test
+TANU_CONFIG=./config/tanu.staging.toml cargo run -- test
 ```
 
+If `TANU_CONFIG` points to a file that doesn't exist, tanu exits with an error.
+
 !!! warning
-    `TANU_CONFIG` is reserved for specifying the config file path. Do not use it as a config value key (e.g., `TANU_CONFIG=true`). Tanu will error if it detects misuse.
+    `TANU_CONFIG` is reserved for the config file path. Don't use it as a config value (e.g. `TANU_CONFIG=true`); tanu reports an error if it detects this.
 
-### User-defined config values
+### User-defined values from the environment
 
-Tanu also allows you to set user-defined settings in a `.env` file. Secret settings like API keys should not be stored in plain text; instead, environment variables should be used.
+Secrets such as API keys shouldn't be committed to `tanu.toml`. Provide them through environment variables instead. tanu also loads a `.env` file from the current directory if one exists.
 
-**Global config values:** Any environment variable prefixed with `TANU_` will be exposed as a configuration value accessible from all projects.
+**Global values:** a variable named `TANU_<KEY>` is available in every project as `<key>` (lowercased).
 
 ```bash
-# Accessible as get_config().get_str("api_key") in all projects
+# get_config().get_str("api_key") in every project
 export TANU_API_KEY=secret123
 ```
 
-**Project-specific config values:** Any environment variable prefixed with `TANU_{PROJECT}_` will be exposed as a configuration for that specific project. For example, an API key set in the `TANU_STAGING_API_KEY` environment variable can be accessed using `tanu::get_config().get_str("api_key")` when running the "staging" project.
+**Project values:** a variable named `TANU_<PROJECT>_<KEY>` is available only in that project. For example, `TANU_STAGING_API_KEY` is readable as `get_config().get_str("api_key")` while running the `staging` project.
 
-## Theme
+```bash
+# .env
+TANU_STAGING_API_KEY=staging-secret
+TANU_PRODUCTION_API_KEY=production-secret
+```
 
-You can customize the appearance of Tanu's interface by selecting a color theme.
+Environment values override keys of the same name in `tanu.toml`.
 
-To change the theme, add the following to your `tanu.toml` configuration file:
+## TUI theme
+
+The `[tui]` section customizes the TUI. `payload.color_theme` sets the color theme used to syntax-highlight request and response payloads (particularly JSON) in the Payload tab:
 
 ```toml
 [tui]
-payload.color_theme = "tomorrow-night"  # Replace with your preferred theme name
+payload.color_theme = "tomorrow-night"
 ```
 
-!!! note
-    The color theme setting primarily affects the Payload tab in the TUI, where it's used to colorize and syntax-highlight response payloads (particularly JSON responses). This makes the API responses more readable and helps you quickly identify different elements in the response data.
+tanu ships with the full set of Base16 themes:
 
-### Available Themes
-
-Tanu ships with all Base16 themes, providing a consistent color palette across different interfaces.
-Available themes include:
-
-- `3024`
-- `apathy`
-- `ashes`
-- `atelier-cave`
-- `atelier-dune`
-- `atelier-estuary`
-- `atelier-forest`
-- `atelier-heath`
-- `atelier-lakeside`
-- `atelier-plateau`
-- `atelier-savanna`
-- `atelier-seaside`
-- `atelier-sulphurpool`
-- `atlas`
-- `bespin`
-- `black-metal`
-- `brewer`
-- `bright`
-- `brushtrees`
-- `chalk`
-- `circus`
-- `classic`
-- `codeschool`
-- `cupcake`
-- `cupertino`
-- `darktooth`
-- `default`
-- `eighties`
-- `embers`
-- `flat`
-- `fruit-soda`
-- `github`
-- `google`
-- `grayscale`
-- `greenscreen`
-- `gruvbox`
-- `harmonic`
-- `hopscotch`
-- `irblack`
-- `isotope`
-- `macintosh`
-- `marrakesh`
-- `materia`
-- `material`
-- `mellow`
-- `mexico`
-- `mocha`
-- `monokai`
-- `nord`
-- `ocean`
-- `oceanicnext`
-- `one`
-- `onedark`
-- `papercolor`
-- `paraiso`
-- `phd`
-- `pico`
-- `pop`
-- `porple`
-- `railscasts`
-- `rebecca`
-- `seti`
-- `shapeshifter`
-- `solarflare`
-- `solarized`
-- `spacemacs`
-- `summerfruit`
-- `tomorrow`
-- `tomorrow-night`
-- `tube`
-- `twilight`
-- `unikitty`
-- `woodland`
-- `xcode`
-- `zenburn`
+`3024` · `apathy` · `ashes` · `atelier-cave` · `atelier-dune` · `atelier-estuary` · `atelier-forest` · `atelier-heath` · `atelier-lakeside` · `atelier-plateau` · `atelier-savanna` · `atelier-seaside` · `atelier-sulphurpool` · `atlas` · `bespin` · `black-metal` · `brewer` · `bright` · `brushtrees` · `chalk` · `circus` · `classic` · `codeschool` · `cupcake` · `cupertino` · `darktooth` · `default` · `eighties` · `embers` · `flat` · `fruit-soda` · `github` · `google` · `grayscale` · `greenscreen` · `gruvbox` · `harmonic` · `hopscotch` · `irblack` · `isotope` · `macintosh` · `marrakesh` · `materia` · `material` · `mellow` · `mexico` · `mocha` · `monokai` · `nord` · `ocean` · `oceanicnext` · `one` · `onedark` · `papercolor` · `paraiso` · `phd` · `pico` · `pop` · `porple` · `railscasts` · `rebecca` · `seti` · `shapeshifter` · `solarflare` · `solarized` · `spacemacs` · `summerfruit` · `tomorrow` · `tomorrow-night` · `tube` · `twilight` · `unikitty` · `woodland` · `xcode` · `zenburn`

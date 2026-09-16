@@ -1,5 +1,3 @@
-# GraphQL Testing
-
 ---
 tags:
   - GraphQL
@@ -7,6 +5,8 @@ tags:
   - Testing
   - API
 ---
+
+# GraphQL Testing
 
 Tanu provides an ergonomic GraphQL client built on top of the existing HTTP layer. It supports two modes: flexible runtime string queries for quick and error-path testing, and type-safe codegen queries via [`graphql_client`](https://github.com/graphql-rust/graphql-client) for schema-validated tests.
 
