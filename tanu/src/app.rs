@@ -46,7 +46,7 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                     .value_parser(["all", "off", "on-failure"]))
                 .arg(Arg::new("max-body-size")
                     .long("max-body-size")
-                    .help("Max bytes of an HTTP request/response body to print in logs, e.g. 65536, 64KB, 2MB. 0 or \"unlimited\" disables the cap (default: 64KB)")
+                    .help("Max bytes of an HTTP request/response body to print in logs, e.g. 65536, 64KB, 2MB. 0 or \"unlimited\" disables the cap (default: 16KB)")
                     .value_parser(parse_byte_size))
                 .arg(Arg::new("show-sensitive")
                     .long("show-sensitive")

@@ -302,7 +302,7 @@ Or set it in `tanu.toml`:
 capture_http = "all"
 ```
 
-Large bodies are truncated at 64KB; raise the limit with `--max-body-size`. Use `--show-sensitive` locally if you need to see masked values. The TUI shows the same information interactively.
+Large bodies are truncated at 16KB; raise the limit with `--max-body-size`. Use `--show-sensitive` locally if you need to see masked values. The TUI shows the same information interactively.
 
 ## Integration
 

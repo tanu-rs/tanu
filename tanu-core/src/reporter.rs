@@ -339,7 +339,7 @@ impl ListReporter {
     /// ```rust,ignore
     /// use tanu_core::{reporter::ListReporter, CaptureHttpMode, MaxBodySize};
     ///
-    /// // Show HTTP logs for all tests, truncating bodies at the default 64KB
+    /// // Show HTTP logs for all tests, truncating bodies at the default 16KB
     /// let reporter = ListReporter::new(CaptureHttpMode::All, MaxBodySize::default());
     ///
     /// // Show HTTP logs only for failed tests, printing bodies in full
