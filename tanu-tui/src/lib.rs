@@ -3,9 +3,9 @@
 //! `tanu-tui` is a terminal-based user interface application for managing and executing tests
 //! using the `tanu` framework. It is implemented using the ratatui library and follows the
 //! Elm Architecture, which divides the logic into Model, Update, and View components. The
-//! application has three primary panes: a list of tests, an info view for logs/results, and
-//! a logger for runtime messages. It supports asynchronous test execution and user interaction
-//! via keyboard commands.
+//! application has a status bar, a test tree, a details pane for the selected item (overview,
+//! request/response, headers, payload, checks and errors), a logger, and charts of the
+//! execution timeline and request latencies. It supports asynchronous test execution and user interaction via keyboard and mouse.
 //!
 //! ## UI Architecture (block diagram)
 //!
@@ -25,7 +25,7 @@
 //! ```
 mod widget;
 
-use crossterm::event::{EventStream, KeyModifiers};
+use crossterm::event::{EventStream, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use eyre::WrapErr;
 use futures::StreamExt;
 use ratatui::{
@@ -34,32 +34,33 @@ use ratatui::{
     prelude::*,
     style::{Modifier, Style},
     text::Line,
-    widgets::{Bar, BarChart, BarGroup, Block, BorderType, Borders, LineGauge, Padding, Paragraph},
+    widgets::{BorderType, LineGauge, Paragraph},
     Frame,
 };
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
-    time::Duration,
+    collections::{HashMap, VecDeque},
+    time::{Duration, Instant, SystemTime},
 };
 use tanu_core::{
     get_tanu_config,
     runner::{self, EventBody},
     Runner, TestInfo,
 };
-use tokio::sync::mpsc;
-use tracing::{error, info, trace};
+use tokio::sync::{broadcast, mpsc};
+use tracing::{error, info, trace, warn};
 use tracing_subscriber::layer::SubscriberExt;
-use tui_big_text::{BigText, PixelSize};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, TuiWidgetState};
 
-pub const WHITESPACE: &str = "\u{00A0}";
-
-const SELECTED_STYLE: Style = Style::new().bg(Color::Black).add_modifier(Modifier::BOLD);
-
 use crate::widget::{
-    info::{InfoState, InfoWidget, Tab},
-    list::{ExecutionStateController, TestCaseSelector, TestListState, TestListWidget},
-    tabbed_block::CustomTabs,
+    help::HelpWidget,
+    info::{InfoState, InfoWidget},
+    latency,
+    list::{
+        ExecutionStateController, RowRef, StatusFilter, TestCaseSelector, TestListState,
+        TestListWidget,
+    },
+    theme::{self, fmt_duration, muted},
+    timeline,
 };
 
 /// Represents result of a test case.
@@ -71,6 +72,10 @@ pub struct TestResult {
     pub logs: Vec<Box<tanu_core::http::Log>>,
     #[cfg(feature = "grpc")]
     pub grpc_logs: Vec<Box<tanu_core::grpc::Log>>,
+    /// Checks (assertions) evaluated during the test.
+    pub checks: Vec<tanu_core::runner::Check>,
+    /// Number of times the test was retried.
+    pub retries: usize,
     pub test: Option<tanu_core::runner::Test>,
 }
 
@@ -78,6 +83,116 @@ impl TestResult {
     /// Unique test name including project and module names
     pub fn unique_name(&self) -> String {
         format!("{}::{}::{}", self.project_name, self.module_name, self.name)
+    }
+
+    /// true if the test finished successfully.
+    pub fn is_ok(&self) -> bool {
+        self.test.as_ref().is_some_and(|test| test.result.is_ok())
+    }
+
+    /// Wall-clock duration of the test including retries.
+    pub fn duration(&self) -> Option<Duration> {
+        self.test.as_ref().map(|test| test.request_time)
+    }
+
+    /// Number of HTTP and gRPC calls.
+    pub fn call_count(&self) -> usize {
+        #[cfg(feature = "grpc")]
+        let grpc_count = self.grpc_logs.len();
+        #[cfg(not(feature = "grpc"))]
+        let grpc_count = 0;
+        self.logs.len() + grpc_count
+    }
+
+    /// The call at `index`; HTTP calls come first, then gRPC calls.
+    pub fn call(&self, index: usize) -> Option<Call<'_>> {
+        if let Some(log) = self.logs.get(index) {
+            return Some(Call::Http(log));
+        }
+        #[cfg(feature = "grpc")]
+        if let Some(log) = self.grpc_logs.get(index - self.logs.len()) {
+            return Some(Call::Grpc(log));
+        }
+        None
+    }
+
+    /// All calls; HTTP calls come first, then gRPC calls.
+    pub fn calls(&self) -> impl Iterator<Item = Call<'_>> {
+        (0..self.call_count()).filter_map(|index| self.call(index))
+    }
+}
+
+/// A single HTTP or gRPC call made by a test.
+#[derive(Debug, Clone, Copy)]
+pub enum Call<'a> {
+    Http(&'a tanu_core::http::Log),
+    #[cfg(feature = "grpc")]
+    Grpc(&'a tanu_core::grpc::Log),
+}
+
+impl Call<'_> {
+    pub fn method(&self) -> String {
+        match self {
+            Call::Http(log) => log.request.method.to_string(),
+            #[cfg(feature = "grpc")]
+            Call::Grpc(_) => "gRPC".into(),
+        }
+    }
+
+    pub fn status_label(&self) -> String {
+        match self {
+            Call::Http(log) => log.response.status.as_u16().to_string(),
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => format!("{:?}", log.response.status_code),
+        }
+    }
+
+    pub fn status_color(&self) -> Color {
+        match self {
+            Call::Http(log) => theme::status_color(log.response.status),
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => {
+                if log.response.status_code == tonic::Code::Ok {
+                    theme::OK
+                } else {
+                    theme::FAIL
+                }
+            }
+        }
+    }
+
+    /// URL path and query for HTTP, method path for gRPC.
+    pub fn target(&self) -> String {
+        match self {
+            Call::Http(log) => {
+                let url = &log.request.url;
+                match url.query() {
+                    Some(query) => format!("{}?{query}", url.path()),
+                    None => url.path().to_string(),
+                }
+            }
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => log.request.method.clone(),
+        }
+    }
+
+    /// true if the call failed (HTTP 4xx/5xx or a non-OK gRPC status).
+    pub fn is_error(&self) -> bool {
+        match self {
+            Call::Http(log) => {
+                log.response.status.is_client_error() || log.response.status.is_server_error()
+            }
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => log.response.status_code != tonic::Code::Ok,
+        }
+    }
+
+    pub fn duration(&self) -> Duration {
+        match self {
+            Call::Http(log) => log.response.duration_req,
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => log.response.duration,
+        }
     }
 }
 
@@ -89,15 +204,7 @@ enum Pane {
     List,
     Info,
     Logger,
-}
-
-/// Indicates the state of test execution.
-#[derive(Debug, Clone, Copy)]
-enum Execution {
-    /// Executing or executed a test case.
-    One,
-    /// Executing or executed all of the test cases.
-    All,
+    Chart,
 }
 
 /// Represents cursor movement.
@@ -107,9 +214,9 @@ enum CursorMovement {
     Up,
     /// Move the cursor down by one line.
     Down,
-    /// Move the cursor up by half of the screen height.
+    /// Move the cursor up by half of the pane height.
     UpHalfScreen,
-    /// Move the cursor down by half of the screen height.
+    /// Move the cursor down by half of the pane height.
     DownHalfScreen,
     /// Move the cursor to the first line.
     Home,
@@ -126,73 +233,179 @@ enum TabMovement {
     Prev,
 }
 
+/// Statistics of the latest run.
+#[derive(Debug, Default)]
+struct RunStats {
+    started_at: Option<Instant>,
+    /// Wall-clock start of the run, to select the tests of this run for the timeline.
+    started_system: Option<SystemTime>,
+    finished_at: Option<Instant>,
+    /// Number of tests scheduled in the run.
+    total: usize,
+    /// Number of tests finished in the run.
+    done: usize,
+    /// Number of tests failed in the run.
+    failed: usize,
+    /// Number of retries in the run.
+    retries: usize,
+}
+
+impl RunStats {
+    fn start(&mut self, total: usize) {
+        *self = RunStats {
+            started_at: Some(Instant::now()),
+            started_system: Some(SystemTime::now()),
+            total,
+            ..Default::default()
+        };
+    }
+
+    fn elapsed(&self) -> Option<Duration> {
+        let started_at = self.started_at?;
+        Some(
+            self.finished_at
+                .unwrap_or_else(Instant::now)
+                .duration_since(started_at),
+        )
+    }
+
+    fn is_running(&self) -> bool {
+        self.started_at.is_some() && self.finished_at.is_none()
+    }
+}
+
+/// Screen areas of the panes from the last render, used for mouse handling.
+#[derive(Debug, Default, Clone)]
+struct Areas {
+    list: Rect,
+    info: Rect,
+    logger: Rect,
+    chart: Rect,
+    /// Clickable counters in the status bar that filter the test list.
+    filter_hits: Vec<(Rect, StatusFilter)>,
+    /// Clickable timeline bars with the index into `Model::test_results`.
+    timeline_hits: Vec<(Rect, usize)>,
+}
+
 /// Represents the state of the application, including the current pane, execution state, test cases, and UI components' states.
 struct Model {
     /// Indicates whether the current pane is in maximized view mode
     maximizing: bool,
-    /// Keeps track of which pane (List, Console, Logger) is currently focused
+    /// Keeps track of which pane (List, Info, Logger) is currently focused
     current_pane: Pane,
-    /// Stores the current execution state, which can be either executing one test, all tests, or none
-    current_exec: Option<Execution>,
     /// Manages the selection state for the list of test cases
     test_cases_list: TestListState,
     /// Contains the results of executed tests, including logs and the test itself
     test_results: Vec<TestResult>,
-    /// Maintains the state of the info pange, such as currently selected tab.
+    /// Position of each result in `test_results` by `TestResult::unique_name`.
+    result_index: HashMap<String, usize>,
+    /// Maintains the state of the info pane, such as currently selected tab.
     info_state: InfoState,
     /// Holds the state of the logger pane, including any focus or visibility settings
     logger_state: TuiWidgetState,
-    /// Stores the last mouse click event, if any. When `click` is not `None`, it indicates that the user has clicked on a specific area of the UI.
-    click: Option<crossterm::event::MouseEvent>,
-    /// Measures the frames per second (FPS).
-    fps_counter: FpsCounter,
+    /// Whether the key bindings popup is shown.
+    show_help: bool,
+    /// Statistics of the latest run.
+    run: RunStats,
+    /// Screen areas from the last render.
+    areas: Areas,
+    /// Measures the frames per second (FPS). Only enabled with `TANU_TUI_DEBUG`.
+    fps_counter: Option<FpsCounter>,
 }
 
 impl Model {
     fn new(test_cases: Vec<TestInfo>) -> Model {
         let cfg = get_tanu_config();
+        let logger_state = TuiWidgetState::new();
+        // Hide the log target selector by default; it can be toggled with `L`.
+        logger_state.transition(TuiWidgetEvent::HideKey);
         Model {
             maximizing: false,
             current_pane: Pane::default(),
-            current_exec: None,
             test_cases_list: TestListState::new(&cfg.projects, &test_cases),
             test_results: vec![],
+            result_index: HashMap::new(),
             info_state: InfoState::new(),
-            logger_state: TuiWidgetState::new(),
-            click: None,
-            fps_counter: FpsCounter::new(),
+            logger_state,
+            show_help: false,
+            run: RunStats::default(),
+            areas: Areas::default(),
+            fps_counter: std::env::var("TANU_TUI_DEBUG")
+                .is_ok()
+                .then(FpsCounter::new),
         }
     }
 
-    fn next_pane(&mut self) {
-        let current_index = self.current_pane as usize;
-        let pane_counts = Pane::Logger as usize + 1;
-        let next_index = (current_index + 1) % pane_counts;
-        if let Some(next_pane) = Pane::from_repr(next_index) {
-            self.current_pane = next_pane;
+    /// Stores a test result, replacing the result of a previous run of the same test.
+    fn store_result(&mut self, result: TestResult) {
+        match self.result_index.get(&result.unique_name()) {
+            Some(&index) => self.test_results[index] = result,
+            None => {
+                self.result_index
+                    .insert(result.unique_name(), self.test_results.len());
+                self.test_results.push(result);
+            }
         }
-        self.info_state.focused = self.current_pane == Pane::Info;
+    }
+
+    fn focus(&mut self, pane: Pane) {
+        self.current_pane = pane;
+        self.info_state.focused = pane == Pane::Info;
+    }
+
+    fn next_pane(&mut self) {
+        let pane_counts = Pane::Chart as usize + 1;
+        let next_index = (self.current_pane as usize + 1) % pane_counts;
+        self.focus(Pane::from_repr(next_index).unwrap_or_default());
+    }
+
+    fn prev_pane(&mut self) {
+        let pane_counts = Pane::Chart as usize + 1;
+        let prev_index = (self.current_pane as usize + pane_counts - 1) % pane_counts;
+        self.focus(Pane::from_repr(prev_index).unwrap_or_default());
+    }
+
+    /// Keeps the list selection valid and the details pane in sync with it.
+    fn sync_selection(&mut self) {
+        self.test_cases_list.clamp_selection();
+        self.info_state.select(self.test_cases_list.selected_row());
+    }
+
+    /// Half of the height of the given pane, for Ctrl+U/Ctrl+D.
+    fn half_page(area: Rect) -> usize {
+        (area.height.saturating_sub(2) / 2).max(1) as usize
     }
 }
 
 #[derive(Debug)]
 enum Message {
+    Quit,
     Maximize,
     NextPane,
+    PrevPane,
+    ToggleHelp,
     ListSelect(CursorMovement),
     ListExpand,
-    InfoSelect(CursorMovement),
+    ListCollapseOrParent,
+    ListExpandOrChild,
+    /// Show the next (1) or previous (-1) project tab.
+    SwitchProject(isize),
+    InfoScroll(CursorMovement),
     InfoTabSelect(TabMovement),
-    LoggerSelectDown,
-    LoggerSelectUp,
-    LoggerSelectLeft,
-    LoggerSelectRight,
-    LoggerSelectSpace,
-    LoggerSelectHide,
-    LoggerSelectFocus,
+    Logger(TuiWidgetEvent),
     ExecuteOne,
     ExecuteAll,
-    SelectPane(crossterm::event::MouseEvent),
+    SearchStart,
+    SearchInput(char),
+    SearchBackspace,
+    /// Leave the search mode; `true` keeps the query as a filter.
+    SearchEnd(bool),
+    ClearFilters,
+    CycleStatusFilter,
+    JumpToFailure {
+        forward: bool,
+    },
+    Mouse(MouseEvent),
 }
 
 #[derive(Debug)]
@@ -201,504 +414,911 @@ enum Command {
     ExecuteAll,
 }
 
-/// Reset the offset of the list or info pane.
-fn offset_begin(model: &mut Model) {
-    match model.info_state.selected_tab {
-        Tab::Payload => {
-            model.info_state.payload_state.scroll_offset = 0;
-        }
-        Tab::Error => {
-            model.info_state.error_state.scroll_offset = 0;
-        }
-        _ => {}
-    }
-}
-
-/// Move the offset of the list or info pane to the last.
-fn offset_end(_model: &mut Model) {
-    // TODO
-}
-
-/// Move down the offset of the list or info pane.
-fn offset_down(model: &mut Model, val: i16) {
-    match model.info_state.selected_tab {
-        Tab::Payload => {
-            model.info_state.payload_state.scroll_offset += val as u16;
-        }
-        Tab::Error => {
-            model.info_state.error_state.scroll_offset += val as u16;
-        }
-        _ => {}
-    }
-}
-
-/// Move up the offset of the model.
-fn offset_up(model: &mut Model, val: i16) {
-    match model.info_state.selected_tab {
-        Tab::Payload => {
-            model.info_state.payload_state.scroll_offset = model
-                .info_state
-                .payload_state
-                .scroll_offset
-                .saturating_sub(val as u16);
-        }
-        Tab::Error => {
-            model.info_state.error_state.scroll_offset = model
-                .info_state
-                .error_state
-                .scroll_offset
-                .saturating_sub(val as u16);
-        }
-        _ => {}
-    }
-    if model.info_state.selected_tab == Tab::Error {}
-}
-
-async fn update(model: &mut Model, msg: Message) -> eyre::Result<Option<Command>> {
-    model.click = None;
-
-    let terminal_height = crossterm::terminal::size()?.1 as usize;
+fn update(model: &mut Model, msg: Message) -> Option<Command> {
+    let list = &mut model.test_cases_list;
     match msg {
+        Message::Quit => {}
         Message::Maximize => {
             model.maximizing = !model.maximizing;
         }
-        Message::NextPane => {
-            model.next_pane();
+        Message::NextPane => model.next_pane(),
+        Message::PrevPane => model.prev_pane(),
+        Message::ToggleHelp => model.show_help = !model.show_help,
+        Message::ListSelect(movement) => {
+            let half_page = Model::half_page(model.areas.list);
+            let selected = list.list_state.selected().unwrap_or_default();
+            match movement {
+                CursorMovement::Down => list.list_state.select_next(),
+                CursorMovement::Up => list.list_state.select_previous(),
+                CursorMovement::UpHalfScreen => {
+                    list.list_state
+                        .select(Some(selected.saturating_sub(half_page)));
+                }
+                CursorMovement::DownHalfScreen => {
+                    list.list_state.select(Some(selected + half_page));
+                }
+                CursorMovement::Home => list.list_state.select_first(),
+                CursorMovement::End => {
+                    let len = list.visible_rows().len();
+                    list.list_state.select(Some(len.saturating_sub(1)));
+                }
+            }
         }
-        Message::ListSelect(CursorMovement::Down) => model.test_cases_list.list_state.select_next(),
-        Message::ListSelect(CursorMovement::Up) => {
-            model.test_cases_list.list_state.select_previous();
+        Message::ListExpand => list.expand(),
+        Message::ListCollapseOrParent => list.collapse_or_parent(),
+        Message::ListExpandOrChild => list.expand_or_child(),
+        Message::SwitchProject(delta) => list.cycle_project(delta),
+        Message::InfoScroll(movement) => {
+            let half_page = Model::half_page(model.areas.info) as u16;
+            let info = &mut model.info_state;
+            match movement {
+                CursorMovement::Down => info.scroll_down(1),
+                CursorMovement::Up => info.scroll_up(1),
+                CursorMovement::DownHalfScreen => info.scroll_down(half_page),
+                CursorMovement::UpHalfScreen => info.scroll_up(half_page),
+                CursorMovement::Home => info.scroll_home(),
+                CursorMovement::End => info.scroll_end(),
+            }
         }
-        Message::ListSelect(CursorMovement::UpHalfScreen) => {
-            let offset = terminal_height / 4;
-            let selected = model
-                .test_cases_list
-                .list_state
-                .selected()
-                .unwrap_or_default();
-            model
-                .test_cases_list
-                .list_state
-                .select(Some(selected.saturating_sub(offset)));
-        }
-        Message::ListSelect(CursorMovement::DownHalfScreen) => {
-            let offset = terminal_height / 4;
-            let selected = model
-                .test_cases_list
-                .list_state
-                .selected()
-                .unwrap_or_default();
-            model
-                .test_cases_list
-                .list_state
-                .select(Some(selected + offset));
-        }
-        Message::ListSelect(CursorMovement::Home) => {
-            model.test_cases_list.list_state.select_first();
-        }
-        Message::ListSelect(CursorMovement::End) => {
-            model.test_cases_list.list_state.select_last();
-        }
-        Message::ListExpand => model.test_cases_list.expand(&model.test_results),
-        Message::InfoSelect(CursorMovement::Down) => {
-            offset_down(model, 1);
-        }
-        Message::InfoSelect(CursorMovement::DownHalfScreen) => {
-            offset_down(model, (terminal_height / 2) as i16);
-        }
-        Message::InfoSelect(CursorMovement::Up) => {
-            offset_up(model, 1);
-        }
-        Message::InfoSelect(CursorMovement::UpHalfScreen) => {
-            offset_up(model, (terminal_height / 2) as i16);
-        }
-        Message::InfoSelect(CursorMovement::Home) => {
-            offset_begin(model);
-        }
-        Message::InfoSelect(CursorMovement::End) => {
-            offset_end(model);
-        }
-        Message::InfoTabSelect(TabMovement::Next) => {
-            model.info_state.next_tab();
-        }
-        Message::InfoTabSelect(TabMovement::Prev) => {
-            model.info_state.prev_tab();
-        }
-
-        Message::LoggerSelectDown => model.logger_state.transition(TuiWidgetEvent::DownKey),
-        Message::LoggerSelectUp => model.logger_state.transition(TuiWidgetEvent::UpKey),
-        Message::LoggerSelectLeft => model.logger_state.transition(TuiWidgetEvent::LeftKey),
-        Message::LoggerSelectRight => model.logger_state.transition(TuiWidgetEvent::RightKey),
-        Message::LoggerSelectSpace => model.logger_state.transition(TuiWidgetEvent::SpaceKey),
-        Message::LoggerSelectHide => model.logger_state.transition(TuiWidgetEvent::HideKey),
-        Message::LoggerSelectFocus => model.logger_state.transition(TuiWidgetEvent::FocusKey),
+        Message::InfoTabSelect(TabMovement::Next) => model.info_state.next_tab(),
+        Message::InfoTabSelect(TabMovement::Prev) => model.info_state.prev_tab(),
+        Message::Logger(event) => model.logger_state.transition(event),
         Message::ExecuteOne => {
-            model.current_exec = Some(Execution::One);
-            let Some(selector) = model.test_cases_list.select_test_case(&model.test_results) else {
-                return Ok(None);
-            };
-            ExecutionStateController::execute_specified(&mut model.test_cases_list, &selector);
-            return Ok(Some(Command::ExecuteOne(selector)));
+            let selector = list.select_test_case()?;
+            ExecutionStateController::execute_specified(list, &selector);
+            model.run.start(list.counts().running);
+            return Some(Command::ExecuteOne(selector));
         }
         Message::ExecuteAll => {
             model.test_results.clear();
-            model.current_exec = Some(Execution::All);
-            ExecutionStateController::execute_all(&mut model.test_cases_list);
-            return Ok(Some(Command::ExecuteAll));
+            model.result_index.clear();
+            ExecutionStateController::execute_all(list);
+            model.run.start(list.counts().running);
+            return Some(Command::ExecuteAll);
         }
-        Message::SelectPane(click) => {
-            model.click = Some(click);
+        Message::SearchStart => {
+            model.focus(Pane::List);
+            let list = &mut model.test_cases_list;
+            list.searching = true;
+            list.search.clear();
+            list.list_state.select_first();
         }
+        Message::SearchInput(c) => {
+            list.search.push(c);
+            list.list_state.select_first();
+        }
+        Message::SearchBackspace => {
+            list.search.pop();
+            list.list_state.select_first();
+        }
+        Message::SearchEnd(keep) => {
+            list.searching = false;
+            if !keep {
+                list.search.clear();
+            }
+        }
+        Message::ClearFilters => {
+            list.search.clear();
+            list.status_filter = StatusFilter::All;
+        }
+        Message::CycleStatusFilter => {
+            list.status_filter = list.status_filter.next();
+            list.list_state.select_first();
+        }
+        Message::JumpToFailure { forward } => {
+            model.focus(Pane::List);
+            model.test_cases_list.jump_to_failure(forward);
+        }
+        Message::Mouse(mouse) => handle_mouse(model, mouse),
     }
 
-    model.info_state.selected_test = model.test_cases_list.select_test_case(&model.test_results);
+    model.sync_selection();
+    None
+}
 
-    Ok(None)
+fn handle_mouse(model: &mut Model, mouse: MouseEvent) {
+    const WHEEL_STEP: usize = 3;
+    let position = Position::new(mouse.column, mouse.row);
+    let areas = model.areas.clone();
+    match mouse.kind {
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            let down = mouse.kind == MouseEventKind::ScrollDown;
+            if areas.list.contains(position) {
+                let list = &mut model.test_cases_list;
+                let selected = list.list_state.selected().unwrap_or_default();
+                list.list_state.select(Some(if down {
+                    selected + WHEEL_STEP
+                } else {
+                    selected.saturating_sub(WHEEL_STEP)
+                }));
+            } else if areas.info.contains(position) {
+                if down {
+                    model.info_state.scroll_down(WHEEL_STEP as u16);
+                } else {
+                    model.info_state.scroll_up(WHEEL_STEP as u16);
+                }
+            } else if areas.logger.contains(position) {
+                model.logger_state.transition(if down {
+                    TuiWidgetEvent::NextPageKey
+                } else {
+                    TuiWidgetEvent::PrevPageKey
+                });
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some((_, filter)) = areas
+                .filter_hits
+                .iter()
+                .find(|(area, _)| area.contains(position))
+            {
+                // Clicking a counter shows only those tests; clicking it again shows all.
+                let list = &mut model.test_cases_list;
+                list.status_filter = if list.status_filter == *filter {
+                    StatusFilter::All
+                } else {
+                    *filter
+                };
+                list.list_state.select_first();
+                model.focus(Pane::List);
+            } else if areas.list.contains(position) {
+                model.focus(Pane::List);
+                let list = &mut model.test_cases_list;
+                if let Some(p) = list.tab_at(mouse.column, mouse.row) {
+                    list.show_project(p);
+                } else if let Some(row) = mouse
+                    .row
+                    .checked_sub(list.list_area.y)
+                    .filter(|_| list.list_area.contains(position))
+                {
+                    let index = list.list_state.offset() + row as usize;
+                    if index < list.visible_rows().len() {
+                        if list.list_state.selected() == Some(index) {
+                            list.expand();
+                        } else {
+                            list.select_index(index);
+                        }
+                    }
+                }
+            } else if areas.info.contains(position) {
+                model.focus(Pane::Info);
+                if let Some(tab) = model.info_state.tab_at(mouse.column, mouse.row) {
+                    model.info_state.selected_tab = tab;
+                }
+            } else if areas.logger.contains(position) {
+                model.focus(Pane::Logger);
+            } else if areas.chart.contains(position) {
+                model.focus(Pane::Chart);
+                if let Some(result) = areas
+                    .timeline_hits
+                    .iter()
+                    .find(|(area, _)| area.contains(position))
+                    .and_then(|(_, index)| model.test_results.get(*index))
+                {
+                    // Clicking a bar selects the test to show its details.
+                    model.test_cases_list.select_test(
+                        &result.project_name,
+                        &result.module_name,
+                        &result.name,
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Maps a key press to a message.
+fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
+    trace!("key = {key:?}, current_pane = {:?}", model.current_pane);
+
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+    if model.show_help {
+        return match key.code {
+            KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                Some(Message::ToggleHelp)
+            }
+            _ => None,
+        };
+    }
+
+    let list = &model.test_cases_list;
+    if list.searching {
+        return match key.code {
+            KeyCode::Esc => Some(Message::SearchEnd(false)),
+            KeyCode::Enter => Some(Message::SearchEnd(true)),
+            KeyCode::Backspace => Some(Message::SearchBackspace),
+            KeyCode::Up => Some(Message::ListSelect(CursorMovement::Up)),
+            KeyCode::Down => Some(Message::ListSelect(CursorMovement::Down)),
+            KeyCode::Char(c) if !ctrl => Some(Message::SearchInput(c)),
+            _ => None,
+        };
+    }
+
+    // Keys available in every pane.
+    let global = match key.code {
+        KeyCode::Char('q') => Some(Message::Quit),
+        KeyCode::Esc if list.is_filtering() => Some(Message::ClearFilters),
+        KeyCode::Esc => Some(Message::Quit),
+        KeyCode::Char('c') if ctrl => Some(Message::Quit),
+        KeyCode::Char('?') => Some(Message::ToggleHelp),
+        KeyCode::Char('z') => Some(Message::Maximize),
+        KeyCode::Tab => Some(Message::NextPane),
+        KeyCode::BackTab => Some(Message::PrevPane),
+        KeyCode::Char('r') | KeyCode::Char('2') => Some(Message::ExecuteOne),
+        KeyCode::Char('R') | KeyCode::Char('1') => Some(Message::ExecuteAll),
+        KeyCode::Char('[') => Some(Message::InfoTabSelect(TabMovement::Prev)),
+        KeyCode::Char(']') => Some(Message::InfoTabSelect(TabMovement::Next)),
+        KeyCode::Char('/') => Some(Message::SearchStart),
+        KeyCode::Char('f') => Some(Message::CycleStatusFilter),
+        KeyCode::Char('n') => Some(Message::JumpToFailure { forward: true }),
+        KeyCode::Char('N') => Some(Message::JumpToFailure { forward: false }),
+        KeyCode::Char('L') => Some(Message::Logger(TuiWidgetEvent::HideKey)),
+        _ => None,
+    };
+    if global.is_some() {
+        return global;
+    }
+
+    match (model.current_pane, key.code) {
+        (Pane::List, KeyCode::Char('j') | KeyCode::Down) => {
+            Some(Message::ListSelect(CursorMovement::Down))
+        }
+        (Pane::List, KeyCode::Char('k') | KeyCode::Up) => {
+            Some(Message::ListSelect(CursorMovement::Up))
+        }
+        (Pane::List, KeyCode::Char('g') | KeyCode::Home) => {
+            Some(Message::ListSelect(CursorMovement::Home))
+        }
+        (Pane::List, KeyCode::Char('G') | KeyCode::End) => {
+            Some(Message::ListSelect(CursorMovement::End))
+        }
+        (Pane::List, KeyCode::Char('d')) if ctrl => {
+            Some(Message::ListSelect(CursorMovement::DownHalfScreen))
+        }
+        (Pane::List, KeyCode::Char('u')) if ctrl => {
+            Some(Message::ListSelect(CursorMovement::UpHalfScreen))
+        }
+        (Pane::List, KeyCode::PageDown) => {
+            Some(Message::ListSelect(CursorMovement::DownHalfScreen))
+        }
+        (Pane::List, KeyCode::PageUp) => Some(Message::ListSelect(CursorMovement::UpHalfScreen)),
+        // With several projects, the arrow keys switch project tabs; h/l always
+        // navigate the tree.
+        (Pane::List, KeyCode::Left) if list.projects.len() > 1 => Some(Message::SwitchProject(-1)),
+        (Pane::List, KeyCode::Right) if list.projects.len() > 1 => Some(Message::SwitchProject(1)),
+        (Pane::List, KeyCode::Char('h') | KeyCode::Left) => Some(Message::ListCollapseOrParent),
+        (Pane::List, KeyCode::Char('l') | KeyCode::Right) => Some(Message::ListExpandOrChild),
+        (Pane::List, KeyCode::Enter | KeyCode::Char(' ')) => Some(Message::ListExpand),
+        (Pane::Info, KeyCode::Char('j') | KeyCode::Down) => {
+            Some(Message::InfoScroll(CursorMovement::Down))
+        }
+        (Pane::Info, KeyCode::Char('k') | KeyCode::Up) => {
+            Some(Message::InfoScroll(CursorMovement::Up))
+        }
+        (Pane::Info, KeyCode::Char('g') | KeyCode::Home) => {
+            Some(Message::InfoScroll(CursorMovement::Home))
+        }
+        (Pane::Info, KeyCode::Char('G') | KeyCode::End) => {
+            Some(Message::InfoScroll(CursorMovement::End))
+        }
+        (Pane::Info, KeyCode::Char('d')) if ctrl => {
+            Some(Message::InfoScroll(CursorMovement::DownHalfScreen))
+        }
+        (Pane::Info, KeyCode::Char('u')) if ctrl => {
+            Some(Message::InfoScroll(CursorMovement::UpHalfScreen))
+        }
+        (Pane::Info, KeyCode::PageDown) => {
+            Some(Message::InfoScroll(CursorMovement::DownHalfScreen))
+        }
+        (Pane::Info, KeyCode::PageUp) => Some(Message::InfoScroll(CursorMovement::UpHalfScreen)),
+        (Pane::Info, KeyCode::Char('h') | KeyCode::Left) => {
+            Some(Message::InfoTabSelect(TabMovement::Prev))
+        }
+        (Pane::Info, KeyCode::Char('l') | KeyCode::Right) => {
+            Some(Message::InfoTabSelect(TabMovement::Next))
+        }
+        (Pane::Logger, KeyCode::Char('j') | KeyCode::Down) => {
+            Some(Message::Logger(TuiWidgetEvent::DownKey))
+        }
+        (Pane::Logger, KeyCode::Char('k') | KeyCode::Up) => {
+            Some(Message::Logger(TuiWidgetEvent::UpKey))
+        }
+        (Pane::Logger, KeyCode::Char('h') | KeyCode::Left) => {
+            Some(Message::Logger(TuiWidgetEvent::LeftKey))
+        }
+        (Pane::Logger, KeyCode::Char('l') | KeyCode::Right) => {
+            Some(Message::Logger(TuiWidgetEvent::RightKey))
+        }
+        (Pane::Logger, KeyCode::PageUp) => Some(Message::Logger(TuiWidgetEvent::PrevPageKey)),
+        (Pane::Logger, KeyCode::PageDown) => Some(Message::Logger(TuiWidgetEvent::NextPageKey)),
+        (Pane::Logger, KeyCode::Char(' ')) => Some(Message::Logger(TuiWidgetEvent::SpaceKey)),
+        (Pane::Logger, KeyCode::Char('F')) => Some(Message::Logger(TuiWidgetEvent::FocusKey)),
+        (Pane::Logger, KeyCode::Char('H')) => Some(Message::Logger(TuiWidgetEvent::HideKey)),
+        _ => None,
+    }
+}
+
+/// Style of a counter that filters the test list when clicked; the active one is underlined.
+fn filter_style(model: &Model, filter: StatusFilter, style: Style) -> Style {
+    if model.test_cases_list.status_filter == filter {
+        style.add_modifier(Modifier::UNDERLINED | Modifier::BOLD)
+    } else {
+        style
+    }
+}
+
+/// The one-line status bar at the top, and the horizontal ranges `(filter, start, end)`
+/// of its clickable counters relative to the start of the line.
+fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
+    let mut hits = vec![];
+    let sep = || Span::styled(" │ ", Style::new().fg(theme::BORDER));
+    let counts = model.test_cases_list.counts();
+    let mut spans = vec![
+        Span::styled(
+            " tanu ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!(" v{}", env!("CARGO_PKG_VERSION")), muted()),
+        sep(),
+    ];
+
+    let run = &model.run;
+    if run.is_running() {
+        spans.push(Span::styled(
+            format!("● running {}/{}", run.done, run.total),
+            Style::new().fg(theme::RUNNING).bold(),
+        ));
+    } else if run.started_at.is_none() {
+        spans.push(Span::styled("○ idle", muted()));
+    } else if run.failed > 0 {
+        spans.push(Span::styled(
+            " FAILED ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(theme::FAIL)
+                .add_modifier(Modifier::BOLD),
+        ));
+    } else {
+        spans.push(Span::styled(
+            " PASSED ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(theme::OK)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    spans.push(sep());
+
+    let mut push_counter = |spans: &mut Vec<Span<'static>>, filter, span: Span<'static>| {
+        let start = spans.iter().map(|s| s.width()).sum::<usize>() as u16;
+        let end = start + span.width() as u16;
+        hits.push((filter, start, end));
+        spans.push(span.patch_style(filter_style(model, filter, Style::new())));
+    };
+    push_counter(
+        &mut spans,
+        StatusFilter::Passed,
+        Span::styled(format!("✓ {}", counts.passed), Style::new().fg(theme::OK)),
+    );
+    spans.push(Span::raw("  "));
+    push_counter(
+        &mut spans,
+        StatusFilter::Failed,
+        Span::styled(
+            format!("✘ {}", counts.failed),
+            if counts.failed > 0 {
+                Style::new().fg(theme::FAIL).bold()
+            } else {
+                muted()
+            },
+        ),
+    );
+    if run.retries > 0 {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!("↻ {}", run.retries),
+            Style::new().fg(theme::RUNNING),
+        ));
+    }
+    spans.push(Span::raw("  "));
+    push_counter(
+        &mut spans,
+        StatusFilter::NotRun,
+        Span::styled(format!("○ {}", counts.pending()), muted()),
+    );
+    spans.push(Span::styled(format!("  of {}", counts.total), muted()));
+    let executed = counts.passed + counts.failed;
+    if counts.failed > 0 && executed > 0 {
+        spans.push(Span::styled(
+            format!(
+                "  {:.1}% passed",
+                counts.passed as f64 / executed as f64 * 100.0
+            ),
+            muted(),
+        ));
+    }
+
+    if let Some(elapsed) = run.elapsed() {
+        spans.push(sep());
+        spans.push(Span::raw(format!("⏱ {}", fmt_duration(elapsed))));
+    }
+
+    let projects = model
+        .test_cases_list
+        .projects
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>();
+    if !projects.is_empty() {
+        spans.push(sep());
+        spans.push(Span::styled(
+            if projects.len() == 1 {
+                "project ".to_string()
+            } else {
+                "projects ".to_string()
+            },
+            muted(),
+        ));
+        spans.push(Span::raw(projects.join(", ")));
+    }
+    (Line::from(spans), hits)
+}
+
+/// Context-sensitive key hints for the footer.
+fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
+    let list = &model.test_cases_list;
+    if list.searching {
+        return vec![
+            ("type", "to search".into()),
+            ("Enter", "Apply".into()),
+            ("Esc", "Cancel".into()),
+            ("↑↓", "Move".into()),
+        ];
+    }
+    let mut hints: Vec<(&'static str, String)> = vec![("r", "Run".into()), ("R", "Run all".into())];
+    match model.current_pane {
+        Pane::List => {
+            if list.projects.len() > 1 {
+                hints.push(("←→", "Project".into()));
+            }
+            hints.push(("⏎", "Expand".into()));
+            hints.push(("/", "Search".into()));
+            hints.push(("f", format!("Filter:{}", list.status_filter.label())));
+            hints.push(("n/N", "Next fail".into()));
+        }
+        Pane::Info => {
+            hints.push(("[ ]", "Tab".into()));
+            hints.push(("j/k", "Scroll".into()));
+            hints.push(("g/G", "Top/Bottom".into()));
+        }
+        Pane::Logger => {
+            hints.push(("←→", "Level".into()));
+            hints.push(("PgUp/Dn", "Scroll".into()));
+            hints.push(("L", "Targets".into()));
+        }
+        Pane::Chart => {
+            hints.push(("click", "Select test".into()));
+        }
+    }
+    if list.is_filtering() {
+        hints.push(("Esc", "Clear filter".into()));
+    }
+    hints.push(("Tab", "Pane".into()));
+    hints.push((
+        "z",
+        if model.maximizing {
+            "Restore".into()
+        } else {
+            "Maximize".into()
+        },
+    ));
+    hints.push(("?", "Help".into()));
+    hints.push(("q", "Quit".into()));
+    hints
+}
+
+/// Renders hints into a line, dropping the ones that do not fit.
+fn hints_line(hints: Vec<(&'static str, String)>, width: u16) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    let mut used = 1;
+    for (key, label) in hints {
+        let item_width = key.chars().count() + label.chars().count() + 3;
+        if used + item_width > width as usize {
+            break;
+        }
+        used += item_width;
+        spans.push(Span::styled(
+            key,
+            Style::new().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(format!(" {label}  ")));
+    }
+    Line::from(spans)
+}
+
+/// `(project, module, test)` of the test selected in the test list.
+fn selected_test_key(model: &Model) -> Option<(String, String, String)> {
+    let list = &model.test_cases_list;
+    match list.selected_row()? {
+        RowRef::Test(p, m, t) | RowRef::Call(p, m, t, _) => {
+            let project = list.project(p)?;
+            let test = list.test(p, m, t)?;
+            Some((
+                project.name.clone(),
+                test.info.module.clone(),
+                test.info.name.clone(),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn is_selected(selected: &Option<(String, String, String)>, result: &TestResult) -> bool {
+    selected.as_ref().is_some_and(|(project, module, name)| {
+        *project == result.project_name && *module == result.module_name && *name == result.name
+    })
+}
+
+/// Latency samples of all HTTP/gRPC calls.
+fn latency_samples(model: &Model) -> Vec<latency::Sample> {
+    let selected = selected_test_key(model);
+    model
+        .test_results
+        .iter()
+        .flat_map(|result| {
+            let selected = is_selected(&selected, result);
+            result.calls().map(move |call| latency::Sample {
+                latency: call.duration(),
+                error: call.is_error(),
+                selected,
+            })
+        })
+        .collect()
+}
+
+/// Timeline entries for the tests of the latest run.
+fn timeline_entries(model: &Model) -> Vec<timeline::Entry> {
+    let selected = selected_test_key(model);
+    model
+        .test_results
+        .iter()
+        .enumerate()
+        .filter_map(|(key, result)| {
+            let test = result.test.as_ref()?;
+            if model
+                .run
+                .started_system
+                .is_some_and(|started| test.started_at < started)
+            {
+                // Result of an earlier run.
+                return None;
+            }
+            Some(timeline::Entry {
+                lane: test.worker_id,
+                start: test.started_at,
+                end: test.ended_at,
+                ok: test.result.is_ok(),
+                selected: is_selected(&selected, result),
+                key,
+            })
+        })
+        .collect()
+}
+
+/// Renders the timeline chart and returns the clickable bars.
+fn render_timeline(
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[timeline::Entry],
+    focused: bool,
+    maximized: bool,
+) -> Vec<(Rect, usize)> {
+    let block = chart_block(
+        "Timeline",
+        focused,
+        maximized,
+        timeline::summary(entries)
+            .map(|summary| vec![Span::styled(summary, muted())])
+            .unwrap_or_default(),
+    );
+    let inner = block.inner(area).inner(Margin::new(1, 0));
+    frame.render_widget(block, area);
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::styled("No tests run yet", muted())).centered(),
+            inner.centered_vertically(Constraint::Length(1)),
+        );
+        return vec![];
+    }
+    timeline::render(entries, inner, frame.buffer_mut())
+}
+
+/// Block of a chart in the Charts pane, titled with the chart name and `details`.
+fn chart_block(
+    name: &'static str,
+    focused: bool,
+    maximized: bool,
+    details: Vec<Span<'static>>,
+) -> ratatui::widgets::Block<'static> {
+    let mut title = vec![Span::raw(name)];
+    title.extend(details);
+    if maximized {
+        title.push(Span::styled(" [maximized]", muted()));
+    }
+    theme::block(title, focused)
+}
+
+fn render_histogram(
+    frame: &mut Frame,
+    area: Rect,
+    samples: &[latency::Sample],
+    focused: bool,
+    maximized: bool,
+) {
+    let block = chart_block(
+        "Latency",
+        focused,
+        maximized,
+        latency::summary(samples).unwrap_or_default(),
+    );
+    let inner = block.inner(area).inner(Margin::new(1, 0));
+    frame.render_widget(block, area);
+    if samples.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::styled("No requests yet", muted())).centered(),
+            inner.centered_vertically(Constraint::Length(1)),
+        );
+        return;
+    }
+    latency::render(samples, inner, frame.buffer_mut());
+}
+
+fn render_gauge(frame: &mut Frame, area: Rect, run: &RunStats) {
+    if run.started_at.is_none() || run.total == 0 {
+        return;
+    }
+    let ratio = (run.done as f64 / run.total as f64).clamp(0.0, 1.0);
+    let color = if run.failed > 0 {
+        theme::FAIL
+    } else if run.is_running() {
+        theme::ACCENT
+    } else {
+        theme::OK
+    };
+    let gauge = LineGauge::default()
+        .filled_style(Style::new().fg(color))
+        .unfilled_style(Style::new().fg(theme::BORDER))
+        .filled_symbol("━")
+        .unfilled_symbol("━")
+        .ratio(ratio)
+        .label(Line::styled(
+            format!(
+                "{}/{} {:>3}% ",
+                run.done,
+                run.total,
+                (ratio * 100.0).round()
+            ),
+            Style::new().fg(color),
+        ));
+    frame.render_widget(gauge, area);
 }
 
 /// Construct UI.
 fn view(model: &mut Model, frame: &mut Frame) {
     trace!("rendering view");
+    model.sync_selection();
 
-    let [layout_main, layout_menu, layout_gauge] = Layout::vertical([
-        Constraint::Min(0),
+    let [layout_header, layout_main, layout_footer] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Min(0),
         Constraint::Length(1),
     ])
     .areas(frame.area());
     let [layout_left, layout_right] =
-        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(layout_main);
-    let [layout_rightup, layout_rightdown] =
-        Layout::vertical([Constraint::Percentage(70), Constraint::Percentage(30)])
+    // Logs take a short row under the tests.
+    let [layout_list, layout_logger] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(10)]).areas(layout_left);
+    let [layout_info, layout_chart] =
+        Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
             .areas(layout_right);
-    let [layout_histogram, layout_summary] =
-        Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
-            .areas(layout_rightdown);
-    let layout_right_inner = Layout::default()
-        .constraints([Constraint::Percentage(100)])
-        .margin(1)
-        .split(layout_rightup)[0];
-    let [_, layout_tabs, layout_info] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Min(0),
-    ])
-    .areas(layout_right_inner);
-    let [layout_logo, layout_list, layout_logger] = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ])
-    .areas(layout_left);
-    let [layout_logo, layout_fps_area] =
-        Layout::horizontal([Constraint::Fill(1), Constraint::Length(9)]).areas(layout_logo);
-    let [layout_fps, layout_version] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(layout_fps_area);
-    let layout_menu_items = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(9),  // q
-            Constraint::Length(13), // z
-            Constraint::Length(12), // 1
-            Constraint::Length(8),  // 2
-            Constraint::Length(16), // tab
-            Constraint::Length(15), // ←|→
-            Constraint::Length(14), // ↑|↓
-            Constraint::Length(26), // CTRL+U|CTRL+D
-            Constraint::Length(10), // g
-            Constraint::Length(9),  // G
-            Constraint::Length(15), // Enter
-        ])
-        .split(layout_menu);
+    let [layout_hints, layout_gauge] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(32)]).areas(layout_footer);
 
-    // Handle mouse click events on UI. If position is in the list pane area, switch to it.
-    let click_position = model.click.as_ref().map(|click| {
-        let x = click.column;
-        let y = click.row;
-        Position::from((x, y))
-    });
-    if let Some(position) = click_position {
-        if layout_list.contains(position) {
-            model.current_pane = Pane::List;
-            model.info_state.focused = false;
-        } else if layout_info.contains(position) {
-            model.current_pane = Pane::Info;
-            model.info_state.focused = true;
-        } else if layout_tabs.contains(position) {
-            model.current_pane = Pane::Info;
-            model.info_state.focused = true;
-
-            // Check which tab was clicked.
-            let mut left = layout_tabs.left();
-            for tab in [Tab::Call, Tab::Headers, Tab::Payload, Tab::Error] {
-                const TAB_PADDING: u16 = 4;
-                const TAB_DIVIDER: u16 = 1;
-                let tab_length = tab.to_string().len() as u16 + TAB_PADDING;
-                if position.x >= left && position.x <= left + tab_length {
-                    model.info_state.selected_tab = tab;
-                    break;
-                }
-                left += tab_length + TAB_DIVIDER;
-            }
-        } else if layout_logger.contains(position) {
-            model.current_pane = Pane::Logger;
-            model.info_state.focused = false;
-        }
+    // Header
+    let [layout_status, layout_fps] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(12)]).areas(layout_header);
+    let (status_line, status_hits) = status_bar(model);
+    frame.render_widget(Paragraph::new(status_line), layout_status);
+    let filter_hits: Vec<(Rect, StatusFilter)> = status_hits
+        .into_iter()
+        .map(|(filter, start, end)| {
+            let x = layout_status.x + start;
+            let area = Rect::new(x, layout_status.y, end - start, 1);
+            (area.intersection(layout_status), filter)
+        })
+        .collect();
+    if let Some(fps_counter) = &model.fps_counter {
+        frame.render_widget(
+            Paragraph::new(format!("FPS:{:.1}", fps_counter.fps))
+                .alignment(Alignment::Right)
+                .style(muted()),
+            layout_fps,
+        );
     }
 
-    let fps = Paragraph::new(format!("FPS:{:.1}", model.fps_counter.fps))
-        .alignment(Alignment::Right)
-        .style(Style::default().dim());
-    let version = Paragraph::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-        .alignment(Alignment::Right)
-        .style(Style::default().dim());
-
-    let ratio =
-        (model.test_results.len() as f64 / model.test_cases_list.len() as f64).clamp(0.0, 1.0);
-    let gauge = LineGauge::default()
-        .block(
-            Block::default()
-                .borders(Borders::NONE)
-                .padding(Padding::new(1, 1, 0, 0)),
-        )
-        .filled_style(Style::new().blue())
-        .unfilled_style(Style::new().black())
-        .ratio(ratio)
-        .label(if ratio == 0.0 {
-            "".to_string() // Hide label when no tests are running
-        } else {
-            format!("{}%", (ratio * 100.0).round() as u32)
-        });
-
-    let menu_items = [
-        ("[q]", "Quit"),
-        ("[z]", "Maximize"),
-        ("[1]", "Run ALL"),
-        ("[2]", "Run"),
-        ("[Tab]", "Next Pane"),
-        ("[←|→]", "Next Tab"),
-        ("[↑|↓]", "Up/Down"),
-        if matches!(model.current_pane, Pane::List | Pane::Info) {
-            ("[CTRL+U|D]", "Scroll Up/Down")
-        } else {
-            ("", "")
-        },
-        if matches!(model.current_pane, Pane::List | Pane::Info) {
-            ("[g]", "First")
-        } else {
-            ("", "")
-        },
-        if matches!(model.current_pane, Pane::List | Pane::Info) {
-            ("[G]", "Last")
-        } else {
-            ("", "")
-        },
-        if matches!(model.current_pane, Pane::List) {
-            ("[Enter]", "Expand")
-        } else {
-            ("", "")
-        },
-    ];
-
-    for (n, &(key, label)) in menu_items.iter().enumerate() {
-        let menu_item = Paragraph::new(vec![Line::from(vec![
-            Span::styled(key, Style::default().fg(Color::Blue).bold()),
-            Span::styled(format!("{WHITESPACE}{label}"), Style::default()),
-        ])])
-        .block(Block::default().borders(Borders::NONE));
-        frame.render_widget(menu_item, layout_menu_items[n]);
-    }
-
-    let info_block = Block::default()
-        .border_type(if model.info_state.focused {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
-        .border_style(if model.info_state.focused {
-            Style::default().fg(Color::Blue).bold()
-        } else {
-            Style::default().fg(Color::Blue)
-        })
-        .borders(Borders::ALL)
-        .title("Request/Response".bold());
-
-    let tabs = CustomTabs::new(vec!["Call", "Headers", "Payload", "Error"])
-        .select(model.info_state.selected_tab as usize)
-        .selected_style(Style::default().fg(Color::Blue).bold());
-
-    let info = InfoWidget::new(model.test_results.clone());
-
-    let logo = BigText::builder()
-        .pixel_size(PixelSize::Sextant)
-        .style(Style::new().fg(Color::Blue))
-        .lines(vec!["tanu".into()])
-        .build();
-
-    let test_list = TestListWidget::new(
-        matches!(model.current_pane, Pane::List),
-        &model.test_cases_list.projects,
+    // Footer
+    frame.render_widget(
+        hints_line(key_hints(model), layout_hints.width),
+        layout_hints,
     );
+    render_gauge(frame, layout_gauge, &model.run);
 
-    let logger = TuiLoggerSmartWidget::default()
-        .title_target("Selector".bold())
-        .title_log("Logs".bold())
-        .border_type(if matches!(model.current_pane, Pane::Logger) {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
-        .border_style(if matches!(model.current_pane, Pane::Logger) {
-            Style::default().fg(Color::Blue).bold()
-        } else {
-            Style::default().fg(Color::Blue)
-        })
-        .style_error(Style::default().fg(Color::Red))
-        .style_warn(Style::default().fg(Color::Yellow))
-        .style_info(Style::default())
-        .style_debug(Style::default().dim())
-        .style_trace(Style::default().dim())
-        .output_separator('|')
-        .output_timestamp(None)
-        .output_level(Some(TuiLoggerLevelOutput::Long))
-        .output_target(false)
-        .output_file(false)
-        .output_line(false)
-        .state(&model.logger_state);
-
-    const BAR_WIDTH: usize = 5;
-    let max_duration = model
-        .test_results
-        .iter()
-        .flat_map(|test| {
-            test.logs
-                .iter()
-                .map(|log| log.response.duration_req.as_millis())
-        })
-        .max()
-        .unwrap_or_default();
-
-    // Decide such number of buckets that histogram bars stretch to the width of the pane.
-    let pane_width = layout_rightdown.width as usize;
-    let mut num_buckets = (pane_width / BAR_WIDTH).max(1);
-    if model.test_results.is_empty() {
-        num_buckets = 1;
-    }
-
-    fn decide_bar_size(value: u128) -> u128 {
-        let exponent = (value as f64).log10().ceil() as i32 - 1;
-        let magnitude = if exponent >= 0 {
-            10u128.saturating_pow(exponent as u32)
-        } else {
-            1 // Default to 1 if the exponent is negative
-        };
-        value.div_ceil(magnitude) * magnitude
-    }
-
-    let bucket_size = decide_bar_size((max_duration / num_buckets as u128).max(1));
-
-    let mut buckets: BTreeMap<u64, usize> = (1..num_buckets).map(|i| (i as u64, 0)).collect();
-    for test in &model.test_results {
-        for log in &test.logs {
-            let bucket = ((log.response.duration_req.as_millis() as f64) / (bucket_size as f64))
-                .ceil() as u64;
-            *buckets.entry(bucket).or_default() += 1;
-        }
-    }
-
-    let histogram_raw_data = buckets
-        .iter()
-        .map(|(k, v)| ((k * bucket_size as u64).to_string(), *v as u64))
-        .collect::<Vec<_>>();
-    let histogram_data = histogram_raw_data
-        .iter()
-        .map(|(k, v)| (k.as_str(), *v))
-        .collect::<Vec<_>>();
-    let histogram: BarChart<'_> = BarChart::default()
-        .data(&histogram_data)
-        .block(
-            Block::new()
-                .title("Latency [ms]".bold())
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue))
-                .padding(Padding::top(1)),
-        )
-        .bar_width(BAR_WIDTH as u16)
-        .bar_gap(1)
-        .bar_style(Style::default().fg(Color::Blue));
-
-    // Aggregate all test results across all projects
-    let successful = model
-        .test_results
-        .iter()
-        .filter(|result| result.test.as_ref().is_some_and(|test| test.result.is_ok()))
-        .count();
-    let total = model.test_results.len();
-    let failed = total - successful;
-
-    // Create a single bar group for aggregated results
-    let bar_groups = vec![BarGroup::default().bars(&[
-        Bar::default()
-            .value(successful as u64)
-            .label(Line::from(if total > 0 { "ok" } else { "" }).centered())
-            .text_value(if total > 0 {
-                format!("{successful}")
-            } else {
-                String::new()
-            })
-            .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
-            .style(Color::Blue),
-        Bar::default()
-            .value(failed as u64)
-            .label(Line::from(if total > 0 { "err" } else { "" }).centered())
-            .text_value(if total > 0 {
-                format!("{failed}")
-            } else {
-                String::new()
-            })
-            .value_style(Style::new().bg(Color::Blue).fg(Color::Black))
-            .style(Color::Blue),
-    ])];
-
-    // Create the bar chart with vertical orientation
-    let mut bar_chart = BarChart::default()
-        .block(
-            Block::new()
-                .title("Summary".bold())
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue))
-                .padding(Padding::top(1)),
-        )
-        .direction(Direction::Vertical)
-        .bar_width(BAR_WIDTH as u16)
-        .bar_gap(1)
-        .group_gap(2);
-
-    for bar_group in bar_groups {
-        bar_chart = bar_chart.data(bar_group);
-    }
-
-    if model.maximizing {
+    let maximized = model.maximizing;
+    model.info_state.maximized = maximized && model.current_pane == Pane::Info;
+    let (list_area, info_area, logger_area, chart_area) = if maximized {
+        let hidden = Rect::default();
         match model.current_pane {
-            Pane::List => {
-                frame.render_stateful_widget(test_list, layout_main, &mut model.test_cases_list)
-            }
-            Pane::Info => frame.render_stateful_widget(info, layout_main, &mut model.info_state),
-            Pane::Logger => frame.render_widget(logger, layout_main),
+            Pane::List => (layout_main, hidden, hidden, hidden),
+            Pane::Info => (hidden, layout_main, hidden, hidden),
+            Pane::Logger => (hidden, hidden, layout_main, hidden),
+            Pane::Chart => (hidden, hidden, hidden, layout_main),
         }
     } else {
-        frame.render_widget(fps, layout_fps);
-        frame.render_widget(version, layout_version);
-        frame.render_widget(gauge, layout_gauge);
-        frame.render_widget(logo, layout_logo);
-        frame.render_stateful_widget(test_list, layout_list, &mut model.test_cases_list);
-        frame.render_widget(logger, layout_logger);
-        frame.render_widget(info_block, layout_rightup);
-        frame.render_widget(tabs, layout_tabs);
-        frame.render_stateful_widget(info, layout_info, &mut model.info_state);
-        frame.render_widget(histogram, layout_histogram);
-        frame.render_widget(bar_chart, layout_summary);
+        (layout_list, layout_info, layout_logger, layout_chart)
+    };
+    model.areas = Areas {
+        list: list_area,
+        info: info_area,
+        logger: logger_area,
+        chart: chart_area,
+        filter_hits: vec![],
+        timeline_hits: vec![],
+    };
+
+    if !list_area.is_empty() {
+        let test_list = TestListWidget::new(
+            model.current_pane == Pane::List,
+            maximized,
+            &model.test_cases_list,
+        );
+        frame.render_stateful_widget(test_list, list_area, &mut model.test_cases_list);
+    }
+
+    if !info_area.is_empty() {
+        let info = InfoWidget::new(&model.test_cases_list);
+        frame.render_stateful_widget(info, info_area, &mut model.info_state);
+    }
+
+    if !logger_area.is_empty() {
+        let focused = model.current_pane == Pane::Logger;
+        let border_style = theme::border_style(focused);
+        let logger = TuiLoggerSmartWidget::default()
+            .title_target("Targets".bold())
+            .title_log(if maximized {
+                "Logs [maximized]".bold()
+            } else {
+                "Logs".bold()
+            })
+            .border_type(BorderType::Rounded)
+            .border_style(border_style)
+            .highlight_style(Style::new().bg(theme::SELECTED_BG))
+            .style_error(Style::default().fg(theme::FAIL))
+            .style_warn(Style::default().fg(theme::ACCENT).bold())
+            .style_info(Style::default())
+            .style_debug(muted())
+            .style_trace(muted())
+            .output_separator('│')
+            .output_timestamp(Some("%H:%M:%S".to_string()))
+            .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
+            .output_target(false)
+            .output_file(false)
+            .output_line(false)
+            .state(&model.logger_state);
+        frame.render_widget(logger, logger_area);
+    }
+
+    let samples = latency_samples(model);
+    let mut timeline_hits = vec![];
+    if !chart_area.is_empty() {
+        let focused = model.current_pane == Pane::Chart;
+        // Side by side normally; stacked when maximized so the timeline gets the full width.
+        let [layout_timeline, layout_latency] = if maximized {
+            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .areas(chart_area)
+        } else {
+            Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
+                .areas(chart_area)
+        };
+        let entries = timeline_entries(model);
+        timeline_hits = render_timeline(frame, layout_timeline, &entries, focused, maximized);
+        render_histogram(frame, layout_latency, &samples, focused, maximized);
+    }
+
+    model.areas.filter_hits = filter_hits;
+    model.areas.timeline_hits = timeline_hits;
+
+    if model.show_help {
+        frame.render_widget(HelpWidget, frame.area());
+    }
+}
+
+/// Tracks the test results of running tests until they end.
+#[derive(Default)]
+struct ResultsBuffer {
+    running: HashMap<(String, String), TestResult>,
+}
+
+/// Applies a runner event to the model.
+fn on_runner_event(model: &mut Model, buffer: &mut ResultsBuffer, event: runner::Event) {
+    let runner::Event {
+        project,
+        module,
+        test: test_name,
+        body,
+    } = event;
+    let key = (project.clone(), test_name.clone());
+    match body {
+        EventBody::Start => {
+            buffer.running.insert(
+                key,
+                TestResult {
+                    project_name: project,
+                    module_name: module,
+                    name: test_name,
+                    ..Default::default()
+                },
+            );
+        }
+        EventBody::Check(check) => {
+            if let Some(test_result) = buffer.running.get_mut(&key) {
+                test_result.checks.push(*check);
+            }
+        }
+        EventBody::Call(log) => {
+            if let Some(test_result) = buffer.running.get_mut(&key) {
+                match log {
+                    runner::CallLog::Http(http_log) => test_result.logs.push(http_log),
+                    #[cfg(feature = "grpc")]
+                    runner::CallLog::Grpc(grpc_log) => test_result.grpc_logs.push(grpc_log),
+                }
+            }
+        }
+        EventBody::Retry(_) => {
+            if let Some(test_result) = buffer.running.get_mut(&key) {
+                test_result.retries += 1;
+            }
+            model.run.retries += 1;
+        }
+        EventBody::End(test) => {
+            let Some(mut test_result) = buffer.running.remove(&key) else {
+                return;
+            };
+            test_result.test = Some(test);
+            model.run.done += 1;
+            if !test_result.is_ok() {
+                model.run.failed += 1;
+            }
+            ExecutionStateController::on_test_updated(
+                &mut model.test_cases_list,
+                &project,
+                &module,
+                &test_name,
+                test_result.clone(),
+            );
+            model.store_result(test_result);
+        }
+        EventBody::Summary(_summary) => {
+            model.run.finished_at = Some(Instant::now());
+        }
     }
 }
 
@@ -722,7 +1342,6 @@ impl Runtime {
         let period = Duration::from_secs_f32(1.0 / Self::FRAMES_PER_SECOND);
         let mut draw_interval = tokio::time::interval(period);
         let mut cmds_interval = tokio::time::interval(period);
-        let mut scrl_interval = tokio::time::interval(Duration::from_secs_f32(0.05));
         let mut thrb_interval = tokio::time::interval(Duration::from_secs_f32(0.1));
         let mut event_stream = EventStream::new();
 
@@ -766,106 +1385,87 @@ impl Runtime {
             let runner_rx = tanu_core::runner::subscribe()?;
             (runner_tx, runner_rx, runner_task)
         };
-        let mut test_results_buffer = HashMap::<(String, String), TestResult>::new();
+        let mut results_buffer = ResultsBuffer::default();
+
+        // Redraw only when something changed, at most `FRAMES_PER_SECOND` times a
+        // second. Log lines arrive outside of the event loop, so the screen is also
+        // refreshed every `IDLE_REDRAW` while nothing else happens.
+        const IDLE_REDRAW: Duration = Duration::from_millis(500);
+        let mut dirty = true;
+        let mut last_draw = Instant::now();
+        let mut runner_open = true;
 
         while !self.should_exit && !panic_occurred() {
             tokio::select! {
                 _ = draw_interval.tick() => {
-                    model.fps_counter.update();
+                    if !dirty && last_draw.elapsed() < IDLE_REDRAW {
+                        continue;
+                    }
+                    if let Some(fps_counter) = &mut model.fps_counter {
+                        fps_counter.update();
+                    }
                     let start_draw = std::time::Instant::now();
                     terminal.draw(|frame| view(&mut model, frame))?;
                     trace!("Took {:?} to draw", start_draw.elapsed());
+                    dirty = false;
+                    last_draw = Instant::now();
                 },
                 _ = cmds_interval.tick() => {
                     if let Some(cmd) = cmds.pop_front() {
                         let _ = runner_tx.send(cmd);
                     }
                 }
-                _ = scrl_interval.tick() => {
-                }
                 _ = thrb_interval.tick() => {
-                    ExecutionStateController::update_throbber(&mut model.test_cases_list);
+                    // Spinners and the elapsed time only change while tests run.
+                    if model.run.is_running() {
+                        ExecutionStateController::update_throbber(&mut model.test_cases_list);
+                        dirty = true;
+                    }
                 }
                 _ = &mut runner_task => {
                 }
-                Ok(msg) = runner_rx.recv() => {
-                    match msg {
-                        runner::Event {project, module, test, body: EventBody::Start} => {
-                            test_results_buffer.insert((project.clone(), test.clone()), TestResult {
-                                project_name: project,
-                                module_name: module,
-                                name: test,
-                                ..Default::default()
-                            });
-                        },
-                        runner::Event {project: _, module: _, test: _, body: EventBody::Check(_)} => {
-                        }
-                        runner::Event {project, module: _, test, body: EventBody::Call(log)} => {
-                            if let Some(test_result) = test_results_buffer.get_mut(&(project, test)) {
-                                match log {
-                                    runner::CallLog::Http(http_log) => test_result.logs.push(http_log),
-                                    #[cfg(feature = "grpc")]
-                                    runner::CallLog::Grpc(grpc_log) => test_result.grpc_logs.push(grpc_log),
-                                }
-                            } else {
-                                // TODO error
+                event = runner_rx.recv(), if runner_open => {
+                    // Handle every pending event before the next draw, so that a burst
+                    // of events does not wait for one frame per event.
+                    let mut event = event;
+                    loop {
+                        match event {
+                            Ok(event) => on_runner_event(&mut model, &mut results_buffer, event),
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                warn!("TUI fell behind and missed {n} runner events");
                             }
-                        },
-                        runner::Event {project: _, module: _, test: _, body: EventBody::Retry(_)} => {
-                        }
-                        runner::Event {project, module, test: test_name, body: EventBody::End(test)} => {
-                            if let Some(mut test_result) = test_results_buffer.remove(&(project.clone(), test_name.clone())) {
-                                test_result.test = Some(test);
-                                ExecutionStateController::on_test_updated(
-                                    &mut model.test_cases_list,
-                                    &project,
-                                    &module,
-                                    &test_name,
-                                    test_result.clone(),
-                                );
-                                model.test_results.push(test_result);
-                            } else {
-                                // TODO error
+                            Err(broadcast::error::RecvError::Closed) => {
+                                runner_open = false;
+                                break;
                             }
-                        },
-                        runner::Event {project: _, module: _, test: _, body: EventBody::Summary(_summary)} => {
-                            // Summary events are handled by the reporters, no TUI action needed
-                        },
-
+                        }
+                        event = match runner_rx.try_recv() {
+                            Ok(event) => Ok(event),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                Err(broadcast::error::RecvError::Lagged(n))
+                            }
+                            Err(_) => break,
+                        };
                     }
+                    dirty = true;
                 }
                 Some(Ok(event)) = event_stream.next() => {
+                    dirty = true;
                     let msg = match event {
-                        Event::Key(key) => {
-                            match key.code {
-                                KeyCode::Char('q') | KeyCode::Esc => {
-                                    self.should_exit = true;
-                                    continue;
-                                },
-                                _ => {
-                                    self.handle_key(key, model.current_pane)
-                                }
-                            }
-                        },
-                        Event::Mouse(mouse) => {
-                            // Only send SelectPane message for click events
-                            if mouse.kind == crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) {
-                                Some(Message::SelectPane(mouse))
-                            } else {
-                                None
-                            }
-                        },
-                        _ => {
-                            continue;
-                        }
+                        Event::Key(key) => handle_key(&model, key),
+                        Event::Mouse(mouse) => Some(Message::Mouse(mouse)),
+                        _ => None,
                     };
                     let Some(msg) = msg else {
                         continue;
                     };
-                    if let Ok(Some(cmd)) = update(&mut model, msg).await {
+                    if matches!(msg, Message::Quit) {
+                        self.should_exit = true;
+                        continue;
+                    }
+                    if let Some(cmd) = update(&mut model, msg) {
                         cmds.push_back(cmd);
                     }
-                    trace!("updated {:?}", model.test_cases_list);
                 }
             }
         }
@@ -873,92 +1473,6 @@ impl Runtime {
         // Note: Terminal cleanup is handled by restore_terminal() in the run() function
         // or by the panic hook if a panic occurs
         Ok(())
-    }
-
-    fn handle_key(&mut self, key: KeyEvent, current_pane: Pane) -> Option<Message> {
-        trace!("key = {key:?}, current_pane = {current_pane:?}");
-
-        if key.kind != KeyEventKind::Press {
-            return None;
-        }
-        let modifier = key.modifiers;
-
-        match (current_pane, key.code, modifier) {
-            (_, KeyCode::Char('z'), _) => Some(Message::Maximize),
-            (_, KeyCode::BackTab, KeyModifiers::SHIFT) => {
-                Some(Message::InfoTabSelect(TabMovement::Next))
-            }
-            (_, KeyCode::Tab, _) => Some(Message::NextPane),
-            (Pane::Info, KeyCode::Char('j') | KeyCode::Down, _) => {
-                Some(Message::InfoSelect(CursorMovement::Down))
-            }
-            (Pane::Info, KeyCode::Char('k') | KeyCode::Up, _) => {
-                Some(Message::InfoSelect(CursorMovement::Up))
-            }
-            (Pane::Info, KeyCode::Char('h') | KeyCode::Left, _) => {
-                Some(Message::InfoTabSelect(TabMovement::Prev))
-            }
-            (Pane::Info, KeyCode::Char('l') | KeyCode::Right, _) => {
-                Some(Message::InfoTabSelect(TabMovement::Next))
-            }
-            (Pane::Info, KeyCode::Char('g') | KeyCode::Home, _) => {
-                Some(Message::InfoSelect(CursorMovement::Home))
-            }
-            (Pane::Info, KeyCode::Char('G') | KeyCode::End, _) => {
-                Some(Message::InfoSelect(CursorMovement::End))
-            }
-            (Pane::Info, KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                Some(Message::InfoSelect(CursorMovement::DownHalfScreen))
-            }
-            (Pane::Info, KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                Some(Message::InfoSelect(CursorMovement::UpHalfScreen))
-            }
-            (Pane::Info, KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
-            (Pane::List, KeyCode::Char('j') | KeyCode::Down, _) => {
-                Some(Message::ListSelect(CursorMovement::Down))
-            }
-            (Pane::List, KeyCode::Char('k') | KeyCode::Up, _) => {
-                Some(Message::ListSelect(CursorMovement::Up))
-            }
-            (Pane::List, KeyCode::Char('g') | KeyCode::Home, _) => {
-                Some(Message::ListSelect(CursorMovement::Home))
-            }
-            (Pane::List, KeyCode::Char('G') | KeyCode::End, _) => {
-                Some(Message::ListSelect(CursorMovement::End))
-            }
-            (Pane::List, KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                Some(Message::ListSelect(CursorMovement::DownHalfScreen))
-            }
-            (Pane::List, KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                Some(Message::ListSelect(CursorMovement::UpHalfScreen))
-            }
-            (Pane::List, KeyCode::Char('h') | KeyCode::Left, _) => {
-                Some(Message::InfoTabSelect(TabMovement::Prev))
-            }
-            (Pane::List, KeyCode::Char('l') | KeyCode::Right, _) => {
-                Some(Message::InfoTabSelect(TabMovement::Next))
-            }
-            (Pane::List, KeyCode::Enter, _) => Some(Message::ListExpand),
-            (Pane::List, KeyCode::Char('1'), _) => Some(Message::ExecuteAll),
-            (Pane::List, KeyCode::Char('2'), _) => Some(Message::ExecuteOne),
-            (Pane::Logger, KeyCode::Char('j') | KeyCode::Down, _) => {
-                Some(Message::LoggerSelectDown)
-            }
-            (Pane::Logger, KeyCode::Char('k') | KeyCode::Up, _) => Some(Message::LoggerSelectUp),
-            (Pane::Logger, KeyCode::Char('h') | KeyCode::Left, _) => {
-                Some(Message::LoggerSelectLeft)
-            }
-            (Pane::Logger, KeyCode::Char('l') | KeyCode::Right, _) => {
-                Some(Message::LoggerSelectRight)
-            }
-            (Pane::Logger, KeyCode::Char(' '), _) => Some(Message::LoggerSelectSpace),
-            (Pane::Logger, KeyCode::Char('H'), _) => Some(Message::LoggerSelectHide),
-            (Pane::Logger, KeyCode::Char('F'), _) => Some(Message::LoggerSelectFocus),
-            _ => {
-                // Ignore other keys
-                None
-            }
-        }
     }
 }
 
@@ -996,9 +1510,9 @@ fn install_panic_hook() {
 /// Runs the tanu terminal user interface application.
 ///
 /// Initializes and runs the interactive TUI for managing and executing tanu tests.
-/// The TUI provides three main panes: test list, test information/console, and logger.
-/// Users can navigate with keyboard shortcuts to select tests, run them individually
-/// or in bulk, and monitor execution in real-time.
+/// The TUI provides a test tree, a details pane, a logger, and timeline and latency charts.
+/// Users can navigate with keyboard shortcuts or the mouse to select tests, run them
+/// individually or in bulk, and monitor execution in real-time.
 ///
 /// # Parameters
 ///
@@ -1008,22 +1522,25 @@ fn install_panic_hook() {
 ///
 /// # Features
 ///
-/// - **Interactive Test Selection**: Browse and select tests with arrow keys
-/// - **Real-time Execution**: Watch tests run with live updates and logs
-/// - **HTTP Request Monitoring**: View detailed HTTP request/response data
-/// - **Concurrent Execution**: Run multiple tests simultaneously
-/// - **Filtering**: Filter tests by project, module, or name
+/// - **Interactive Test Selection**: Browse the test tree and inspect results
+/// - **Real-time Execution**: Watch tests run with live progress, counts and logs
+/// - **HTTP Request Monitoring**: View request/response details, headers and payloads
+/// - **Checks and Errors**: See every assertion evaluated by a test
+/// - **Search and Filters**: Search tests by name and filter by status
 /// - **Logging**: Integrated logger pane for debugging
 ///
 /// # Keyboard Shortcuts
 ///
-/// - `↑/↓`: Navigate test list
-/// - `Enter`: Run selected test
-/// - `a`: Run all tests
-/// - `Tab`: Switch between panes
+/// - `r`: Run the selected project, module or test
+/// - `R`: Run all tests
+/// - `↑/↓` or `j/k`: Navigate the test tree
+/// - `Enter`: Expand/collapse the selected item
+/// - `/`: Search tests, `f`: filter by status, `n/N`: jump to next/previous failure
+/// - `Tab`: Switch between panes, `[`/`]`: switch details tabs
+/// - `?`: Show all key bindings
 /// - `q`/`Esc`: Quit application
-/// - `Ctrl+U/D`: Page up/down in test list
-/// - `Home/End`: Go to first/last test
+///
+/// Set `TANU_TUI_DEBUG=1` to show the frame rate.
 ///
 /// # Examples
 ///
