@@ -18,10 +18,10 @@ pub const BORDER: Color = Color::Rgb(0x2a, 0x4a, 0x7a);
 pub const BORDER_FOCUSED: Color = ACCENT;
 /// Secondary text such as metadata and hints.
 pub const MUTED: Color = Color::Rgb(0x7f, 0x9c, 0xc9);
-/// Successful test / request.
-pub const OK: Color = tailwind::GREEN.c400;
-/// Failed test / request.
-pub const FAIL: Color = tailwind::RED.c400;
+/// Successful test / request. A cool, soft green that sits with the blue palette.
+pub const OK: Color = Color::Rgb(0x7e, 0xc6, 0x99);
+/// Failed test / request. A soft red that sits with the blue palette.
+pub const FAIL: Color = Color::Rgb(0xe0, 0x6c, 0x75);
 
 // Chart palette, shared by the timeline and the latency histogram.
 
@@ -31,9 +31,9 @@ pub const BAR: Color = ACCENT;
 pub const BAR_ALT: Color = tailwind::BLUE.c500;
 /// Failed tests and error responses. Softer than `FAIL`: the test list and status
 /// bar already flag failures, and error responses are often what a test expects.
-pub const BAR_ERROR: Color = Color::Rgb(0x9a, 0x4f, 0x61);
+pub const BAR_ERROR: Color = Color::Rgb(0xa8, 0x55, 0x5f);
 /// Slightly darker shade of `BAR_ERROR` to tell adjacent timeline bars apart.
-pub const BAR_ERROR_ALT: Color = Color::Rgb(0x85, 0x44, 0x54);
+pub const BAR_ERROR_ALT: Color = Color::Rgb(0x8f, 0x48, 0x52);
 /// Bars of the test selected in the test list.
 pub const BAR_SELECTED: Color = tailwind::BLUE.c100;
 /// Running or retried test.
