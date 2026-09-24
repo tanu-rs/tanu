@@ -206,7 +206,7 @@ impl StatefulWidget for InfoWidget<'_> {
 
         let failed = !test_result.is_ok();
         let error_badge = if failed {
-            Span::styled(" ●", Style::new().fg(theme::FAIL))
+            Span::styled(" ●", Style::new().fg(theme::fail()))
         } else if !test_result.checks.is_empty() {
             Span::styled(format!(" {}", test_result.checks.len()), muted())
         } else {
@@ -296,7 +296,7 @@ fn kv_spans(key: &str, value: Vec<Span<'static>>) -> Line<'static> {
 
 /// Section heading.
 fn section(title: impl Into<String>) -> Line<'static> {
-    Line::styled(title.into(), Style::new().fg(theme::ACCENT).bold())
+    Line::styled(title.into(), Style::new().fg(theme::accent()).bold())
 }
 
 /// Hard-wraps a styled line to the given width.
@@ -350,7 +350,7 @@ fn render_scrolled(
             area.right().saturating_sub(3),
             area.bottom() - 1,
             " ↓ ",
-            Style::new().fg(theme::ACCENT).bg(theme::SELECTED_BG),
+            Style::new().fg(theme::accent()).bg(theme::selected_bg()),
         );
     }
 }
@@ -366,11 +366,14 @@ fn format_system_time(ts: SystemTime) -> String {
 
 fn status_spans(result: &TestResult) -> Vec<Span<'static>> {
     if result.is_ok() {
-        vec![Span::styled("✓ passed", Style::new().fg(theme::OK).bold())]
+        vec![Span::styled(
+            "✓ passed",
+            Style::new().fg(theme::ok()).bold(),
+        )]
     } else {
         vec![Span::styled(
             "✘ failed",
-            Style::new().fg(theme::FAIL).bold(),
+            Style::new().fg(theme::fail()).bold(),
         )]
     }
 }
@@ -378,20 +381,20 @@ fn status_spans(result: &TestResult) -> Vec<Span<'static>> {
 fn counts_spans(counts: Counts) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled(
         format!("✓ {} passed", counts.passed),
-        Style::new().fg(theme::OK),
+        Style::new().fg(theme::ok()),
     )];
     if counts.failed > 0 {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
             format!("✘ {} failed", counts.failed),
-            Style::new().fg(theme::FAIL).bold(),
+            Style::new().fg(theme::fail()).bold(),
         ));
     }
     if counts.running > 0 {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
             format!("⋯ {} running", counts.running),
-            Style::new().fg(theme::RUNNING),
+            Style::new().fg(theme::running()),
         ));
     }
     if counts.pending() > 0 {
@@ -479,7 +482,7 @@ fn test_detail_lines(result: &TestResult, lines: &mut Vec<Line<'static>>, width:
             "Retries",
             vec![Span::styled(
                 result.retries.to_string(),
-                Style::new().fg(theme::RUNNING),
+                Style::new().fg(theme::running()),
             )],
         ));
     }
@@ -492,7 +495,7 @@ fn check_lines(result: &TestResult, lines: &mut Vec<Line<'static>>, width: usize
     let failed = result.checks.iter().filter(|c| !c.result).count();
     let mut heading = vec![Span::styled(
         "Checks",
-        Style::new().fg(theme::ACCENT).bold(),
+        Style::new().fg(theme::accent()).bold(),
     )];
     heading.push(Span::styled(
         format!("  {} passed", result.checks.len() - failed),
@@ -501,15 +504,15 @@ fn check_lines(result: &TestResult, lines: &mut Vec<Line<'static>>, width: usize
     if failed > 0 {
         heading.push(Span::styled(
             format!(", {failed} failed"),
-            Style::new().fg(theme::FAIL),
+            Style::new().fg(theme::fail()),
         ));
     }
     lines.push(Line::from(heading));
     for check in &result.checks {
         let (symbol, style) = if check.result {
-            ("✓ ", Style::new().fg(theme::OK))
+            ("✓ ", Style::new().fg(theme::ok()))
         } else {
-            ("✘ ", Style::new().fg(theme::FAIL))
+            ("✘ ", Style::new().fg(theme::fail()))
         };
         // The expression may contain ANSI colors and a multi-line diff. Passed checks
         // show only the first line; failed checks show the full diff.
@@ -546,7 +549,7 @@ fn error_text_lines(result: &TestResult, lines: &mut Vec<Line<'static>>, width: 
     let Some(Err(e)) = result.test.as_ref().map(|t| &t.result) else {
         return;
     };
-    lines.push(Line::styled("Error", Style::new().fg(theme::FAIL).bold()));
+    lines.push(Line::styled("Error", Style::new().fg(theme::fail()).bold()));
     let text = e
         .to_string()
         .into_text()
@@ -562,7 +565,7 @@ fn error_lines(result: &TestResult, width: usize) -> Vec<Line<'static>> {
     if result.is_ok() {
         lines.push(Line::styled(
             "✓ No error. The test passed.",
-            Style::new().fg(theme::OK),
+            Style::new().fg(theme::ok()),
         ));
     } else {
         error_text_lines(result, &mut lines, width);
@@ -747,9 +750,9 @@ fn header_rows(headers: Headers, width: u16) -> Vec<Row<'static>> {
         .enumerate()
         .flat_map(|(n, (key, value))| {
             let bg = if n % 2 == 0 {
-                Color::Reset
+                theme::bg()
             } else {
-                theme::ROW_ALT_BG
+                theme::row_alt_bg()
             };
             value
                 .chars()
@@ -762,7 +765,7 @@ fn header_rows(headers: Headers, width: u16) -> Vec<Row<'static>> {
                 .map(move |(i, chunk)| {
                     let key = if i == 0 { key.clone() } else { String::new() };
                     Row::new(vec![
-                        Line::styled(key, Style::new().fg(theme::ACCENT)),
+                        Line::styled(key, Style::new().fg(theme::accent())),
                         Line::raw(chunk),
                     ])
                     .bg(bg)
@@ -786,9 +789,9 @@ fn headers_table(title: &str, headers: Headers, width: u16, skip: usize) -> Tabl
         .block(
             Block::new()
                 .borders(Borders::TOP)
-                .border_style(Style::new().fg(theme::BORDER))
+                .border_style(Style::new().fg(theme::border()))
                 .title(Line::from(vec![
-                    Span::styled(title.to_string(), Style::new().fg(theme::ACCENT).bold()),
+                    Span::styled(title.to_string(), Style::new().fg(theme::accent()).bold()),
                     Span::styled(format!(" ({count}) "), muted()),
                 ])),
         )
@@ -993,12 +996,12 @@ impl<'a> InfoWidget<'a> {
             lines.push(Line::default());
             lines.push(Line::styled(
                 format!("Failed tests ({})", failed.len()),
-                Style::new().fg(theme::FAIL).bold(),
+                Style::new().fg(theme::fail()).bold(),
             ));
             for (module, test, result) in failed {
                 lines.extend(wrap_line(
                     Line::from(vec![
-                        Span::styled("  ✘ ", Style::new().fg(theme::FAIL)),
+                        Span::styled("  ✘ ", Style::new().fg(theme::fail())),
                         Span::styled(name(module, test), Style::new().bold()),
                     ]),
                     width,
@@ -1046,7 +1049,7 @@ fn hint_line(hints: &[(&str, &str)]) -> Line<'static> {
         }
         spans.push(Span::styled(
             key.to_string(),
-            Style::new().fg(theme::ACCENT).bold(),
+            Style::new().fg(theme::accent()).bold(),
         ));
         spans.push(Span::styled(format!(" to {label}"), muted()));
     }
@@ -1081,7 +1084,7 @@ fn test_overview_lines(test: &TestState, width: usize) -> Vec<Line<'static>> {
         ExecutionState::Executing(_) => {
             lines.push(kv_spans(
                 "Status",
-                vec![Span::styled("⋯ running", Style::new().fg(theme::RUNNING))],
+                vec![Span::styled("⋯ running", Style::new().fg(theme::running()))],
             ));
             return lines;
         }
@@ -1096,7 +1099,7 @@ fn test_overview_lines(test: &TestState, width: usize) -> Vec<Line<'static>> {
         lines.push(Line::styled("No HTTP/gRPC calls recorded", muted()));
     } else {
         lines.push(Line::from(vec![
-            Span::styled("Calls", Style::new().fg(theme::ACCENT).bold()),
+            Span::styled("Calls", Style::new().fg(theme::accent()).bold()),
             Span::styled(format!("  {}", calls.len()), muted()),
         ]));
         lines.extend(calls.into_iter().map(|call| call_row(call, width)));

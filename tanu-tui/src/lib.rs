@@ -34,7 +34,7 @@ use ratatui::{
     prelude::*,
     style::{Modifier, Style},
     text::Line,
-    widgets::{BorderType, LineGauge, Paragraph},
+    widgets::{Block, BorderType, LineGauge, Paragraph},
     Frame,
 };
 use std::{
@@ -153,9 +153,9 @@ impl Call<'_> {
             #[cfg(feature = "grpc")]
             Call::Grpc(log) => {
                 if log.response.status_code == tonic::Code::Ok {
-                    theme::OK
+                    theme::ok()
                 } else {
-                    theme::FAIL
+                    theme::fail()
                 }
             }
         }
@@ -316,6 +316,12 @@ struct Model {
 impl Model {
     fn new(test_cases: Vec<TestInfo>) -> Model {
         let cfg = get_tanu_config();
+        if let Some(name) = cfg.tui_theme() {
+            if !theme::set_by_name(name) {
+                let names = theme::names().collect::<Vec<_>>().join(", ");
+                warn!("Unknown TUI theme '{name}', using the default. Available themes: {names}");
+            }
+        }
         let logger_state = TuiWidgetState::new();
         // Hide the log target selector by default; it can be toggled with `L`.
         logger_state.transition(TuiWidgetEvent::HideKey);
@@ -384,6 +390,7 @@ enum Message {
     NextPane,
     PrevPane,
     ToggleHelp,
+    CycleTheme,
     ListSelect(CursorMovement),
     ListExpand,
     ListCollapseOrParent,
@@ -424,6 +431,7 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
         Message::NextPane => model.next_pane(),
         Message::PrevPane => model.prev_pane(),
         Message::ToggleHelp => model.show_help = !model.show_help,
+        Message::CycleTheme => info!("theme: {}", theme::cycle().name),
         Message::ListSelect(movement) => {
             let half_page = Model::half_page(model.areas.list);
             let selected = list.list_state.selected().unwrap_or_default();
@@ -646,6 +654,7 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
         KeyCode::Char('c') if ctrl => Some(Message::Quit),
         KeyCode::Char('?') => Some(Message::ToggleHelp),
         KeyCode::Char('z') => Some(Message::Maximize),
+        KeyCode::Char('t') => Some(Message::CycleTheme),
         KeyCode::Tab => Some(Message::NextPane),
         KeyCode::BackTab => Some(Message::PrevPane),
         KeyCode::Char('r') | KeyCode::Char('2') => Some(Message::ExecuteOne),
@@ -755,14 +764,14 @@ fn filter_style(model: &Model, filter: StatusFilter, style: Style) -> Style {
 /// of its clickable counters relative to the start of the line.
 fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
     let mut hits = vec![];
-    let sep = || Span::styled(" │ ", Style::new().fg(theme::BORDER));
+    let sep = || Span::styled(" │ ", Style::new().fg(theme::border()));
     let counts = model.test_cases_list.counts();
     let mut spans = vec![
         Span::styled(
             " tanu ",
             Style::new()
-                .fg(Color::Black)
-                .bg(theme::ACCENT)
+                .fg(theme::on_accent())
+                .bg(theme::accent())
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!(" v{}", env!("CARGO_PKG_VERSION")), muted()),
@@ -773,7 +782,7 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
     if run.is_running() {
         spans.push(Span::styled(
             format!("● running {}/{}", run.done, run.total),
-            Style::new().fg(theme::RUNNING).bold(),
+            Style::new().fg(theme::running()).bold(),
         ));
     } else if run.started_at.is_none() {
         spans.push(Span::styled("○ idle", muted()));
@@ -781,16 +790,16 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
         spans.push(Span::styled(
             " FAILED ",
             Style::new()
-                .fg(Color::Black)
-                .bg(theme::FAIL)
+                .fg(theme::on_accent())
+                .bg(theme::fail())
                 .add_modifier(Modifier::BOLD),
         ));
     } else {
         spans.push(Span::styled(
             " PASSED ",
             Style::new()
-                .fg(Color::Black)
-                .bg(theme::OK)
+                .fg(theme::on_accent())
+                .bg(theme::ok())
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -805,7 +814,7 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
     push_counter(
         &mut spans,
         StatusFilter::Passed,
-        Span::styled(format!("✓ {}", counts.passed), Style::new().fg(theme::OK)),
+        Span::styled(format!("✓ {}", counts.passed), Style::new().fg(theme::ok())),
     );
     spans.push(Span::raw("  "));
     push_counter(
@@ -814,7 +823,7 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
         Span::styled(
             format!("✘ {}", counts.failed),
             if counts.failed > 0 {
-                Style::new().fg(theme::FAIL).bold()
+                Style::new().fg(theme::fail()).bold()
             } else {
                 muted()
             },
@@ -824,7 +833,7 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
             format!("↻ {}", run.retries),
-            Style::new().fg(theme::RUNNING),
+            Style::new().fg(theme::running()),
         ));
     }
     spans.push(Span::raw("  "));
@@ -919,6 +928,7 @@ fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
             "Maximize".into()
         },
     ));
+    hints.push(("t", format!("Theme:{}", theme::current().name)));
     hints.push(("?", "Help".into()));
     hints.push(("q", "Quit".into()));
     hints
@@ -936,7 +946,9 @@ fn hints_line(hints: Vec<(&'static str, String)>, width: u16) -> Line<'static> {
         used += item_width;
         spans.push(Span::styled(
             key,
-            Style::new().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(theme::accent())
+                .add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::raw(format!(" {label}  ")));
     }
@@ -1086,15 +1098,15 @@ fn render_gauge(frame: &mut Frame, area: Rect, run: &RunStats) {
     }
     let ratio = (run.done as f64 / run.total as f64).clamp(0.0, 1.0);
     let color = if run.failed > 0 {
-        theme::FAIL
+        theme::fail()
     } else if run.is_running() {
-        theme::ACCENT
+        theme::accent()
     } else {
-        theme::OK
+        theme::ok()
     };
     let gauge = LineGauge::default()
         .filled_style(Style::new().fg(color))
-        .unfilled_style(Style::new().fg(theme::BORDER))
+        .unfilled_style(Style::new().fg(theme::border()))
         .filled_symbol("━")
         .unfilled_symbol("━")
         .ratio(ratio)
@@ -1114,6 +1126,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, run: &RunStats) {
 fn view(model: &mut Model, frame: &mut Frame) {
     trace!("rendering view");
     model.sync_selection();
+    frame.render_widget(Block::new().style(theme::base_style()), frame.area());
 
     let [layout_header, layout_main, layout_footer] = Layout::vertical([
         Constraint::Length(1),
@@ -1210,9 +1223,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
             })
             .border_type(BorderType::Rounded)
             .border_style(border_style)
-            .highlight_style(Style::new().bg(theme::SELECTED_BG))
-            .style_error(Style::default().fg(theme::FAIL))
-            .style_warn(Style::default().fg(theme::ACCENT).bold())
+            .highlight_style(Style::new().bg(theme::selected_bg()))
+            .style_error(Style::default().fg(theme::fail()))
+            .style_warn(Style::default().fg(theme::accent()).bold())
             .style_info(Style::default())
             .style_debug(muted())
             .style_trace(muted())

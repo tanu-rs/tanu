@@ -122,7 +122,7 @@ pub fn summary(samples: &[Sample]) -> Option<Vec<Span<'static>>> {
             } else {
                 format!(" · {errors} error responses")
             },
-            Style::new().fg(theme::BAR_ERROR),
+            Style::new().fg(theme::bar_error()),
         ));
     }
     Some(spans)
@@ -191,7 +191,7 @@ pub fn render(samples: &[Sample], area: Rect, buf: &mut Buffer) {
     for (i, bucket) in buckets.iter().enumerate() {
         let x = x0 + i as u16 * (bar_width + GAP);
         let heights = segment_heights(bucket, max_total, plot_rows);
-        let colors = [theme::BAR_SELECTED, theme::BAR_ERROR, theme::BAR];
+        let colors = [theme::bar_selected(), theme::bar_error(), theme::bar()];
 
         // Draw each segment from the bottom up.
         let mut base = 0u32;

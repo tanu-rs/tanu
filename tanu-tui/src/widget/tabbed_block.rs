@@ -75,7 +75,7 @@ impl Widget for CustomTabs<'_> {
         // Thin baseline under all tabs.
         if area.height > 1 {
             for x in area.left()..area.right() {
-                buf.set_string(x, area.y + 1, "─", Style::new().fg(theme::BORDER));
+                buf.set_string(x, area.y + 1, "─", Style::new().fg(theme::border()));
             }
         }
 
@@ -83,12 +83,14 @@ impl Widget for CustomTabs<'_> {
             let (label, badge) = &self.tabs[idx];
             let is_selected = idx == self.selected;
             let mut style = if is_selected {
-                Style::new().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
+                Style::new()
+                    .fg(theme::accent())
+                    .add_modifier(Modifier::BOLD)
             } else {
                 theme::muted()
             };
             if self.alerts.contains(&idx) {
-                style = style.fg(theme::FAIL);
+                style = style.fg(theme::fail());
             }
 
             let padding = " ".repeat(TAB_PADDING as usize);
