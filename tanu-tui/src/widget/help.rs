@@ -47,12 +47,14 @@ pub const KEY_BINDINGS: &[(&str, &[(&str, &str)])] = &[
     (
         "Logs",
         &[
-            ("j k / ↑ ↓", "Select log target"),
-            ("h l / ← →", "Change the level of the target"),
-            ("PgUp / PgDn", "Scroll the logs"),
-            ("L / H", "Toggle the target selector"),
-            ("Space", "Toggle hiding of targets with log level off"),
-            ("F", "Focus the selected target"),
+            ("j k / ↑ ↓", "Scroll"),
+            ("Ctrl+U / Ctrl+D", "Scroll half a page"),
+            (
+                "g G / Home End",
+                "Scroll to top / bottom (bottom follows new logs)",
+            ),
+            ("h l / ← →", "Show fewer / more log levels"),
+            ("L", "Show / hide the module path of logs"),
         ],
     ),
     ("Charts", &[("z", "Maximize to see the timeline in detail")]),

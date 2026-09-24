@@ -99,11 +99,11 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                 .arg(Arg::new("log-level")
                     .long("log-level")
                     .help("Log level filter")
-                    .default_value("Info"))
+                    .default_value("Debug"))
                 .arg(Arg::new("tanu-log-level")
                     .long("tanu-log-level")
                     .help("tanu log level filter")
-                    .default_value("Info"))
+                    .default_value("Debug"))
                 .arg(Arg::new("concurrency")
                     .short('c')
                     .long("concurrency")
@@ -370,9 +370,9 @@ impl App {
                 let log_level_str = tui_matches.get_one::<String>("log-level").unwrap();
                 let tanu_log_level_str = tui_matches.get_one::<String>("tanu-log-level").unwrap();
                 let log_level =
-                    log::LevelFilter::from_str(log_level_str).unwrap_or(log::LevelFilter::Info);
+                    log::LevelFilter::from_str(log_level_str).unwrap_or(log::LevelFilter::Debug);
                 let tanu_log_level = log::LevelFilter::from_str(tanu_log_level_str)
-                    .unwrap_or(log::LevelFilter::Info);
+                    .unwrap_or(log::LevelFilter::Debug);
                 // Merge config value with CLI flag (CLI takes precedence), default to CPU cores
                 let concurrency = tui_matches
                     .get_one::<usize>("concurrency")

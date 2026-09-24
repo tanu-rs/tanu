@@ -72,8 +72,8 @@ Launch the interactive [terminal UI](tui.md).
 | Option | Description |
 |---|---|
 | `-c, --concurrency <NUMBER>` | Maximum number of tests running in parallel. Default: number of logical CPU cores. |
-| `--log-level <LEVEL>` | Log level for the logger pane. Default `Info`. |
-| `--tanu-log-level <LEVEL>` | Log level for tanu's internal logs. Default `Info`. |
+| `--log-level <LEVEL>` | Log level for the logger pane. Default `Debug`. |
+| `--tanu-log-level <LEVEL>` | Log level for tanu's internal logs. Default `Debug`. |
 
 ## `ls`
 

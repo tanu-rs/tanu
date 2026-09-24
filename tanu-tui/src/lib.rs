@@ -34,7 +34,7 @@ use ratatui::{
     prelude::*,
     style::{Modifier, Style},
     text::Line,
-    widgets::{Block, BorderType, LineGauge, Paragraph},
+    widgets::{Block, LineGauge, Paragraph},
     Frame,
 };
 use std::{
@@ -49,7 +49,6 @@ use tanu_core::{
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, trace, warn};
 use tracing_subscriber::layer::SubscriberExt;
-use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetEvent, TuiWidgetState};
 
 use crate::widget::{
     help::HelpWidget,
@@ -59,6 +58,7 @@ use crate::widget::{
         ExecutionStateController, RowRef, StatusFilter, TestCaseSelector, TestListState,
         TestListWidget,
     },
+    logger::{LogLayer, LoggerState, LoggerWidget},
     theme::{self, fmt_duration, muted},
     timeline,
 };
@@ -301,8 +301,8 @@ struct Model {
     result_index: HashMap<String, usize>,
     /// Maintains the state of the info pane, such as currently selected tab.
     info_state: InfoState,
-    /// Holds the state of the logger pane, including any focus or visibility settings
-    logger_state: TuiWidgetState,
+    /// Maintains the state of the logs pane, such as the scroll position and level shown.
+    logger_state: LoggerState,
     /// Whether the key bindings popup is shown.
     show_help: bool,
     /// Statistics of the latest run.
@@ -322,9 +322,6 @@ impl Model {
                 warn!("Unknown TUI theme '{name}', using the default. Available themes: {names}");
             }
         }
-        let logger_state = TuiWidgetState::new();
-        // Hide the log target selector by default; it can be toggled with `L`.
-        logger_state.transition(TuiWidgetEvent::HideKey);
         Model {
             maximizing: false,
             current_pane: Pane::default(),
@@ -332,7 +329,7 @@ impl Model {
             test_results: vec![],
             result_index: HashMap::new(),
             info_state: InfoState::new(),
-            logger_state,
+            logger_state: LoggerState::new(),
             show_help: false,
             run: RunStats::default(),
             areas: Areas::default(),
@@ -399,7 +396,10 @@ enum Message {
     SwitchProject(isize),
     InfoScroll(CursorMovement),
     InfoTabSelect(TabMovement),
-    Logger(TuiWidgetEvent),
+    LoggerScroll(CursorMovement),
+    /// Show more (true) or fewer (false) log levels.
+    LoggerLevel(bool),
+    ToggleLogTarget,
     ExecuteOne,
     ExecuteAll,
     SearchStart,
@@ -470,7 +470,23 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
         }
         Message::InfoTabSelect(TabMovement::Next) => model.info_state.next_tab(),
         Message::InfoTabSelect(TabMovement::Prev) => model.info_state.prev_tab(),
-        Message::Logger(event) => model.logger_state.transition(event),
+        Message::LoggerScroll(movement) => {
+            let half_page = Model::half_page(model.areas.logger);
+            let logger = &mut model.logger_state;
+            match movement {
+                CursorMovement::Down => logger.scroll_down(1),
+                CursorMovement::Up => logger.scroll_up(1),
+                CursorMovement::DownHalfScreen => logger.scroll_down(half_page),
+                CursorMovement::UpHalfScreen => logger.scroll_up(half_page),
+                CursorMovement::Home => logger.scroll_home(),
+                CursorMovement::End => logger.scroll_end(),
+            }
+        }
+        Message::LoggerLevel(true) => model.logger_state.more_verbose(),
+        Message::LoggerLevel(false) => model.logger_state.less_verbose(),
+        Message::ToggleLogTarget => {
+            model.logger_state.show_target = !model.logger_state.show_target;
+        }
         Message::ExecuteOne => {
             let selector = list.select_test_case()?;
             ExecutionStateController::execute_specified(list, &selector);
@@ -546,11 +562,11 @@ fn handle_mouse(model: &mut Model, mouse: MouseEvent) {
                     model.info_state.scroll_up(WHEEL_STEP as u16);
                 }
             } else if areas.logger.contains(position) {
-                model.logger_state.transition(if down {
-                    TuiWidgetEvent::NextPageKey
+                if down {
+                    model.logger_state.scroll_down(WHEEL_STEP);
                 } else {
-                    TuiWidgetEvent::PrevPageKey
-                });
+                    model.logger_state.scroll_up(WHEEL_STEP);
+                }
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
@@ -665,7 +681,7 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
         KeyCode::Char('f') => Some(Message::CycleStatusFilter),
         KeyCode::Char('n') => Some(Message::JumpToFailure { forward: true }),
         KeyCode::Char('N') => Some(Message::JumpToFailure { forward: false }),
-        KeyCode::Char('L') => Some(Message::Logger(TuiWidgetEvent::HideKey)),
+        KeyCode::Char('L') => Some(Message::ToggleLogTarget),
         _ => None,
     };
     if global.is_some() {
@@ -731,22 +747,31 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
             Some(Message::InfoTabSelect(TabMovement::Next))
         }
         (Pane::Logger, KeyCode::Char('j') | KeyCode::Down) => {
-            Some(Message::Logger(TuiWidgetEvent::DownKey))
+            Some(Message::LoggerScroll(CursorMovement::Down))
         }
         (Pane::Logger, KeyCode::Char('k') | KeyCode::Up) => {
-            Some(Message::Logger(TuiWidgetEvent::UpKey))
+            Some(Message::LoggerScroll(CursorMovement::Up))
         }
-        (Pane::Logger, KeyCode::Char('h') | KeyCode::Left) => {
-            Some(Message::Logger(TuiWidgetEvent::LeftKey))
+        (Pane::Logger, KeyCode::Char('g') | KeyCode::Home) => {
+            Some(Message::LoggerScroll(CursorMovement::Home))
         }
-        (Pane::Logger, KeyCode::Char('l') | KeyCode::Right) => {
-            Some(Message::Logger(TuiWidgetEvent::RightKey))
+        (Pane::Logger, KeyCode::Char('G') | KeyCode::End) => {
+            Some(Message::LoggerScroll(CursorMovement::End))
         }
-        (Pane::Logger, KeyCode::PageUp) => Some(Message::Logger(TuiWidgetEvent::PrevPageKey)),
-        (Pane::Logger, KeyCode::PageDown) => Some(Message::Logger(TuiWidgetEvent::NextPageKey)),
-        (Pane::Logger, KeyCode::Char(' ')) => Some(Message::Logger(TuiWidgetEvent::SpaceKey)),
-        (Pane::Logger, KeyCode::Char('F')) => Some(Message::Logger(TuiWidgetEvent::FocusKey)),
-        (Pane::Logger, KeyCode::Char('H')) => Some(Message::Logger(TuiWidgetEvent::HideKey)),
+        (Pane::Logger, KeyCode::Char('d')) if ctrl => {
+            Some(Message::LoggerScroll(CursorMovement::DownHalfScreen))
+        }
+        (Pane::Logger, KeyCode::Char('u')) if ctrl => {
+            Some(Message::LoggerScroll(CursorMovement::UpHalfScreen))
+        }
+        (Pane::Logger, KeyCode::PageDown) => {
+            Some(Message::LoggerScroll(CursorMovement::DownHalfScreen))
+        }
+        (Pane::Logger, KeyCode::PageUp) => {
+            Some(Message::LoggerScroll(CursorMovement::UpHalfScreen))
+        }
+        (Pane::Logger, KeyCode::Char('h') | KeyCode::Left) => Some(Message::LoggerLevel(false)),
+        (Pane::Logger, KeyCode::Char('l') | KeyCode::Right) => Some(Message::LoggerLevel(true)),
         _ => None,
     }
 }
@@ -908,9 +933,10 @@ fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
             hints.push(("g/G", "Top/Bottom".into()));
         }
         Pane::Logger => {
-            hints.push(("←→", "Level".into()));
-            hints.push(("PgUp/Dn", "Scroll".into()));
-            hints.push(("L", "Targets".into()));
+            hints.push(("j/k", "Scroll".into()));
+            hints.push(("G", "Follow".into()));
+            hints.push(("←→", format!("Level:{}", model.logger_state.level())));
+            hints.push(("L", "Module".into()));
         }
         Pane::Chart => {
             hints.push(("click", "Select test".into()));
@@ -1212,31 +1238,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
     }
 
     if !logger_area.is_empty() {
-        let focused = model.current_pane == Pane::Logger;
-        let border_style = theme::border_style(focused);
-        let logger = TuiLoggerSmartWidget::default()
-            .title_target("Targets".bold())
-            .title_log(if maximized {
-                "Logs [maximized]".bold()
-            } else {
-                "Logs".bold()
-            })
-            .border_type(BorderType::Rounded)
-            .border_style(border_style)
-            .highlight_style(Style::new().bg(theme::selected_bg()))
-            .style_error(Style::default().fg(theme::fail()))
-            .style_warn(Style::default().fg(theme::accent()).bold())
-            .style_info(Style::default())
-            .style_debug(muted())
-            .style_trace(muted())
-            .output_separator('│')
-            .output_timestamp(Some("%H:%M:%S".to_string()))
-            .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
-            .output_target(false)
-            .output_file(false)
-            .output_line(false)
-            .state(&model.logger_state);
-        frame.render_widget(logger, logger_area);
+        let logger = LoggerWidget::new(model.current_pane == Pane::Logger, maximized);
+        frame.render_stateful_widget(logger, logger_area, &mut model.logger_state);
     }
 
     let samples = latency_samples(model);
@@ -1578,20 +1581,8 @@ pub async fn run(
     tanu_log_level: log::LevelFilter,
 ) -> eyre::Result<()> {
     tracing_log::LogTracer::init()?;
-    tui_logger::init_logger(log_level)?;
-    tui_logger::set_level_for_target("tanu", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core::assertion", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core::config", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core::http", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core::reporter", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_core::runner", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_tui", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_tui::widget", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_tui::widget::info", tanu_log_level);
-    tui_logger::set_level_for_target("tanu_tui::widget::list", tanu_log_level);
     let subscriber =
-        tracing_subscriber::Registry::default().with(tui_logger::TuiTracingSubscriberLayer);
+        tracing_subscriber::Registry::default().with(LogLayer::new(log_level, tanu_log_level));
     tracing::subscriber::set_global_default(subscriber)
         .wrap_err("failed to set global default subscriber")?;
 
