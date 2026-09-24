@@ -1,25 +1,33 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::Widget,
 };
 
-/// A custom tab bar widget with visual styling similar to AngryOxide
+use crate::widget::theme;
+
+/// Horizontal padding on each side of a tab label.
+const TAB_PADDING: u16 = 2;
+/// Space between tabs.
+const TAB_GAP: u16 = 1;
+
+/// A tab bar that underlines the selected tab.
 pub struct CustomTabs<'a> {
-    tabs: Vec<&'a str>,
+    /// Tab labels with an optional badge (e.g. a count or an error marker).
+    tabs: Vec<(String, Span<'a>)>,
     selected: usize,
-    selected_style: Style,
-    unselected_style: Style,
+    /// Indices of tabs to highlight as alerts (e.g. the Error tab of a failed test).
+    alerts: Vec<usize>,
 }
 
 impl<'a> CustomTabs<'a> {
-    pub fn new(tabs: Vec<&'a str>) -> Self {
+    pub fn new(tabs: Vec<(String, Span<'a>)>) -> Self {
         Self {
             tabs,
             selected: 0,
-            selected_style: Style::default().fg(Color::Blue).bold(),
-            unselected_style: Style::default(),
+            alerts: vec![],
         }
     }
 
@@ -28,9 +36,33 @@ impl<'a> CustomTabs<'a> {
         self
     }
 
-    pub fn selected_style(mut self, style: Style) -> Self {
-        self.selected_style = style;
+    pub fn alert(mut self, alert: Option<usize>) -> Self {
+        self.alerts = alert.into_iter().collect();
         self
+    }
+
+    pub fn alerts(mut self, alerts: Vec<usize>) -> Self {
+        self.alerts = alerts;
+        self
+    }
+
+    fn tab_width(label: &str, badge: &Span) -> u16 {
+        Line::raw(label).width() as u16 + badge.width() as u16 + TAB_PADDING * 2
+    }
+
+    /// Horizontal ranges `(index, x_start, x_end)` occupied by each visible tab.
+    pub fn hit_areas(&self, area: Rect) -> Vec<(usize, u16, u16)> {
+        let mut x = area.x;
+        let mut hits = vec![];
+        for (idx, (label, badge)) in self.tabs.iter().enumerate() {
+            let width = Self::tab_width(label, badge);
+            if x + width > area.right() {
+                break;
+            }
+            hits.push((idx, x, x + width));
+            x += width + TAB_GAP;
+        }
+        hits
     }
 }
 
@@ -40,37 +72,61 @@ impl Widget for CustomTabs<'_> {
             return;
         }
 
-        let y = area.y;
-        let mut x = area.x + 1; // Start with a small offset from left
+        // Thin baseline under all tabs.
+        if area.height > 1 {
+            for x in area.left()..area.right() {
+                buf.set_string(x, area.y + 1, "─", Style::new().fg(theme::BORDER));
+            }
+        }
 
-        // Render each tab
-        for (idx, name) in self.tabs.iter().enumerate() {
+        for (idx, start, end) in self.hit_areas(area) {
+            let (label, badge) = &self.tabs[idx];
             let is_selected = idx == self.selected;
-            let tab_width = name.len() as u16 + 4; // "  name  "
-
-            if x + tab_width > area.right() {
-                break;
+            let mut style = if is_selected {
+                Style::new().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
+            } else {
+                theme::muted()
+            };
+            if self.alerts.contains(&idx) {
+                style = style.fg(theme::FAIL);
             }
 
-            let style = if is_selected {
-                self.selected_style
-            } else {
-                self.unselected_style
-            };
+            let padding = " ".repeat(TAB_PADDING as usize);
+            let line = Line::from(vec![
+                Span::raw(padding.clone()),
+                Span::styled(label.clone(), style),
+                badge.clone(),
+                Span::raw(padding),
+            ]);
+            buf.set_line(start, area.y, &line, end - start);
 
-            // Render tab content with padding
-            let content = format!("  {}  ", name);
-            buf.set_string(x, y, &content, style);
-
-            // Bottom border - fill with line for selected tab
-            if is_selected {
-                // Underline effect for selected tab (using heavy line for bold appearance)
-                for i in 0..tab_width {
-                    buf.set_string(x + i, y + 1, "━", style);
+            // Underline the selected tab (heavy line for a bold appearance).
+            if is_selected && area.height > 1 {
+                for x in start..end {
+                    buf.set_string(x, area.y + 1, "━", style);
                 }
             }
-
-            x += tab_width + 1; // +1 for spacing between tabs
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn hit_areas() {
+        let tabs = CustomTabs::new(vec![
+            ("Call".into(), Span::raw("")),
+            ("Error".into(), Span::raw(" ●")),
+        ]);
+        let area = Rect::new(10, 0, 30, 2);
+        // "  Call  " = 8, "  Error ●  " = 11
+        assert_eq!(vec![(0, 10, 18), (1, 19, 30)], tabs.hit_areas(area));
+
+        // Tabs that do not fit are not rendered.
+        let area = Rect::new(0, 0, 12, 2);
+        assert_eq!(vec![(0, 0, 8)], tabs.hit_areas(area));
     }
 }
