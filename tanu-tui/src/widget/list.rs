@@ -10,7 +10,7 @@ use throbber_widgets_tui::ThrobberState;
 use crate::{
     widget::{
         tabbed_block::CustomTabs,
-        theme::{self, fmt_duration, muted, SELECTED_STYLE},
+        theme::{self, fmt_duration, muted, selected_style},
     },
     TestResult,
 };
@@ -36,13 +36,13 @@ impl<'a> TestListWidget<'a> {
         if state.status_filter != StatusFilter::All {
             title.push(Span::styled(
                 format!(" [{}]", state.status_filter.label()),
-                Style::new().fg(theme::RUNNING),
+                Style::new().fg(theme::running()),
             ));
         }
         if !state.search.is_empty() || state.searching {
             title.push(Span::styled(
                 format!(" /{}", state.search),
-                Style::new().fg(theme::RUNNING),
+                Style::new().fg(theme::running()),
             ));
         }
         if maximized {
@@ -63,7 +63,7 @@ impl<'a> TestListWidget<'a> {
                     let badge = if counts.failed > 0 {
                         Span::styled(
                             format!(" ✘{}", counts.failed),
-                            Style::new().fg(theme::FAIL).bold(),
+                            Style::new().fg(theme::fail()).bold(),
                         )
                     } else {
                         Span::styled(format!(" {}/{}", counts.passed, counts.total), muted())
@@ -131,10 +131,10 @@ impl StatefulWidget for TestListWidget<'_> {
             .map(|row| state.row_line(*row, content_width))
             .collect::<Vec<_>>();
         let list_widget = List::new(lines)
-            .highlight_style(SELECTED_STYLE)
+            .highlight_style(selected_style())
             .highlight_symbol(Line::styled(
                 HIGHLIGHT_SYMBOL,
-                Style::new().fg(theme::ACCENT),
+                Style::new().fg(theme::accent()),
             ))
             .highlight_spacing(HighlightSpacing::Always);
         let mut window = ListState::default().with_selected(selected.map(|s| s - offset));
@@ -149,14 +149,14 @@ fn symbol_test_result(execution_state: &ExecutionState) -> Span<'static> {
         ExecutionState::Initialized => Span::styled("○ ", muted()),
         ExecutionState::Executing(throbber_state) => {
             let throbber = throbber_widgets_tui::Throbber::default()
-                .throbber_style(Style::new().fg(theme::RUNNING));
+                .throbber_style(Style::new().fg(theme::running()));
             throbber.to_symbol_span(throbber_state)
         }
         ExecutionState::Executed(test_result) => {
             if test_result.is_ok() {
-                Span::styled("✓ ", Style::default().fg(theme::OK).bold())
+                Span::styled("✓ ", Style::default().fg(theme::ok()).bold())
             } else {
-                Span::styled("✘ ", Style::default().fg(theme::FAIL).bold())
+                Span::styled("✘ ", Style::default().fg(theme::fail()).bold())
             }
         }
     }
@@ -203,13 +203,13 @@ fn counter_spans(counts: Counts) -> Vec<Span<'static>> {
     if counts.failed > 0 {
         spans.push(Span::styled(
             format!("✘{} ", counts.failed),
-            Style::new().fg(theme::FAIL).bold(),
+            Style::new().fg(theme::fail()).bold(),
         ));
     }
     if counts.running > 0 {
         spans.push(Span::styled(
             format!("⋯{} ", counts.running),
-            Style::new().fg(theme::RUNNING),
+            Style::new().fg(theme::running()),
         ));
     }
     spans.push(Span::styled(
@@ -839,7 +839,7 @@ impl TestListState {
                         symbol_test_result(&module.execution_state),
                     ],
                     self.display_module_name(&module.name).to_string(),
-                    Style::new().fg(theme::ACCENT),
+                    Style::new().fg(theme::accent()),
                     counter_spans(module.counts()),
                     width,
                 )
@@ -856,7 +856,7 @@ impl TestListState {
                     if result.retries > 0 {
                         meta.push(Span::styled(
                             format!("↻{} ", result.retries),
-                            Style::new().fg(theme::RUNNING),
+                            Style::new().fg(theme::running()),
                         ));
                     }
                     match result.call_count() {
@@ -1549,11 +1549,11 @@ mod test {
         );
         assert_eq!(
             super::symbol_test_result(&ExecutionState::Executed(result(true, 0))),
-            Span::styled("✓ ", Style::default().fg(theme::OK).bold())
+            Span::styled("✓ ", Style::default().fg(theme::ok()).bold())
         );
         assert_eq!(
             super::symbol_test_result(&ExecutionState::Executed(result(false, 0))),
-            Span::styled("✘ ", Style::default().fg(theme::FAIL).bold())
+            Span::styled("✘ ", Style::default().fg(theme::fail()).bold())
         );
     }
 

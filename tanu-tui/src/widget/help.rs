@@ -16,6 +16,7 @@ pub const KEY_BINDINGS: &[(&str, &[(&str, &str)])] = &[
             ("Tab / Shift+Tab", "Focus next / previous pane"),
             ("[ / ]", "Previous / next details tab"),
             ("z", "Maximize the focused pane"),
+            ("t", "Cycle color theme"),
             ("?", "Toggle this help"),
             ("q / Esc", "Quit (Esc closes search/help first)"),
         ],
@@ -81,7 +82,7 @@ impl HelpWidget {
             }
             lines.push(Line::styled(
                 section.to_string(),
-                Style::new().fg(theme::ACCENT).bold(),
+                Style::new().fg(theme::accent()).bold(),
             ));
             for (key, description) in bindings.iter() {
                 lines.push(Line::from(vec![
@@ -110,10 +111,15 @@ impl Widget for HelpWidget {
         );
 
         Clear.render(popup, buf);
+        let footer = format!(
+            " theme: {} · press ? or Esc to close ",
+            theme::current().name
+        );
         Paragraph::new(lines)
+            .style(theme::base_style())
             .block(
                 theme::block(" Key bindings ", true)
-                    .title_bottom(Line::styled(" press ? or Esc to close ", muted()).centered())
+                    .title_bottom(Line::styled(footer, muted()).centered())
                     .padding(ratatui::widgets::Padding::horizontal(1)),
             )
             .render(popup, buf);

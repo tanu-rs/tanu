@@ -234,11 +234,11 @@ pub fn render(entries: &[Entry], area: Rect, buf: &mut Buffer) -> Vec<(Rect, usi
     for i in order {
         let segment = &timeline.segments[i];
         let color = match (segment.selected, segment.ok, alternate[i]) {
-            (true, ..) => theme::BAR_SELECTED,
-            (false, true, false) => theme::BAR,
-            (false, true, true) => theme::BAR_ALT,
-            (false, false, false) => theme::BAR_ERROR,
-            (false, false, true) => theme::BAR_ERROR_ALT,
+            (true, ..) => theme::bar_selected(),
+            (false, true, false) => theme::bar(),
+            (false, true, true) => theme::bar_alt(),
+            (false, false, false) => theme::bar_error(),
+            (false, false, true) => theme::bar_error_alt(),
         };
         let row = segment.row as usize * width;
         grid[row + segment.x0 as usize..row + segment.x1 as usize].fill(Some(color));

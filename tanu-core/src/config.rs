@@ -326,6 +326,9 @@ impl Default for Config {
 /// Global tanu configuration
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Tui {
+    /// Color theme of the TUI (e.g. "blue", "nord", "catppuccin-latte")
+    #[serde(default)]
+    pub theme: Option<String>,
     #[serde(default)]
     pub payload: Payload,
 }
@@ -519,6 +522,11 @@ impl Config {
     /// Get the current color theme
     pub fn color_theme(&self) -> Option<&str> {
         self.tui.payload.color_theme.as_deref()
+    }
+
+    /// Get the TUI color theme
+    pub fn tui_theme(&self) -> Option<&str> {
+        self.tui.theme.as_deref()
     }
 
     /// Get the maximum number of body bytes to print in HTTP logs.
@@ -827,6 +835,22 @@ mod test {
             assert_eq!(format_byte_size(1024), "1.0KB");
             assert_eq!(format_byte_size(3 * 1024 * 1024 + 209_715), "3.2MB");
         }
+    }
+
+    #[test]
+    fn deserialize_tui_theme() {
+        let tui: Tui = toml::from_str(
+            r#"
+            theme = "nord"
+            payload.color_theme = "ocean"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(tui.theme.as_deref(), Some("nord"));
+        assert_eq!(tui.payload.color_theme.as_deref(), Some("ocean"));
+
+        let tui: Tui = toml::from_str("").unwrap();
+        assert_eq!(tui.theme, None);
     }
 
     fn load_test_config() -> eyre::Result<Config> {
