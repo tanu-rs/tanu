@@ -326,7 +326,7 @@ impl Default for Config {
 /// Global tanu configuration
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Tui {
-    /// Color theme of the TUI (e.g. "blue", "nord", "catppuccin-latte")
+    /// Color theme of the TUI (e.g. "purple", "nord", "catppuccin-latte")
     #[serde(default)]
     pub theme: Option<String>,
     #[serde(default)]

@@ -60,6 +60,27 @@ const fn rgb(hex: u32) -> Color {
     Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+/// The default palette. Uses the terminal background.
+const PURPLE: Theme = Theme {
+    name: "purple",
+    bg: None,
+    fg: None,
+    accent: tailwind::VIOLET.c400,
+    on_accent: Color::Black,
+    border: rgb(0x4a3a7a),
+    muted: rgb(0xa497cf),
+    ok: rgb(0x7ec699),
+    fail: rgb(0xe06c75),
+    running: tailwind::VIOLET.c400,
+    bar: tailwind::VIOLET.c400,
+    bar_alt: tailwind::VIOLET.c500,
+    bar_error: rgb(0xa8555f),
+    bar_error_alt: rgb(0x8f4852),
+    bar_selected: tailwind::VIOLET.c100,
+    selected_bg: rgb(0x3b2a6e),
+    row_alt_bg: rgb(0x1e1640),
+};
+
 /// The original blue palette. Uses the terminal background.
 const BLUE: Theme = Theme {
     name: "blue",
@@ -204,6 +225,7 @@ const CATPPUCCIN_LATTE: Theme = Theme {
 
 /// Built-in themes. The first one is the default.
 pub static THEMES: &[Theme] = &[
+    PURPLE,
     BLUE,
     DRACULA,
     NORD,
@@ -405,6 +427,7 @@ mod test {
         assert_eq!(THEMES[0].name, cycle().name);
         assert_eq!(THEMES[1].name, cycle().name);
 
-        assert!(set_by_name("blue"));
+        assert!(set_by_name("purple"));
+        assert_eq!(THEMES[0].name, current().name);
     }
 }
