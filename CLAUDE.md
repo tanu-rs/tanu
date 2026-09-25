@@ -123,7 +123,7 @@ async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
 ### Configuration File Structure (`tanu.toml`)
 ```toml
 [tui]
-theme = "blue"  # blue, dracula, nord, gruvbox, catppuccin-mocha, tokyo-night, catppuccin-latte
+theme = "purple"  # purple, blue, dracula, nord, gruvbox, catppuccin-mocha, tokyo-night, catppuccin-latte
 payload.color_theme = "apathy"
 
 [runner]

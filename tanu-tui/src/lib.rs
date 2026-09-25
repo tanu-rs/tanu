@@ -176,6 +176,37 @@ impl Call<'_> {
         }
     }
 
+    /// Endpoint the call belongs to: the URL path with ID-like segments replaced by
+    /// `:id` for HTTP, the method path for gRPC.
+    pub fn endpoint(&self) -> String {
+        match self {
+            Call::Http(log) => normalize_path(log.request.url.path()),
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => log.request.method.clone(),
+        }
+    }
+
+    pub fn status_class(&self) -> latency::StatusClass {
+        use latency::StatusClass;
+        match self {
+            Call::Http(log) => match log.response.status.as_u16() {
+                200..=299 => StatusClass::Success,
+                300..=399 => StatusClass::Redirect,
+                400..=499 => StatusClass::ClientError,
+                500..=599 => StatusClass::ServerError,
+                _ => StatusClass::Other,
+            },
+            #[cfg(feature = "grpc")]
+            Call::Grpc(log) => {
+                if log.response.status_code == tonic::Code::Ok {
+                    StatusClass::Success
+                } else {
+                    StatusClass::GrpcError
+                }
+            }
+        }
+    }
+
     /// true if the call failed (HTTP 4xx/5xx or a non-OK gRPC status).
     pub fn is_error(&self) -> bool {
         match self {
@@ -194,6 +225,27 @@ impl Call<'_> {
             Call::Grpc(log) => log.response.duration,
         }
     }
+}
+
+/// Replaces ID-like path segments (numbers, UUIDs, long hex strings) with `:id` so that
+/// e.g. `/users/42` and `/users/43` are grouped as the same endpoint.
+fn normalize_path(path: &str) -> String {
+    fn is_id(segment: &str) -> bool {
+        let is_hex = |s: &str| s.chars().all(|c| c.is_ascii_hexdigit());
+        let is_uuid = segment.len() == 36
+            && segment
+                .char_indices()
+                .all(|(i, c)| matches!(i, 8 | 13 | 18 | 23) == (c == '-'))
+            && is_hex(&segment.replace('-', ""));
+        !segment.is_empty()
+            && (segment.chars().all(|c| c.is_ascii_digit())
+                || is_uuid
+                || (segment.len() >= 16 && is_hex(segment)))
+    }
+    path.split('/')
+        .map(|segment| if is_id(segment) { ":id" } else { segment })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[derive(
@@ -1016,6 +1068,7 @@ fn latency_samples(model: &Model) -> Vec<latency::Sample> {
                 latency: call.duration(),
                 error: call.is_error(),
                 selected,
+                class: call.status_class(),
             })
         })
         .collect()
@@ -1115,6 +1168,19 @@ fn render_histogram(
         );
         return;
     }
+    // Status code mix on top when there is room for the histogram below it.
+    let inner = if inner.height >= 5 {
+        let [layout_status, _, layout_histogram] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(inner);
+        latency::render_status_bar(samples, layout_status, frame.buffer_mut());
+        layout_histogram
+    } else {
+        inner
+    };
     latency::render(samples, inner, frame.buffer_mut());
 }
 
@@ -1649,5 +1715,25 @@ impl FpsCounter {
             self.frame_count = 0;
             self.last_second = now;
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn id_segments_are_normalized() {
+        assert_eq!("/users/:id/posts", normalize_path("/users/42/posts"));
+        assert_eq!(
+            "/orders/:id",
+            normalize_path("/orders/3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+        );
+        assert_eq!("/blobs/:id", normalize_path("/blobs/0123456789abcdef"));
+        assert_eq!("/status/:id", normalize_path("/status/404"));
+        // Short words and hex-looking words stay as is.
+        assert_eq!("/api/v1/cafe", normalize_path("/api/v1/cafe"));
+        assert_eq!("/", normalize_path("/"));
     }
 }

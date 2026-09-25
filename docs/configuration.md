@@ -218,7 +218,7 @@ The `[tui]` section customizes the TUI. `theme` sets the color theme of the TUI 
 theme = "nord"
 ```
 
-Available themes: `blue` (default) · `dracula` · `nord` · `gruvbox` · `catppuccin-mocha` · `tokyo-night` · `catppuccin-latte` (light). Names are case-insensitive. `blue` keeps the terminal background; the others paint their own background. Press `t` in the TUI to cycle through the themes; the current theme is shown at the bottom of the help popup (`?`). An unknown name logs a warning and falls back to `blue`.
+Available themes: `purple` (default) · `blue` · `dracula` · `nord` · `gruvbox` · `catppuccin-mocha` · `tokyo-night` · `catppuccin-latte` (light). Names are case-insensitive. `purple` and `blue` keep the terminal background; the others paint their own background. Press `t` in the TUI to cycle through the themes; the current theme is shown at the bottom of the help popup (`?`). An unknown name logs a warning and falls back to `purple`.
 
 `payload.color_theme` sets the color theme used to syntax-highlight request and response payloads (particularly JSON) in the Payload tab:
 

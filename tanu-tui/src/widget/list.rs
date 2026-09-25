@@ -702,7 +702,8 @@ impl TestListState {
                     .map(|(module_name, tests)| ModuleState {
                         project_name: proj.name.clone(),
                         name: module_name,
-                        expanded: true,
+                        // Folded by default; expanded on demand, on search or jump to a failure.
+                        expanded: false,
                         tests: tests
                             .into_iter()
                             .filter(|test| test_ignore_filter.filter(proj, &test.info))
@@ -1294,33 +1295,41 @@ mod test {
         assert_eq!("", common_module_prefix(["a::x", "a"].into_iter()));
     }
 
+    fn expand_all(state: &mut TestListState) {
+        for project in &mut state.projects {
+            for module in &mut project.modules {
+                module.expanded = true;
+            }
+        }
+    }
+
     #[test]
     fn expand() {
         // ✓ dev
-        //   ▾ bar
-        //       ○ test2
-        //   ▾ foo
-        //       ○ test1
+        //   ▸ bar
+        //   ▸ foo
         let mut state = TestListState::new(
             &projects(&["dev"]),
             &[test_info("foo", "test1", 0), test_info("bar", "test2", 0)],
         );
-        assert_eq!(5, state.visible_rows().len());
+        // Modules are folded by default.
+        assert_eq!(3, state.visible_rows().len());
 
         // The project row cannot be collapsed.
         state.expand();
-        assert_eq!(5, state.visible_rows().len());
+        assert_eq!(3, state.visible_rows().len());
 
-        //   ▸ bar
+        //   ▾ bar
+        //       ○ test2
         state.list_state.select_next();
         state.expand();
-        assert!(!state.projects[0].modules[0].expanded);
+        assert!(state.projects[0].modules[0].expanded);
         assert_eq!(
             vec![
                 RowRef::Project(0),
                 RowRef::Module(0, 0),
+                RowRef::Test(0, 0, 0),
                 RowRef::Module(0, 1),
-                RowRef::Test(0, 1, 0)
             ],
             state.visible_rows()
         );
@@ -1332,6 +1341,7 @@ mod test {
             &projects(&["dev", "staging"]),
             &[test_info("foo", "test1", 0), test_info("bar", "test2", 0)],
         );
+        expand_all(&mut state);
         // Only the current project is shown.
         assert_eq!(5, state.visible_rows().len());
         assert!(state
@@ -1370,6 +1380,7 @@ mod test {
             &projects(&["dev"]),
             &[test_info("foo", "test1", 0), test_info("foo", "test2", 1)],
         );
+        expand_all(&mut state);
         state.projects[0].modules[0].tests[0]
             .execution_state
             .executed(result(true, 2));
@@ -1416,6 +1427,7 @@ mod test {
     #[test]
     fn select_test_case() {
         let mut state = TestListState::new(&projects(&["dev"]), &[test_info("foo", "t", 0)]);
+        expand_all(&mut state);
         state.select_index(2);
         assert_eq!(
             Some(TestCaseSelector {

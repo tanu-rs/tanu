@@ -17,7 +17,10 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph, Row, Table},
 };
-use std::time::SystemTime;
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 use syntect::{
     highlighting::{Theme, ThemeSet},
     parsing::SyntaxSet,
@@ -27,6 +30,7 @@ use tracing::{debug, warn};
 
 use crate::{
     widget::{
+        latency,
         list::{Counts, ExecutionState, RowRef, TestListState, TestState},
         tabbed_block::CustomTabs,
         theme::{self, fmt_duration, muted},
@@ -979,6 +983,7 @@ impl<'a> InfoWidget<'a> {
             ));
             lines.extend(kv("Calls", calls.to_string(), Style::new(), width));
         }
+        endpoint_lines(results.iter().flat_map(|(_, _, r)| r.calls()), lines, width);
 
         let name = |module: &str, test: &TestState| {
             format!(
@@ -1038,6 +1043,98 @@ impl<'a> InfoWidget<'a> {
             lines.push(Line::default());
             lines.push(hint_line(&[("r", "run the selection"), ("R", "run all")]));
         }
+    }
+}
+
+/// Maximum number of endpoints listed in an overview.
+const MAX_ENDPOINTS: usize = 10;
+
+/// Calls grouped by method and endpoint, slowest (p95) first.
+fn endpoint_lines<'c>(
+    calls: impl Iterator<Item = Call<'c>>,
+    lines: &mut Vec<Line<'static>>,
+    width: usize,
+) {
+    let mut groups: HashMap<(String, String), (Vec<Duration>, usize)> = HashMap::new();
+    for call in calls {
+        let (latencies, errors) = groups.entry((call.method(), call.endpoint())).or_default();
+        latencies.push(call.duration());
+        *errors += call.is_error() as usize;
+    }
+    if groups.is_empty() {
+        return;
+    }
+    let mut rows = groups
+        .into_iter()
+        .map(|((method, endpoint), (mut latencies, errors))| {
+            latencies.sort_unstable();
+            let p95 = latency::percentile(&latencies, 0.95);
+            (method, endpoint, latencies, errors, p95)
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| b.4.cmp(&a.4).then_with(|| a.1.cmp(&b.1)));
+
+    // `  METHOD path…  count  p50  p95  err`
+    let numbers = |n: &str, p50: &str, p95: &str| format!(" {n:>5} {p50:>7} {p95:>7} ");
+    let numbers_width = numbers("", "", "").len() + 4;
+    // Keep the numbers next to the paths in a wide pane.
+    let longest = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(0);
+    let room = width
+        .saturating_sub(2 + 7 + numbers_width)
+        .min(longest)
+        .max(8);
+    let fit = |text: &str| {
+        if text.chars().count() > room {
+            text.chars().take(room - 1).collect::<String>() + "…"
+        } else {
+            format!("{text:<room$}")
+        }
+    };
+
+    lines.push(Line::default());
+    lines.push(Line::from(vec![
+        Span::styled("Endpoints", Style::new().fg(theme::accent()).bold()),
+        Span::styled(format!("  {}", rows.len()), muted()),
+    ]));
+    lines.push(Line::styled(
+        format!(
+            "  {:<7}{}{}{:>4}",
+            "",
+            fit(""),
+            numbers("calls", "p50", "p95"),
+            "err"
+        ),
+        muted(),
+    ));
+    let hidden = rows.len().saturating_sub(MAX_ENDPOINTS);
+    for (method, endpoint, latencies, errors, p95) in rows.into_iter().take(MAX_ENDPOINTS) {
+        let err = match errors * 100 / latencies.len() {
+            0 if errors > 0 => "<1%".to_string(),
+            pct => format!("{pct}%"),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {method:<7}"), muted().bold()),
+            Span::raw(fit(&endpoint)),
+            Span::styled(
+                numbers(
+                    &latencies.len().to_string(),
+                    &fmt_duration(latency::percentile(&latencies, 0.5)),
+                    &fmt_duration(p95),
+                ),
+                muted(),
+            ),
+            Span::styled(
+                format!("{err:>4}"),
+                if errors > 0 {
+                    Style::new().fg(theme::fail()).bold()
+                } else {
+                    muted()
+                },
+            ),
+        ]));
+    }
+    if hidden > 0 {
+        lines.push(Line::styled(format!("  … and {hidden} more"), muted()));
     }
 }
 
