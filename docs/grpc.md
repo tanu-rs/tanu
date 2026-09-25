@@ -15,7 +15,7 @@ To use gRPC testing features, enable the `grpc` feature flag in your `Cargo.toml
 
 ```toml
 [dependencies]
-tanu = { version = "1.0.0", features = ["grpc"] }
+tanu = { version = "1.1.0", features = ["grpc"] }
 tonic = "0.14"
 tokio = { version = "1", features = ["full"] }
 ```
