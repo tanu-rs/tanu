@@ -425,6 +425,18 @@ impl Default for Client {
     }
 }
 
+/// Masks sensitive query parameters in a URL string for tracing output.
+/// Unparseable URLs have their query string dropped entirely.
+fn masked_url_str(url: &str) -> String {
+    if !masking::should_mask_sensitive() {
+        return url.to_string();
+    }
+    match url::Url::parse(url) {
+        Ok(parsed) => masking::mask_url(&parsed).to_string(),
+        Err(_) => url.split('?').next().unwrap_or_default().to_string(),
+    }
+}
+
 impl Client {
     /// Creates a new HTTP client instance.
     ///
@@ -486,50 +498,50 @@ impl Client {
 
     pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::GET, &url_str)
     }
 
     pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::POST, &url_str)
     }
 
     pub fn put<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::PUT, &url_str)
     }
 
     pub fn patch<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::PATCH, &url_str)
     }
 
     pub fn delete<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::DELETE, &url_str)
     }
 
     pub fn head<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::HEAD, &url_str)
     }
 
     pub fn options<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         RequestBuilder::new(self.clone(), Method::OPTIONS, &url_str)
     }
 
     #[cfg(feature = "graphql")]
     pub fn graphql<U: IntoUrl>(&self, url: U) -> crate::graphql::GraphqlRequestBuilder {
         let url_str = url.into_url_string();
-        debug!("Requesting {url_str}");
+        debug!("Requesting {}", masked_url_str(&url_str));
         crate::graphql::GraphqlRequestBuilder::new(RequestBuilder::new(
             self.clone(),
             Method::POST,
@@ -1049,5 +1061,25 @@ impl RequestBuilder {
         // Note: hyper automatically handles HTTP versions
         // This method is kept for API compatibility
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn masked_url_str_masks_sensitive_query_params() {
+        masking::set_mask_sensitive(true);
+        let masked = masked_url_str("https://api.example.com/users?access_token=secret&name=john");
+        assert!(masked.contains("access_token=*****"));
+        assert!(masked.contains("name=john"));
+        assert!(!masked.contains("secret"));
+    }
+
+    #[test]
+    fn masked_url_str_drops_query_of_unparseable_url() {
+        masking::set_mask_sensitive(true);
+        assert_eq!(masked_url_str("/users?token=secret"), "/users");
     }
 }

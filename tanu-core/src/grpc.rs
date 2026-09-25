@@ -190,6 +190,14 @@ pub type LoggingChannel = LoggingService<Channel>;
 fn extract_metadata_from_headers(headers: &http::HeaderMap) -> MetadataMap {
     use tonic::metadata::{AsciiMetadataKey, AsciiMetadataValue};
 
+    let masked;
+    let headers = if crate::masking::should_mask_sensitive() {
+        masked = crate::masking::mask_headers(headers);
+        &masked
+    } else {
+        headers
+    };
+
     let mut metadata = MetadataMap::new();
     for (key, value) in headers.iter() {
         // Skip pseudo-headers and binary metadata for now

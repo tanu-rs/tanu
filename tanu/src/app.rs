@@ -381,6 +381,14 @@ impl App {
                     .unwrap_or_else(num_cpus::get);
 
                 runner.set_concurrency(concurrency);
+                if cfg.runner.show_sensitive.unwrap_or(false) {
+                    runner.show_sensitive();
+                }
+                let extra_keys = cfg.runner.extra_sensitive_keys.clone();
+                let extra_headers = cfg.runner.extra_sensitive_headers.clone();
+                if !extra_keys.is_empty() || !extra_headers.is_empty() {
+                    runner.set_sensitive_overrides(extra_keys, extra_headers);
+                }
 
                 tanu_tui::run(runner, log_level, tanu_log_level).await
             }
