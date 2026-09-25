@@ -3,6 +3,8 @@
 //! Buckets grow as 1, 2, 5, 10, 20, 50, ... ms so that fast and slow calls are both
 //! visible. Each bar is stacked from the bottom: calls of the test selected in the
 //! test list (light blue), error responses (muted red), and the other calls (blue).
+//!
+//! A one-row bar above the histogram shows the mix of status code classes.
 use ratatui::prelude::*;
 use std::time::Duration;
 
@@ -16,6 +18,42 @@ pub struct Sample {
     pub error: bool,
     /// true if the call belongs to the test selected in the test list.
     pub selected: bool,
+    pub class: StatusClass,
+}
+
+/// Class of a response status. gRPC OK counts as `Success`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
+pub enum StatusClass {
+    Success,
+    Redirect,
+    ClientError,
+    ServerError,
+    GrpcError,
+    /// 1xx and non-standard codes.
+    Other,
+}
+
+impl StatusClass {
+    fn label(self) -> &'static str {
+        match self {
+            StatusClass::Success => "2xx",
+            StatusClass::Redirect => "3xx",
+            StatusClass::ClientError => "4xx",
+            StatusClass::ServerError => "5xx",
+            StatusClass::GrpcError => "gRPC err",
+            StatusClass::Other => "other",
+        }
+    }
+
+    fn color(self) -> Color {
+        match self {
+            StatusClass::Success => theme::ok(),
+            StatusClass::Redirect => theme::accent(),
+            StatusClass::ClientError => theme::bar_error(),
+            StatusClass::ServerError | StatusClass::GrpcError => theme::fail(),
+            StatusClass::Other => theme::border(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -92,6 +130,15 @@ fn edge_label(us: u128) -> String {
     }
 }
 
+/// Nearest-rank percentile (`p` in 0.0..=1.0) of sorted durations; zero if empty.
+pub fn percentile(sorted: &[Duration], p: f64) -> Duration {
+    if sorted.is_empty() {
+        return Duration::ZERO;
+    }
+    let rank = (p * (sorted.len() - 1) as f64).round() as usize;
+    sorted[rank]
+}
+
 /// Title details: percentiles, max and the number of failed calls.
 pub fn summary(samples: &[Sample]) -> Option<Vec<Span<'static>>> {
     let mut latencies: Vec<Duration> = samples.iter().map(|s| s.latency).collect();
@@ -99,10 +146,7 @@ pub fn summary(samples: &[Sample]) -> Option<Vec<Span<'static>>> {
         return None;
     }
     latencies.sort_unstable();
-    let pct = |p: f64| {
-        let rank = (p * (latencies.len() - 1) as f64).round() as usize;
-        fmt_duration(latencies[rank])
-    };
+    let pct = |p: f64| fmt_duration(percentile(&latencies, p));
     let mut spans = vec![Span::styled(
         format!(
             "  {} calls · p50 {} · p95 {} · p99 {} · max {}",
@@ -229,6 +273,76 @@ pub fn render(samples: &[Sample], area: Rect, buf: &mut Buffer) {
     }
 }
 
+/// Widths of the segments of a bar of `width` cells proportional to `counts`.
+///
+/// A non-zero count gets at least one cell (if there is room), so that e.g. a single
+/// 5xx response stays visible; the widths add up to `width` if any count is non-zero.
+fn segment_widths(counts: &[u64], width: u16) -> Vec<u16> {
+    let total: u64 = counts.iter().sum();
+    if total == 0 {
+        return vec![0; counts.len()];
+    }
+    let mut widths: Vec<u16> = counts
+        .iter()
+        .map(|&c| {
+            if c == 0 {
+                0
+            } else {
+                ((c as f64 / total as f64 * width as f64).round() as u16).max(1)
+            }
+        })
+        .collect();
+    // Fix rounding by adjusting the widest segment.
+    let sum: u16 = widths.iter().sum();
+    if let Some(widest) = (0..widths.len()).max_by_key(|&i| widths[i]) {
+        widths[widest] = (widths[widest] + width).saturating_sub(sum).max(1);
+    }
+    // Still too wide when there are more non-zero classes than cells.
+    while widths.iter().sum::<u16>() > width {
+        let Some(i) = widths.iter().rposition(|w| *w > 0) else {
+            break;
+        };
+        widths[i] -= 1;
+    }
+    widths
+}
+
+/// Renders the mix of status code classes as a one-row stacked bar into `area`.
+pub fn render_status_bar(samples: &[Sample], area: Rect, buf: &mut Buffer) {
+    use strum::IntoEnumIterator;
+    let classes: Vec<StatusClass> = StatusClass::iter().collect();
+    let counts: Vec<u64> = classes
+        .iter()
+        .map(|class| samples.iter().filter(|s| s.class == *class).count() as u64)
+        .collect();
+    let mut x = area.x;
+    for ((class, count), width) in classes
+        .iter()
+        .zip(&counts)
+        .zip(segment_widths(&counts, area.width))
+    {
+        if width == 0 {
+            continue;
+        }
+        let segment = Rect::new(x, area.y, width, 1);
+        buf.set_style(segment, Style::new().bg(class.color()));
+        // Label inside the segment if it fits: `2xx 120`, else `2xx`.
+        let full = format!("{} {count}", class.label());
+        let label = [full.as_str(), class.label()]
+            .into_iter()
+            .find(|label| (label.len() as u16) < width);
+        if let Some(label) = label {
+            buf.set_string(
+                x + 1,
+                area.y,
+                label,
+                Style::new().fg(theme::on_accent()).bold(),
+            );
+        }
+        x += width;
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -239,6 +353,7 @@ mod test {
             latency: Duration::from_secs_f64(ms / 1000.0),
             error,
             selected,
+            class: StatusClass::Success,
         }
     }
 
@@ -326,5 +441,27 @@ mod test {
             text
         );
         assert!(summary(&[]).is_none());
+    }
+
+    #[test]
+    fn percentiles() {
+        let sorted: Vec<_> = (1..=100).map(Duration::from_millis).collect();
+        assert_eq!(Duration::from_millis(51), percentile(&sorted, 0.5));
+        assert_eq!(Duration::from_millis(95), percentile(&sorted, 0.95));
+        assert_eq!(Duration::ZERO, percentile(&[], 0.5));
+    }
+
+    #[test]
+    fn status_bar_segments_fill_the_width() {
+        assert_eq!(vec![0, 0], segment_widths(&[0, 0], 10));
+        assert_eq!(vec![7, 3], segment_widths(&[70, 30], 10));
+        // A single error stays visible.
+        assert_eq!(vec![9, 0, 1], segment_widths(&[999, 0, 1], 10));
+        // Rounding never overflows the width.
+        let widths = segment_widths(&[1, 1, 1], 10);
+        assert_eq!(10, widths.iter().sum::<u16>());
+        assert!(widths.iter().all(|w| *w >= 1));
+        // More classes than cells.
+        assert_eq!(2, segment_widths(&[1, 1, 1], 2).iter().sum::<u16>());
     }
 }
