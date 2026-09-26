@@ -408,6 +408,13 @@ fn counts_spans(counts: Counts) -> Vec<Span<'static>> {
             muted(),
         ));
     }
+    if counts.filtered > 0 {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!("⊘ {} filtered", counts.filtered),
+            muted(),
+        ));
+    }
     spans.push(Span::styled(format!("  of {}", counts.total), muted()));
     spans
 }
@@ -1169,6 +1176,22 @@ fn test_overview_lines(test: &TestState, width: usize) -> Vec<Line<'static>> {
     }
     if test.info.ordered {
         lines.extend(kv("Ordered", "yes", Style::new(), width));
+    }
+
+    if let Some(reason) = test.filtered {
+        lines.push(kv_spans(
+            "Status",
+            vec![Span::styled(
+                format!("⊘ filtered ({})", reason.label()),
+                muted(),
+            )],
+        ));
+        lines.push(Line::default());
+        lines.push(Line::styled(
+            "Excluded by test_ignore / test_only in tanu.toml; it is not run.",
+            muted(),
+        ));
+        return lines;
     }
 
     let result = match &test.execution_state {
