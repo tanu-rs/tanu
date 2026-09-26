@@ -1,6 +1,6 @@
 # Reporters
 
-Reporters receive events from the test runner — test start, checks, HTTP/gRPC calls, retries, results, and the final summary — and turn them into output. You can enable several at once.
+Reporters receive events from the test runner — the planned test count, test start, checks, HTTP/gRPC calls, retries, results, and the final summary — and turn them into output. You can enable several at once.
 
 ```bash
 cargo run -- test --reporters list,allure
@@ -10,7 +10,10 @@ cargo run -- test --reporters list,allure
 
 | Name | Description |
 |---|---|
-| `list` | Default. Prints one line per test as it finishes, followed by captured HTTP logs (depending on `--capture-http`) and a summary. |
+| `line` | Default on an interactive terminal. Keeps a live view at the bottom of the terminal: one line per running test (with elapsed time and retry count) and a progress bar with passed/failed counts. Failures are printed in full above it as they happen, with captured HTTP logs (depending on `--capture-http`), followed by a summary. Passing tests, including ones that passed after a retry, leave nothing behind. |
+| `list` | Default when stdout is not a terminal (CI, pipes, files). Prints one line per test as it finishes, followed by captured HTTP logs (depending on `--capture-http`) and a summary. |
+
+When `--reporters` is not given, tanu picks `line` if stdout is a terminal, and `list` if it isn't, if the `CI` environment variable is set, if `TERM=dumb`, or if `--capture-rust` is used (Rust logs written to stdout would break the live line). Pass `--reporters list` to get per-test output in a terminal.
 
 ## Allure
 

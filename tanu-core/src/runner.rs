@@ -408,6 +408,8 @@ pub enum CallLog {
 
 #[derive(Debug, Clone)]
 pub enum EventBody {
+    /// Published once before any test starts, with the number of tests to run.
+    Plan(TestPlan),
     Start,
     Check(Box<Check>),
     Call(CallLog),
@@ -427,6 +429,14 @@ impl From<EventBody> for Event {
             body,
         }
     }
+}
+
+/// The set of tests the runner is about to execute.
+///
+/// This is published in the `Plan` event before any test starts.
+#[derive(Debug, Clone)]
+pub struct TestPlan {
+    pub total_tests: usize,
 }
 
 /// Final test execution result.
@@ -1246,6 +1256,18 @@ impl Runner {
                 .filter(move |(project, info, _)| test_only_filter.filter(project, info))
                 .collect();
             total_tests = all_tests.len();
+
+            // Tell reporters how many tests will run before the first one starts
+            if let Ok(guard) = CHANNEL.lock() {
+                if let Some((tx, _)) = guard.as_ref() {
+                    let _ = tx.send(Event {
+                        project: "".to_string(),
+                        module: "".to_string(),
+                        test: "".to_string(),
+                        body: EventBody::Plan(TestPlan { total_tests }),
+                    });
+                }
+            }
 
             // Separate ordered and non-ordered tests
             let (mut ordered_tests, non_ordered_tests): (Vec<_>, Vec<_>) =
@@ -2207,13 +2229,19 @@ mod test {
         let result = runner.run(&[], &[], &[]).await;
         assert!(result.is_err());
 
+        let mut plan = None;
         let mut summary = None;
         while let Ok(event) = rx.try_recv() {
-            if let EventBody::Summary(s) = event.body {
-                summary = Some(s);
+            match event.body {
+                EventBody::Plan(p) => plan = Some(p),
+                EventBody::Start => assert!(plan.is_some(), "Plan must arrive before Start"),
+                EventBody::Summary(s) => summary = Some(s),
+                _ => {}
             }
         }
 
+        let plan = plan.expect("should have received Plan event");
+        assert_eq!(plan.total_tests, 3);
         let summary = summary.expect("should have received Summary event");
         assert!(
             summary.failed_tests >= 1,

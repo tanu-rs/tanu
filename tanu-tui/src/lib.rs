@@ -1508,6 +1508,7 @@ fn on_runner_event(model: &mut Model, buffer: &mut ResultsBuffer, event: runner:
             );
             model.store_result(test_result);
         }
+        EventBody::Plan(_) => {}
         EventBody::Summary(_summary) => {
             model.run.finished_at = Some(Instant::now());
         }
