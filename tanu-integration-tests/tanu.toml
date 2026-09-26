@@ -1,6 +1,11 @@
 [[projects]]
 name = "docker"
-test_ignore = ["tanu_integration_tests::task_local::spawned_task_without_scope_current_panics"]
+# test_ignore entries under test_ignore:: are exercised by src/test_ignore.rs.
+test_ignore = [
+  "tanu_integration_tests::task_local::spawned_task_without_scope_current_panics",
+  "tanu_integration_tests::test_ignore::ignored_test",
+  "tanu_integration_tests::test_ignore::ignored_case::2",
+]
 retry.count = 3
 retry.min_delay = "100ms"
 
