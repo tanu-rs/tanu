@@ -243,6 +243,18 @@ pub fn current() -> &'static Theme {
     &THEMES[CURRENT.load(Ordering::Relaxed) % THEMES.len()]
 }
 
+/// Index into `THEMES` of the active theme.
+pub fn current_index() -> usize {
+    CURRENT.load(Ordering::Relaxed) % THEMES.len()
+}
+
+/// Activates the theme at `index` of `THEMES`; out-of-range indices are ignored.
+pub fn set_index(index: usize) {
+    if index < THEMES.len() {
+        CURRENT.store(index, Ordering::Relaxed);
+    }
+}
+
 /// Names of the built-in themes.
 pub fn names() -> impl Iterator<Item = &'static str> {
     THEMES.iter().map(|t| t.name)

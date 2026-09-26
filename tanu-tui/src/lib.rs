@@ -52,7 +52,7 @@ use tracing_subscriber::layer::SubscriberExt;
 
 use crate::widget::{
     help::HelpWidget,
-    info::{InfoState, InfoWidget},
+    info::{self, InfoState, InfoWidget},
     latency,
     list::{
         ExecutionStateController, RowRef, StatusFilter, TestCaseSelector, TestListState,
@@ -60,6 +60,7 @@ use crate::widget::{
     },
     logger::{LogLayer, LoggerState, LoggerWidget},
     theme::{self, fmt_duration, muted},
+    theme_picker::{self, ThemeKind, ThemePickerState, ThemePickerWidget},
     timeline,
 };
 
@@ -337,6 +338,8 @@ struct Areas {
     filter_hits: Vec<(Rect, StatusFilter)>,
     /// Clickable timeline bars with the index into `Model::test_results`.
     timeline_hits: Vec<(Rect, usize)>,
+    /// The TUI theme button at the right of the status bar.
+    theme_button: Rect,
 }
 
 /// Represents the state of the application, including the current pane, execution state, test cases, and UI components' states.
@@ -357,6 +360,8 @@ struct Model {
     logger_state: LoggerState,
     /// Whether the key bindings popup is shown.
     show_help: bool,
+    /// Drop-down list of payload themes, opened from the Payload tab.
+    theme_picker: ThemePickerState,
     /// Statistics of the latest run.
     run: RunStats,
     /// Screen areas from the last render.
@@ -383,6 +388,7 @@ impl Model {
             info_state: InfoState::new(),
             logger_state: LoggerState::new(),
             show_help: false,
+            theme_picker: ThemePickerState::default(),
             run: RunStats::default(),
             areas: Areas::default(),
             fps_counter: std::env::var("TANU_TUI_DEBUG")
@@ -440,6 +446,11 @@ enum Message {
     PrevPane,
     ToggleHelp,
     CycleTheme,
+    CyclePayloadTheme,
+    /// Move the theme picker cursor by rows; `isize::MIN`/`MAX` jump to the ends.
+    ThemePickerMove(isize),
+    /// Close the theme picker; `true` keeps the previewed theme.
+    ThemePickerClose(bool),
     ListSelect(CursorMovement),
     ListExpand,
     ListCollapseOrParent,
@@ -484,6 +495,15 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
         Message::PrevPane => model.prev_pane(),
         Message::ToggleHelp => model.show_help = !model.show_help,
         Message::CycleTheme => info!("theme: {}", theme::cycle().name),
+        Message::CyclePayloadTheme => {
+            info!("payload theme: {}", info::cycle_payload_theme())
+        }
+        Message::ThemePickerMove(delta) => match delta {
+            isize::MIN => model.theme_picker.move_to_end(false),
+            isize::MAX => model.theme_picker.move_to_end(true),
+            delta => model.theme_picker.move_by(delta),
+        },
+        Message::ThemePickerClose(keep) => close_theme_picker(model, keep),
         Message::ListSelect(movement) => {
             let half_page = Model::half_page(model.areas.list);
             let selected = list.list_state.selected().unwrap_or_default();
@@ -595,9 +615,50 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
     None
 }
 
+fn close_theme_picker(model: &mut Model, keep: bool) {
+    if keep {
+        model.theme_picker.confirm();
+        match model.theme_picker.kind {
+            ThemeKind::Tui => info!("theme: {}", theme::current().name),
+            ThemeKind::Payload => info!("payload theme: {}", info::payload_theme()),
+        }
+    } else {
+        model.theme_picker.cancel();
+    }
+}
+
+/// Mouse handling while the theme picker is open; it takes all mouse input.
+fn handle_theme_picker_mouse(model: &mut Model, mouse: MouseEvent, position: Position) {
+    let picker = &mut model.theme_picker;
+    match mouse.kind {
+        MouseEventKind::ScrollDown if picker.contains(position) => picker.move_by(1),
+        MouseEventKind::ScrollUp if picker.contains(position) => picker.move_by(-1),
+        MouseEventKind::Down(MouseButton::Left) => {
+            let on_button = match picker.kind {
+                ThemeKind::Tui => model.areas.theme_button.contains(position),
+                ThemeKind::Payload => model
+                    .info_state
+                    .payload_theme_button()
+                    .is_some_and(|button| button.contains(position)),
+            };
+            if picker.click(position) || on_button {
+                // Picking a theme, or clicking the button again, keeps the theme.
+                close_theme_picker(model, true);
+            } else if !picker.contains(position) {
+                close_theme_picker(model, false);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_mouse(model: &mut Model, mouse: MouseEvent) {
     const WHEEL_STEP: usize = 3;
     let position = Position::new(mouse.column, mouse.row);
+    if model.theme_picker.open {
+        handle_theme_picker_mouse(model, mouse, position);
+        return;
+    }
     let areas = model.areas.clone();
     match mouse.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
@@ -625,7 +686,9 @@ fn handle_mouse(model: &mut Model, mouse: MouseEvent) {
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
-            if let Some((_, filter)) = areas
+            if areas.theme_button.contains(position) {
+                model.theme_picker.open(ThemeKind::Tui, areas.theme_button);
+            } else if let Some((_, filter)) = areas
                 .filter_hits
                 .iter()
                 .find(|(area, _)| area.contains(position))
@@ -660,7 +723,13 @@ fn handle_mouse(model: &mut Model, mouse: MouseEvent) {
                 }
             } else if areas.info.contains(position) {
                 model.focus(Pane::Info);
-                if let Some(tab) = model.info_state.tab_at(mouse.column, mouse.row) {
+                if let Some(button) = model
+                    .info_state
+                    .payload_theme_button()
+                    .filter(|button| button.contains(position))
+                {
+                    model.theme_picker.open(ThemeKind::Payload, button);
+                } else if let Some(tab) = model.info_state.tab_at(mouse.column, mouse.row) {
                     model.info_state.selected_tab = tab;
                 }
             } else if areas.logger.contains(position) {
@@ -695,6 +764,21 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
     }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
+    if model.theme_picker.open {
+        return match key.code {
+            KeyCode::Char('j') | KeyCode::Down => Some(Message::ThemePickerMove(1)),
+            KeyCode::Char('k') | KeyCode::Up => Some(Message::ThemePickerMove(-1)),
+            KeyCode::PageDown => Some(Message::ThemePickerMove(10)),
+            KeyCode::PageUp => Some(Message::ThemePickerMove(-10)),
+            KeyCode::Char('g') | KeyCode::Home => Some(Message::ThemePickerMove(isize::MIN)),
+            KeyCode::Char('G') | KeyCode::End => Some(Message::ThemePickerMove(isize::MAX)),
+            KeyCode::Enter => Some(Message::ThemePickerClose(true)),
+            KeyCode::Esc | KeyCode::Char('q') => Some(Message::ThemePickerClose(false)),
+            KeyCode::Char('c') if ctrl => Some(Message::Quit),
+            _ => None,
+        };
+    }
+
     if model.show_help {
         return match key.code {
             KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
@@ -726,6 +810,7 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
         KeyCode::Char('?') => Some(Message::ToggleHelp),
         KeyCode::Char('z') => Some(Message::Maximize),
         KeyCode::Char('t') => Some(Message::CycleTheme),
+        KeyCode::Char('T') => Some(Message::CyclePayloadTheme),
         KeyCode::Tab => Some(Message::NextPane),
         KeyCode::BackTab => Some(Message::PrevPane),
         KeyCode::Char('r') | KeyCode::Char('2') => Some(Message::ExecuteOne),
@@ -994,6 +1079,9 @@ fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
             hints.push(("[ ]", "Tab".into()));
             hints.push(("j/k", "Scroll".into()));
             hints.push(("g/G", "Top/Bottom".into()));
+            if model.info_state.selected_tab == info::Tab::Payload {
+                hints.push(("T", format!("Payload:{}", info::payload_theme())));
+            }
         }
         Pane::Logger => {
             hints.push(("j/k", "Scroll".into()));
@@ -1250,8 +1338,15 @@ fn view(model: &mut Model, frame: &mut Frame) {
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(32)]).areas(layout_footer);
 
     // Header
-    let [layout_status, layout_fps] =
-        Layout::horizontal([Constraint::Fill(1), Constraint::Length(12)]).areas(layout_header);
+    let theme_button = theme_picker::button_label(ThemeKind::Tui);
+    let fps_width = if model.fps_counter.is_some() { 12 } else { 0 };
+    let [layout_status, layout_fps, layout_theme] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Length(fps_width),
+        Constraint::Length(theme_button.width() as u16),
+    ])
+    .areas(layout_header);
+    frame.render_widget(theme_button, layout_theme);
     let (status_line, status_hits) = status_bar(model);
     frame.render_widget(Paragraph::new(status_line), layout_status);
     let filter_hits: Vec<(Rect, StatusFilter)> = status_hits
@@ -1298,6 +1393,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         chart: chart_area,
         filter_hits: vec![],
         timeline_hits: vec![],
+        theme_button: layout_theme,
     };
 
     if !list_area.is_empty() {
@@ -1339,6 +1435,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
     model.areas.filter_hits = filter_hits;
     model.areas.timeline_hits = timeline_hits;
 
+    if model.theme_picker.open {
+        frame.render_stateful_widget(ThemePickerWidget, frame.area(), &mut model.theme_picker);
+    }
     if model.show_help {
         frame.render_widget(HelpWidget, frame.area());
     }

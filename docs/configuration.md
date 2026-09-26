@@ -218,7 +218,7 @@ The `[tui]` section customizes the TUI. `theme` sets the color theme of the TUI 
 theme = "nord"
 ```
 
-Available themes: `purple` (default) · `blue` · `dracula` · `nord` · `gruvbox` · `catppuccin-mocha` · `tokyo-night` · `catppuccin-latte` (light). Names are case-insensitive. `purple` and `blue` keep the terminal background; the others paint their own background. Press `t` in the TUI to cycle through the themes; the current theme is shown at the bottom of the help popup (`?`). An unknown name logs a warning and falls back to `purple`.
+Available themes: `purple` (default) · `blue` · `dracula` · `nord` · `gruvbox` · `catppuccin-mocha` · `tokyo-night` · `catppuccin-latte` (light). Names are case-insensitive. `purple` and `blue` keep the terminal background; the others paint their own background. In the TUI, pick a theme from the drop-down list behind the theme button at the top right of the window (moving through it previews each theme, `Enter` or a click keeps it, `Esc` restores the previous one), or press `t` to cycle through the themes; the current theme is shown at the bottom of the help popup (`?`). An unknown name logs a warning and falls back to `purple`.
 
 `payload.color_theme` sets the color theme used to syntax-highlight request and response payloads (particularly JSON) in the Payload tab:
 
@@ -226,6 +226,8 @@ Available themes: `purple` (default) · `blue` · `dracula` · `nord` · `gruvbo
 [tui]
 payload.color_theme = "tomorrow-night"
 ```
+
+In the TUI, pick a payload theme from the drop-down list behind the theme button at the bottom right of the Payload tab, or press `T` (Shift+t) to cycle through them; the current one is shown in the key hint bar while the Payload tab is open, and at the bottom of the help popup (`?`). The change lasts for the session; set `payload.color_theme` to keep it.
 
 tanu ships with the full set of Base16 themes:
 

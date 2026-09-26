@@ -14,7 +14,7 @@ The screen has a status bar at the top, a key hint bar at the bottom, and severa
 
 | Area | Contents |
 |---|---|
-| **Status bar** | Run state (idle, running, passed, failed), pass/fail/retry/not-run/filtered counts, the pass rate when some tests failed, elapsed time, and projects. |
+| **Status bar** | Run state (idle, running, passed, failed), pass/fail/retry/not-run/filtered counts, the pass rate when some tests failed, elapsed time, and projects. The theme button at the right end opens a drop-down list of TUI themes. |
 | **Tests** | Tests grouped by module. With several projects, each project has its own tab showing its pass count (or failures in red); the first row is the project itself, to run or inspect it as a whole. Each row shows its result, and tests also show call count, retries, and duration. Modules show `passed/total`. Tests excluded by `test_ignore` or `test_only` are listed dimmed with `⊘` and the reason; they are never run and are not counted in the totals. |
 | **Details** | For a single HTTP or gRPC call: four tabs, **Call**, **Headers**, **Payload**, and **Error** (checks and error message). For a project, module, or a test with zero or several calls: an overview with counts, failed tests, slowest tests, and a list of calls. |
 | **Logs** | Log output from tanu and from your tests, in a short pane under the tests. The pane follows new logs until you scroll up; each log shows the Rust module it came from, which `L` hides or shows. |
@@ -36,6 +36,8 @@ Press `?` in the TUI to see all key bindings.
 | `f` | Cycle the status filter: all, failed, passed, not run, filtered |
 | `n` / `N` | Jump to the next / previous failed test |
 | `z` | Maximize or restore the focused pane |
+| `t` | Cycle the TUI color theme |
+| `T` | Cycle the payload color theme |
 | `?` | Show or hide key bindings |
 | `Esc` | Clear the search and filter; quit if none is active |
 | `q` | Quit |
@@ -86,7 +88,7 @@ Click a pane to focus it, click a row to select it (click again to expand it), a
 ## Configuration
 
 - Concurrency defaults to the number of logical CPU cores; change it with `-c` or `runner.concurrency`.
-- Payload colors come from `[tui] payload.color_theme`. See [TUI theme](configuration.md#tui-theme).
+- Payload colors come from `[tui] payload.color_theme`. To try others, click the theme button at the bottom right of the Payload tab to open a drop-down list: moving through it (`j`/`k`, arrows, or the mouse wheel) previews each theme, `Enter` or a click keeps it, and `Esc` or a click outside restores the previous one. `T` cycles to the next theme without the list. See [TUI theme](configuration.md#tui-theme).
 - Credential masking and `runner.max_body_size` apply to the Payload view just as they do to CLI output.
 - Set `TANU_TUI_DEBUG=1` to show the frame rate in the status bar.
 
