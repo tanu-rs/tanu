@@ -50,16 +50,18 @@ After every code change, always run these commands in order:
 
 ## CLI Commands & Options
 - **test**: Run tests in CLI mode with results in terminal.
+  - `[PATTERN]...` - Positional substring filters matched against `module::test`
   - `-p, --projects` - Filter by project names (comma-separated)
-  - `-m, --modules` - Filter by module names (comma-separated)
-  - `-t, --tests` - Filter by test names (comma-separated)
-  - `-c, --concurrency` - Max parallel tests
+  - `-m, --modules` - Filter by module path segments (crate prefix optional), including submodules (comma-separated)
+  - `-t, --tests` - Filter by full test name or any trailing `::` segments, e.g. bare name (comma-separated)
+  - Unknown `-p`/`-m`/`-t` values are usage errors with "did you mean" suggestions
+  - `-c, --concurrency` - Max parallel tests (>= 1)
   - `--capture-http` - Log HTTP requests/responses
   - `--max-body-size` - Cap printed HTTP body size (e.g. `64KB`, `2MB`; `0` disables)
   - `--fail-fast` - Abort after first failure, skipping remaining tests
 - **tui**: Interactive TUI mode for test execution.
   - `-c, --concurrency` - Max parallel tests (default: CPU cores)
-- **ls**: List all available test cases.
+- **ls**: List test cases; accepts the same filters as `test`.
 
 ## Coding Style & Naming Conventions
 - Use Rust 2021 style with rustfmt defaults (4-space indentation, no tabs).

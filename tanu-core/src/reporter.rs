@@ -269,6 +269,8 @@ impl Reporter for NullReporter {}
 #[derive(Default, Debug)]
 struct Buffer {
     test_number: Option<usize>,
+    /// Number of failed attempts that were retried so far.
+    retries: usize,
     http_logs: Vec<Box<http::Log>>,
     #[cfg(feature = "grpc")]
     grpc_logs: Vec<Box<crate::grpc::Log>>,
@@ -307,8 +309,10 @@ fn generate_test_number() -> usize {
 ///
 /// ```text
 /// ✓ 1 [staging] api::health_check (45.2ms)
-/// ✘ 2 [production] auth::login (123.4ms):
-/// Error: Authentication failed
+/// ✘ 2 [production] auth::login: retrying (attempt 2)...
+///     Error: Authentication failed
+/// ✘ 2 [production] auth::login (123.4ms) (after 1 retry):
+///     Error: Authentication failed
 ///   => POST https://api.example.com/auth/login
 ///   > request:
 ///     > headers:
@@ -318,12 +322,30 @@ fn generate_test_number() -> usize {
 ///     < headers:
 ///        < content-type: application/json
 ///     < body: {"error": "invalid credentials"}
+///
+/// Failures:
+///   ✘ [production] auth::login
+///     Error: Authentication failed
+///
+/// Tests: 1 passed, 1 failed, 2 total, 1 retried
+/// Time: 168.6ms (prep: 1.2ms)
 /// ```
 pub struct ListReporter {
     terminal: Term,
     buffer: IndexMap<(ProjectName, ModuleName, TestName), Buffer>,
     capture_http: CaptureHttpMode,
     max_body_size: MaxBodySize,
+    /// Failed tests, recapped at the end of the run.
+    failures: Vec<Failure>,
+    /// Number of tests that were retried at least once.
+    retried_tests: usize,
+}
+
+struct Failure {
+    project: ProjectName,
+    module: ModuleName,
+    test: TestName,
+    error: String,
 }
 
 impl ListReporter {
@@ -354,6 +376,8 @@ impl ListReporter {
             buffer: IndexMap::new(),
             capture_http,
             max_body_size,
+            failures: Vec::new(),
+            retried_tests: 0,
         }
     }
 }
@@ -411,6 +435,11 @@ impl Reporter for ListReporter {
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer",))?;
 
         let test_number = *buffer.test_number.get_or_insert_with(generate_test_number);
+        buffer.retries += 1;
+        if buffer.retries == 1 {
+            self.retried_tests += 1;
+        }
+        let next_attempt = buffer.retries + 1;
         let http_logs = std::mem::take(&mut buffer.http_logs);
         #[cfg(feature = "grpc")]
         let grpc_logs = std::mem::take(&mut buffer.grpc_logs);
@@ -422,8 +451,8 @@ impl Reporter for ListReporter {
                 test_number = style(test_number).dim(),
                 project = style_project(&project_name),
                 path = style_module_path(&module_name, &test_name),
-                retry_message = style("retrying...").blue(),
-                error = style(format!("{e:#}")).dim(),
+                retry_message = style(format!("retrying (attempt {next_attempt})...")).blue(),
+                error = style(indent(&format!("{e:#}"), ERROR_INDENT)).dim(),
             ))?;
         }
 
@@ -471,17 +500,29 @@ impl Reporter for ListReporter {
         let request_time = style(format!("({request_time:.2?})")).dim();
         let project = style_project(&project_name);
         let path = style_module_path(&info.module, &info.name);
+        let retries = match buffer.retries {
+            0 => String::new(),
+            1 => format!(" {}", style("(after 1 retry)").yellow()),
+            n => format!(" {}", style(format!("(after {n} retries)")).yellow()),
+        };
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} {project} {path} {request_time}"
+                    "{status} {test_number} {project} {path} {request_time}{retries}"
                 ))?;
             }
             Err(e) => {
+                let error = format!("{e:#}");
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} {project} {path} {request_time}:\n{error}",
-                    error = style(format!("{e:#}")).red()
+                    "{status} {test_number} {project} {path} {request_time}{retries}:\n{error}",
+                    error = style(indent(&error, ERROR_INDENT)).red()
                 ))?;
+                self.failures.push(Failure {
+                    project: project_name,
+                    module: info.module.clone(),
+                    test: info.name.clone(),
+                    error,
+                });
             }
         }
 
@@ -508,33 +549,59 @@ impl Reporter for ListReporter {
             test_prep_time,
         } = summary;
 
+        if !self.failures.is_empty() {
+            self.terminal.write_line("")?;
+            self.terminal
+                .write_line(&style("Failures:").red().bold().to_string())?;
+            for failure in &self.failures {
+                self.terminal.write_line(&format!(
+                    "  {} {} {}",
+                    symbol_error(),
+                    style_project(&failure.project),
+                    style_module_path(&failure.module, &failure.test),
+                ))?;
+                self.terminal.write_line(
+                    &style(indent(&failure.error, ERROR_INDENT))
+                        .red()
+                        .to_string(),
+                )?;
+            }
+        }
+
         self.terminal.write_line("")?;
-        let mut summary_line = format!(
-            "{}: {} {}, {} {}, {} {}",
-            style("Tests").bold(),
+        let mut parts = vec![format!(
+            "{} {}",
             style(passed_tests).green().bold(),
-            style("passed").green(),
-            if failed_tests > 0 {
-                style(failed_tests).red().bold()
-            } else {
-                style(failed_tests).bold()
-            },
-            if failed_tests > 0 {
+            style("passed").green()
+        )];
+        if failed_tests > 0 {
+            parts.push(format!(
+                "{} {}",
+                style(failed_tests).red().bold(),
                 style("failed").red()
-            } else {
-                style("failed")
-            },
-            style(total_tests).bold(),
-            style("total").dim()
-        );
+            ));
+        }
         if skipped_tests > 0 {
-            summary_line.push_str(&format!(
-                ", {} {}",
+            parts.push(format!(
+                "{} {}",
                 style(skipped_tests).yellow().bold(),
                 style("skipped").yellow()
             ));
         }
-        self.terminal.write_line(&summary_line)?;
+        parts.push(format!(
+            "{} {}",
+            style(total_tests).bold(),
+            style("total").dim()
+        ));
+        if self.retried_tests > 0 {
+            parts.push(format!(
+                "{} {}",
+                style(self.retried_tests).yellow().bold(),
+                style("retried").yellow()
+            ));
+        }
+        self.terminal
+            .write_line(&format!("{}: {}", style("Tests").bold(), parts.join(", ")))?;
         self.terminal.write_line(&format!(
             "{}: {} ({}: {})",
             style("Time").bold(),
@@ -545,6 +612,18 @@ impl Reporter for ListReporter {
 
         Ok(())
     }
+}
+
+/// Indentation for error messages printed under a test line.
+const ERROR_INDENT: usize = 4;
+
+/// Indents every line of `text` by `width` spaces.
+fn indent(text: &str, width: usize) -> String {
+    let pad = " ".repeat(width);
+    text.lines()
+        .map(|line| format!("{pad}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
@@ -881,6 +960,12 @@ fn write_grpc_log(terminal: &Term, log: &crate::grpc::Log) -> eyre::Result<()> {
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn indent_prefixes_every_line() {
+        assert_eq!(indent("a\nb", 4), "    a\n    b");
+        assert_eq!(indent("", 4), "");
+    }
 
     #[test]
     fn format_body_for_display_colorizes_json_within_the_cap() {
