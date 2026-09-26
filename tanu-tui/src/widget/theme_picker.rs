@@ -16,7 +16,7 @@ use crate::widget::{
 };
 
 /// Maximum number of themes shown at once.
-const MAX_VISIBLE: u16 = 16;
+const MAX_VISIBLE: u16 = 20;
 
 /// Which theme a picker selects.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +275,8 @@ mod test {
         ThemePickerWidget.render(area, &mut buf, &mut state);
         assert_eq!(anchor.bottom(), state.popup_area.y);
         assert_eq!(anchor.right(), state.popup_area.right());
-        assert_eq!(theme::THEMES.len() as u16 + 2, state.popup_area.height);
+        let rows = (theme::THEMES.len() as u16).min(MAX_VISIBLE);
+        assert_eq!(rows + 2, state.popup_area.height);
         // Closing without moving leaves the theme untouched.
         state.cancel();
         assert!(!state.open);
