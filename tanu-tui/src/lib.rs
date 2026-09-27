@@ -541,7 +541,10 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
         }
         Message::ExecuteOne => {
             let selector = list.select_test_case()?;
-            ExecutionStateController::execute_specified(list, &selector);
+            if !ExecutionStateController::execute_specified(list, &selector) {
+                // Nothing runnable: every selected test is filtered out.
+                return None;
+            }
             model.run.start(list.counts().running);
             return Some(Command::ExecuteOne(selector));
         }
@@ -919,6 +922,14 @@ fn status_bar(model: &Model) -> (Line<'static>, Vec<(StatusFilter, u16, u16)>) {
         StatusFilter::NotRun,
         Span::styled(format!("○ {}", counts.pending()), muted()),
     );
+    if counts.filtered > 0 {
+        spans.push(Span::raw("  "));
+        push_counter(
+            &mut spans,
+            StatusFilter::Filtered,
+            Span::styled(format!("⊘ {}", counts.filtered), muted()),
+        );
+    }
     spans.push(Span::styled(format!("  of {}", counts.total), muted()));
     let executed = counts.passed + counts.failed;
     if counts.failed > 0 && executed > 0 {

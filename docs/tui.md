@@ -14,8 +14,8 @@ The screen has a status bar at the top, a key hint bar at the bottom, and severa
 
 | Area | Contents |
 |---|---|
-| **Status bar** | Run state (idle, running, passed, failed), pass/fail/retry/not-run counts, the pass rate when some tests failed, elapsed time, and projects. |
-| **Tests** | Tests grouped by module. With several projects, each project has its own tab showing its pass count (or failures in red); the first row is the project itself, to run or inspect it as a whole. Each row shows its result, and tests also show call count, retries, and duration. Modules show `passed/total`. |
+| **Status bar** | Run state (idle, running, passed, failed), pass/fail/retry/not-run/filtered counts, the pass rate when some tests failed, elapsed time, and projects. |
+| **Tests** | Tests grouped by module. With several projects, each project has its own tab showing its pass count (or failures in red); the first row is the project itself, to run or inspect it as a whole. Each row shows its result, and tests also show call count, retries, and duration. Modules show `passed/total`. Tests excluded by `test_ignore` or `test_only` are listed dimmed with `⊘` and the reason; they are never run and are not counted in the totals. |
 | **Details** | For a single HTTP or gRPC call: four tabs, **Call**, **Headers**, **Payload**, and **Error** (checks and error message). For a project, module, or a test with zero or several calls: an overview with counts, failed tests, slowest tests, and a list of calls. |
 | **Logs** | Log output from tanu and from your tests, in a short pane under the tests. The pane follows new logs until you scroll up; each log shows the Rust module it came from, which `L` hides or shows. |
 | **Charts** | **Timeline**: one lane per worker, with a bar for each test from its start to its end, blue if it passed and muted red if it failed (the same colors as the latency chart). The selected test is highlighted in light blue. The title shows the wall time, the number of workers, and how busy they were. **Latency**: histogram of request latencies on a log scale (<1ms, 1ms, 2ms, 5ms, 10ms, …) with p50, p95, p99, and max. The calls of the selected test are light blue at the bottom of each bar, and error responses (HTTP 4xx/5xx, non-OK gRPC status) are a muted red, since they are often expected. Both charts are shown side by side; when maximized they are stacked. |
@@ -33,7 +33,7 @@ Press `?` in the TUI to see all key bindings.
 | `Tab` / `Shift+Tab` | Focus the next / previous pane |
 | `[` / `]` | Previous / next Details tab |
 | `/` | Search tests and modules by name |
-| `f` | Cycle the status filter: all, failed, passed, not run |
+| `f` | Cycle the status filter: all, failed, passed, not run, filtered |
 | `n` / `N` | Jump to the next / previous failed test |
 | `z` | Maximize or restore the focused pane |
 | `?` | Show or hide key bindings |

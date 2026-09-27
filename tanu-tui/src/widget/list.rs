@@ -32,7 +32,10 @@ pub struct TestListWidget<'a> {
 impl<'a> TestListWidget<'a> {
     pub fn new(focused: bool, maximized: bool, state: &TestListState) -> Self {
         let mut title = vec![Span::raw("Tests")];
-        title.push(Span::styled(format!(" ({})", state.len()), muted()));
+        title.push(Span::styled(
+            format!(" ({})", state.counts().total),
+            muted(),
+        ));
         if state.status_filter != StatusFilter::All {
             title.push(Span::styled(
                 format!(" [{}]", state.status_filter.label()),
@@ -162,6 +165,11 @@ fn symbol_test_result(execution_state: &ExecutionState) -> Span<'static> {
     }
 }
 
+/// Symbol for a test excluded by `test_ignore` / `test_only`.
+fn symbol_filtered() -> Span<'static> {
+    Span::styled("⊘ ", muted())
+}
+
 /// Builds a line that fits into `width`: `prefix` + `name` on the left and `meta` right-aligned.
 /// The name is truncated with an ellipsis if there is not enough room.
 fn fit_line(
@@ -212,6 +220,9 @@ fn counter_spans(counts: Counts) -> Vec<Span<'static>> {
             Style::new().fg(theme::running()),
         ));
     }
+    if counts.filtered > 0 {
+        spans.push(Span::styled(format!("⊘{} ", counts.filtered), muted()));
+    }
     spans.push(Span::styled(
         format!("{}/{}", counts.passed, counts.total),
         muted(),
@@ -226,6 +237,8 @@ pub struct Counts {
     pub passed: usize,
     pub failed: usize,
     pub running: usize,
+    /// Tests excluded by `test_ignore` / `test_only`; not part of `total`.
+    pub filtered: usize,
 }
 
 impl Counts {
@@ -233,9 +246,13 @@ impl Counts {
         self.total - self.passed - self.failed - self.running
     }
 
-    fn add(&mut self, state: &ExecutionState) {
+    fn add(&mut self, test: &TestState) {
+        if test.filtered.is_some() {
+            self.filtered += 1;
+            return;
+        }
         self.total += 1;
-        match state {
+        match &test.execution_state {
             ExecutionState::Initialized => {}
             ExecutionState::Executing(_) => self.running += 1,
             ExecutionState::Executed(result) if result.is_ok() => self.passed += 1,
@@ -259,7 +276,14 @@ impl ExecutionStateController {
     }
 
     /// Executes the specified test cases in the list.
-    pub fn execute_specified(test_cases_list: &mut TestListState, selector: &TestCaseSelector) {
+    ///
+    /// Returns false if the selection has no runnable test, i.e. every test in it is
+    /// excluded by `test_ignore` / `test_only`.
+    pub fn execute_specified(
+        test_cases_list: &mut TestListState,
+        selector: &TestCaseSelector,
+    ) -> bool {
+        let mut started = false;
         for project_state in test_cases_list
             .projects
             .iter_mut()
@@ -267,7 +291,7 @@ impl ExecutionStateController {
         {
             // Project is selected in the list.
             if selector.module.is_none() && selector.test.is_none() {
-                Self::execute_project(project_state)
+                started |= Self::execute_project(project_state);
             }
 
             if let Some(module) = &selector.module {
@@ -276,9 +300,10 @@ impl ExecutionStateController {
                     .iter_mut()
                     .filter(|m| &m.name == module)
                 {
+                    let mut module_started = false;
                     // Module is selected in the list.
                     if selector.test.is_none() {
-                        Self::execute_module(module_state);
+                        module_started |= Self::execute_module(module_state);
                     }
 
                     if let Some(ref test) = selector.test {
@@ -288,39 +313,62 @@ impl ExecutionStateController {
                             .filter(|t| &t.info.full_name() == test)
                         {
                             // Test is selected in the list.
-                            Self::execute_test(test_state);
+                            module_started |= Self::execute_test(test_state);
                         }
-                        module_state.execution_state.execute();
+                        if module_started {
+                            module_state.execution_state.execute();
+                        }
                     }
+                    started |= module_started;
                 }
-                project_state.execution_state.execute();
+                if started {
+                    project_state.execution_state.execute();
+                }
             }
         }
+        started
     }
 
     /// Execute the specified project and its modules and tests.
-    fn execute_project(project_state: &mut ProjectState) {
-        project_state.execution_state.execute();
-
+    ///
+    /// Returns false if the project has no runnable test.
+    fn execute_project(project_state: &mut ProjectState) -> bool {
         // Propagate the execution state to all modules.
-        project_state
+        let started = project_state
             .modules
             .iter_mut()
-            .for_each(Self::execute_module);
+            .fold(false, |started, module| {
+                Self::execute_module(module) | started
+            });
+        if started {
+            project_state.execution_state.execute();
+        }
+        started
     }
 
     /// Execute the specified module and its tests.
-    fn execute_module(module_state: &mut ModuleState) {
-        module_state.execution_state.execute();
-
+    ///
+    /// Returns false if the module has no runnable test.
+    fn execute_module(module_state: &mut ModuleState) -> bool {
         // Propagate the execution state to all tests.
-        module_state.tests.iter_mut().for_each(Self::execute_test);
+        let started = module_state
+            .tests
+            .iter_mut()
+            .fold(false, |started, test| Self::execute_test(test) | started);
+        if started {
+            module_state.execution_state.execute();
+        }
+        started
     }
 
-    /// Execute the specified test case.
-    fn execute_test(test_state: &mut TestState) {
+    /// Execute the specified test case. Filtered tests are not run by the runner.
+    fn execute_test(test_state: &mut TestState) -> bool {
+        if test_state.filtered.is_some() {
+            return false;
+        }
         test_state.expanded = false;
         test_state.execution_state.execute();
+        true
     }
 
     /// Handler for when a test case is updated.
@@ -504,7 +552,7 @@ impl ProjectState {
         let mut counts = Counts::default();
         for module in &self.modules {
             for test in &module.tests {
-                counts.add(&test.execution_state);
+                counts.add(test);
             }
         }
         counts
@@ -529,7 +577,7 @@ impl ModuleState {
     pub fn counts(&self) -> Counts {
         let mut counts = Counts::default();
         for test in &self.tests {
-            counts.add(&test.execution_state);
+            counts.add(test);
         }
         counts
     }
@@ -542,6 +590,26 @@ pub struct TestState {
     pub expanded: bool,
     /// The execution state of the test.
     pub execution_state: ExecutionState,
+    /// Why the test is excluded from runs, if it is.
+    pub filtered: Option<FilterReason>,
+}
+
+/// Why a test is excluded from runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterReason {
+    /// Listed in the project's `test_ignore`.
+    Ignored,
+    /// Not listed in the project's non-empty `test_only`.
+    NotInTestOnly,
+}
+
+impl FilterReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            FilterReason::Ignored => "ignored",
+            FilterReason::NotInTestOnly => "not in test_only",
+        }
+    }
 }
 
 impl TestState {
@@ -554,8 +622,12 @@ impl TestState {
     }
 
     fn matches(&self, filter: StatusFilter) -> bool {
+        if self.filtered.is_some() {
+            return matches!(filter, StatusFilter::All | StatusFilter::Filtered);
+        }
         match filter {
             StatusFilter::All => true,
+            StatusFilter::Filtered => false,
             StatusFilter::Failed => self.execution_state.result().is_some_and(|r| !r.is_ok()),
             StatusFilter::Passed => self.execution_state.result().is_some_and(|r| r.is_ok()),
             StatusFilter::NotRun => {
@@ -573,6 +645,7 @@ pub enum StatusFilter {
     Failed,
     Passed,
     NotRun,
+    Filtered,
 }
 
 impl StatusFilter {
@@ -581,7 +654,8 @@ impl StatusFilter {
             StatusFilter::All => StatusFilter::Failed,
             StatusFilter::Failed => StatusFilter::Passed,
             StatusFilter::Passed => StatusFilter::NotRun,
-            StatusFilter::NotRun => StatusFilter::All,
+            StatusFilter::NotRun => StatusFilter::Filtered,
+            StatusFilter::Filtered => StatusFilter::All,
         }
     }
 
@@ -591,6 +665,7 @@ impl StatusFilter {
             StatusFilter::Failed => "failed",
             StatusFilter::Passed => "passed",
             StatusFilter::NotRun => "not run",
+            StatusFilter::Filtered => "filtered",
         }
     }
 }
@@ -679,6 +754,7 @@ impl TestListState {
                 info,
                 expanded: false,
                 execution_state: ExecutionState::default(),
+                filtered: None,
             })
             .into_group_map_by(|test| test.info.module.clone())
             .into_iter()
@@ -704,10 +780,20 @@ impl TestListState {
                         name: module_name,
                         // Folded by default; expanded on demand, on search or jump to a failure.
                         expanded: false,
+                        // Filtered tests stay in the list so that they can be seen,
+                        // but they are never run.
                         tests: tests
                             .into_iter()
-                            .filter(|test| test_ignore_filter.filter(proj, &test.info))
-                            .filter(|test| test_only_filter.filter(proj, &test.info))
+                            .map(|mut test| {
+                                test.filtered = if !test_ignore_filter.filter(proj, &test.info) {
+                                    Some(FilterReason::Ignored)
+                                } else if !test_only_filter.filter(proj, &test.info) {
+                                    Some(FilterReason::NotInTestOnly)
+                                } else {
+                                    None
+                                };
+                                test
+                            })
                             .collect(),
                         execution_state: ExecutionState::default(),
                     })
@@ -852,6 +938,15 @@ impl TestListState {
                 } else {
                     icon(test.expanded)
                 };
+                if let Some(reason) = test.filtered {
+                    return fit_line(
+                        vec![Span::styled("      ", muted()), symbol_filtered()],
+                        test.info.name.clone(),
+                        muted(),
+                        vec![Span::styled(reason.label(), muted().italic())],
+                        width,
+                    );
+                }
                 let mut meta = vec![];
                 if let Some(result) = test.execution_state.result() {
                     if result.retries > 0 {
@@ -1145,19 +1240,6 @@ impl TestListState {
         }
     }
 
-    /// Total number of test cases.
-    pub fn len(&self) -> usize {
-        self.projects
-            .iter()
-            .map(|proj| {
-                proj.modules
-                    .iter()
-                    .map(|module| module.tests.len())
-                    .sum::<usize>()
-            })
-            .sum()
-    }
-
     /// Aggregated counts of all test cases.
     pub fn counts(&self) -> Counts {
         let mut counts = Counts::default();
@@ -1167,6 +1249,7 @@ impl TestListState {
             counts.passed += c.passed;
             counts.failed += c.failed;
             counts.running += c.running;
+            counts.filtered += c.filtered;
         }
         counts
     }
@@ -1547,9 +1630,85 @@ mod test {
                 total: 2,
                 passed: 0,
                 failed: 1,
-                running: 1
+                running: 1,
+                filtered: 0,
             },
             state.counts()
+        );
+    }
+
+    #[test]
+    fn filtered_tests_are_shown_but_not_run() {
+        let mut state = TestListState::new(
+            &projects(&["dev"]),
+            &[
+                test_info("a", "t1", 0),
+                test_info("a", "t2", 1),
+                test_info("b", "t3", 0),
+            ],
+        );
+        state.projects[0].modules[0].tests[1].filtered = Some(FilterReason::Ignored);
+        state.projects[0].modules[1].tests[0].filtered = Some(FilterReason::NotInTestOnly);
+        state.projects[0].modules[0].expanded = true;
+        state.projects[0].modules[1].expanded = true;
+
+        // Filtered tests are listed.
+        assert_eq!(
+            vec![
+                RowRef::Project(0),
+                RowRef::Module(0, 0),
+                RowRef::Test(0, 0, 0),
+                RowRef::Test(0, 0, 1),
+                RowRef::Module(0, 1),
+                RowRef::Test(0, 1, 0),
+            ],
+            state.visible_rows()
+        );
+
+        // ...but are neither counted nor run.
+        ExecutionStateController::execute_all(&mut state);
+        let project = &state.projects[0];
+        assert!(matches!(
+            project.modules[0].tests[1].execution_state,
+            ExecutionState::Initialized
+        ));
+        // A module with only filtered tests does not spin forever.
+        assert!(matches!(
+            project.modules[1].execution_state,
+            ExecutionState::Initialized
+        ));
+        assert_eq!(
+            Counts {
+                total: 1,
+                passed: 0,
+                failed: 0,
+                running: 1,
+                filtered: 2,
+            },
+            state.counts()
+        );
+
+        // Running only a filtered test starts nothing.
+        let selector = TestCaseSelector {
+            project: "dev".into(),
+            module: Some("b".into()),
+            test: Some(project.modules[1].tests[0].info.full_name()),
+        };
+        assert!(!ExecutionStateController::execute_specified(
+            &mut state, &selector
+        ));
+
+        // The "filtered" status filter shows only the filtered tests.
+        state.status_filter = StatusFilter::Filtered;
+        assert_eq!(
+            vec![
+                RowRef::Project(0),
+                RowRef::Module(0, 0),
+                RowRef::Test(0, 0, 1),
+                RowRef::Module(0, 1),
+                RowRef::Test(0, 1, 0),
+            ],
+            state.visible_rows()
         );
     }
 
