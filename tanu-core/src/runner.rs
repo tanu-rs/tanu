@@ -1182,7 +1182,12 @@ impl Runner {
         crate::masking::set_extra_sensitive_headers(self.options.extra_sensitive_headers.clone());
 
         if self.options.capture_rust {
-            tracing_subscriber::fmt::init();
+            // Same as `tracing_subscriber::fmt::init()`, except that logs go through
+            // `LogWriter`, so a live reporter can print them above its live region.
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .with_writer(crate::reporter::LogWriter::default)
+                .init();
         }
 
         let reporters = std::mem::take(&mut self.reporters);

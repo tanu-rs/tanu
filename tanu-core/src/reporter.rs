@@ -38,10 +38,12 @@
 use console::{style, StyledObject, Term};
 use indexmap::IndexMap;
 use std::{
+    collections::VecDeque,
+    io::Write,
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing::*;
 
 use crate::{
@@ -619,14 +621,79 @@ fn write_summary(
     Ok(())
 }
 
+/// Where Rust logs (`--capture-rust`) go while a live reporter owns the terminal.
+///
+/// Logs printed straight to stdout would land in the middle of the live region
+/// and break its redraw, so while a [`LineReporter`] is running, [`LogWriter`]
+/// sends each log line here and the reporter shows it in the live region.
+static LOG_SINK: Mutex<LogSink> = Mutex::new(LogSink::Stdout);
+
+enum LogSink {
+    /// No live reporter: logs are written to stdout.
+    Stdout,
+    /// A live reporter is running and shows logs in its log window.
+    Live(mpsc::UnboundedSender<Vec<u8>>),
+    /// A live reporter has finished. Its log window is gone, so later logs are
+    /// dropped rather than printed below the summary.
+    Discard,
+}
+
+fn set_log_sink(sink: LogSink) {
+    if let Ok(mut guard) = LOG_SINK.lock() {
+        *guard = sink;
+    }
+}
+
+/// A `tracing_subscriber` writer for Rust logs, which sends them wherever
+/// [`LOG_SINK`] says.
+///
+/// `tracing_subscriber` makes one writer per log event, so the buffered bytes
+/// are sent as a whole when the writer is dropped and lines are never split.
+#[derive(Default)]
+pub(crate) struct LogWriter {
+    buf: Vec<u8>,
+}
+
+impl Write for LogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for LogWriter {
+    fn drop(&mut self) {
+        if self.buf.is_empty() {
+            return;
+        }
+        let buf = std::mem::take(&mut self.buf);
+        let buf = match LOG_SINK.lock().as_deref() {
+            Ok(LogSink::Live(sink)) => match sink.send(buf) {
+                Ok(()) => return,
+                Err(mpsc::error::SendError(buf)) => buf,
+            },
+            Ok(LogSink::Discard) => return,
+            Ok(LogSink::Stdout) | Err(_) => buf,
+        };
+        let _ = std::io::stdout().write_all(&buf);
+    }
+}
+
 /// A reporter with a live view of the running tests, like Playwright's `line` reporter.
 ///
 /// At the bottom of the terminal it keeps a live region, redrawn every
 /// [`LIVE_REFRESH`], with one line per running test (spinner, elapsed time and
 /// retry count) and a progress line. Failures are printed in full above it as
 /// they happen, and passing tests, including ones that passed after a retry,
-/// leave nothing behind. When stdout is not a terminal, the live region is
-/// never drawn, so only failures and the summary are printed.
+/// leave nothing behind. With `--capture-http all`, each HTTP/gRPC call is shown
+/// as one line in a fixed-height window at the top of the live region, and with
+/// `--capture-rust`, so are the latest Rust logs. When stdout is not a
+/// terminal, the live region is never drawn, so only failures and the summary
+/// (and Rust logs, as they come) are printed.
 ///
 /// # Output Format
 ///
@@ -657,6 +724,33 @@ pub struct LineReporter {
     frame: usize,
     failures: Vec<Failure>,
     retried_tests: usize,
+    /// The most recent Rust log lines (`--capture-rust`).
+    logs: Window,
+    /// One line per recent HTTP/gRPC call (`--capture-http all`).
+    calls: Window,
+}
+
+/// The latest lines of a stream (logs, calls), shown in a fixed-height window
+/// in the live region.
+struct Window {
+    title: &'static str,
+    lines: VecDeque<String>,
+}
+
+impl Window {
+    fn new(title: &'static str) -> Window {
+        Window {
+            title,
+            lines: VecDeque::with_capacity(WINDOW_LINES),
+        }
+    }
+
+    fn push(&mut self, line: String) {
+        if self.lines.len() == WINDOW_LINES {
+            self.lines.pop_front();
+        }
+        self.lines.push_back(line);
+    }
 }
 
 /// A test that is currently running.
@@ -670,6 +764,9 @@ const LIVE_REFRESH: Duration = Duration::from_millis(100);
 
 /// Maximum number of running tests listed in the live region.
 const MAX_RUNNING_LINES: usize = 10;
+
+/// Height of a window (logs, HTTP calls) in the live region.
+const WINDOW_LINES: usize = 8;
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -694,6 +791,8 @@ impl LineReporter {
             frame: 0,
             failures: Vec::new(),
             retried_tests: 0,
+            logs: Window::new("logs"),
+            calls: Window::new("http"),
         }
     }
 
@@ -737,16 +836,35 @@ impl LineReporter {
             failed,
             elapsed: now.duration_since(started_at),
         };
-        // Leave a row for the progress line, and one so the region never scrolls the screen.
-        let max_running = MAX_RUNNING_LINES.min((height as usize).saturating_sub(2));
+        // A window appears once it has a line, then keeps its height.
+        let windows: Vec<WindowView> = [&self.calls, &self.logs]
+            .into_iter()
+            .filter(|w| !w.lines.is_empty())
+            .map(|w| WindowView {
+                title: w.title,
+                lines: w.lines.iter().map(String::as_str).collect(),
+            })
+            .collect();
+        // Keep one row free so the region never scrolls the screen. Windows share
+        // the space with the running tests: one window gets up to a third, two get
+        // up to a quarter each.
+        let usable = (height as usize).saturating_sub(1);
+        let window_height = WINDOW_LINES.min(usable / (windows.len() + 2));
+        let window_rows = windows.len() * (window_height + 1);
+        // Rows for the rule and the progress line.
+        let max_running = MAX_RUNNING_LINES.min(usable.saturating_sub(2 + window_rows));
         // One column is kept free: a line that fills the whole row can wrap, which
         // would make the region taller than we think and break the redraw.
         let lines = live_region(
             &running,
             &progress,
+            &windows,
             self.frame,
-            max_running,
-            (width as usize).saturating_sub(1),
+            Layout {
+                max_running,
+                window_height,
+                width: (width as usize).saturating_sub(1),
+            },
         );
 
         let mut out = String::new();
@@ -760,6 +878,17 @@ impl LineReporter {
         self.terminal.write_str(&out)?;
         self.drawn = lines.len();
         Ok(())
+    }
+
+    /// Adds Rust log output to the log window, which keeps only the latest lines.
+    fn push_log(&mut self, log: Vec<u8>) {
+        for line in String::from_utf8_lossy(&log).lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            // Tabs and carriage returns would throw off the width of the line.
+            self.logs.push(line.replace('\t', "    ").replace('\r', ""));
+        }
     }
 
     fn write_logs(&self, buffer: &Buffer) -> eyre::Result<()> {
@@ -786,8 +915,15 @@ impl Reporter for LineReporter {
         let mut ticker = tokio::time::interval(LIVE_REFRESH);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+        // Route Rust logs through this loop, so they are printed above the live region.
+        let (log_tx, mut log_rx) = mpsc::unbounded_channel();
+        if self.is_term {
+            set_log_sink(LogSink::Live(log_tx));
+        }
+
         loop {
             tokio::select! {
+                Some(log) = log_rx.recv() => self.push_log(log),
                 res = rx.recv() => match res {
                     Ok(event) => {
                         if let Err(e) = dispatch(self, event).await {
@@ -812,6 +948,10 @@ impl Reporter for LineReporter {
             }
         }
 
+        if self.is_term {
+            set_log_sink(LogSink::Discard);
+        }
+        self.finished = true;
         self.clear_live()
     }
 
@@ -844,6 +984,10 @@ impl Reporter for LineReporter {
         test_name: String,
         log: runner::CallLog,
     ) -> eyre::Result<()> {
+        if matches!(self.capture_http, CaptureHttpMode::All) {
+            self.calls
+                .push(call_line(&log, short_module(&module_name), &test_name));
+        }
         if !matches!(self.capture_http, CaptureHttpMode::Off) {
             let buffer = &mut self
                 .running
@@ -936,7 +1080,11 @@ impl Reporter for LineReporter {
                 test: info.name.clone(),
                 error,
             });
-        } else if print_logs && !(buffer.http_logs.is_empty() && grpc_logs_empty(&buffer)) {
+        } else if print_logs
+            && !self.is_term
+            && !(buffer.http_logs.is_empty() && grpc_logs_empty(&buffer))
+        {
+            // On a terminal, the calls of passing tests were shown in the http window.
             self.clear_live()?;
             self.terminal.write_line(&format!(
                 "{} {} {}  {details}",
@@ -985,15 +1133,36 @@ struct Progress {
     elapsed: Duration,
 }
 
-/// Builds the lines of the live region: up to `max_running` running tests,
-/// then the progress line. Every line is truncated to `width` columns.
+/// A window's title and lines, as shown in the live region.
+struct WindowView<'a> {
+    title: &'a str,
+    lines: Vec<&'a str>,
+}
+
+/// Size limits of the live region.
+struct Layout {
+    /// Maximum number of running tests listed.
+    max_running: usize,
+    /// Height of each window.
+    window_height: usize,
+    /// Terminal width every line is truncated to.
+    width: usize,
+}
+
+/// Builds the lines of the live region: the windows, up to `max_running`
+/// running tests, then the progress line.
 fn live_region(
     running: &[RunningTest],
     progress: &Progress,
+    windows: &[WindowView],
     frame: usize,
-    max_running: usize,
-    width: usize,
+    layout: Layout,
 ) -> Vec<String> {
+    let Layout {
+        max_running,
+        window_height,
+        width,
+    } = layout;
     let spinner = style(SPINNER[frame % SPINNER.len()]).cyan();
     // With too many tests to list, keep one row for the "… and N more" line.
     let shown = if running.len() > max_running {
@@ -1066,14 +1235,68 @@ fn live_region(
     ));
     lines.push(status);
 
-    // The rule is built to fit, so it is added after truncating the other lines.
-    std::iter::once(style("─".repeat(width)).dim().to_string())
-        .chain(
-            lines
-                .into_iter()
-                .map(|line| console::truncate_str(&line, width, "…").into_owned()),
-        )
-        .collect()
+    let rule = style("─".repeat(width)).dim().to_string();
+    let mut region = Vec::new();
+    for window in windows.iter().filter(|_| window_height > 0) {
+        // Rules are built to fit, so they are not truncated.
+        let label = format!("── {} ", window.title);
+        region.push(
+            style(format!(
+                "{label}{}",
+                "─".repeat(width.saturating_sub(label.chars().count()))
+            ))
+            .dim()
+            .to_string(),
+        );
+        // Latest lines at the bottom; blank rows keep the window's height fixed.
+        let shown = &window.lines[window.lines.len().saturating_sub(window_height)..];
+        region.extend(std::iter::repeat_n(
+            String::new(),
+            window_height - shown.len(),
+        ));
+        region.extend(
+            shown
+                .iter()
+                .map(|line| console::truncate_str(&format!("  {line}"), width, "…").into_owned()),
+        );
+    }
+    region.push(rule);
+    region.extend(
+        lines
+            .into_iter()
+            .map(|line| console::truncate_str(&line, width, "…").into_owned()),
+    );
+    region
+}
+
+/// One line for the http window, e.g. `GET 200 OK http://host/path 12.00ms · api::create`.
+fn call_line(log: &runner::CallLog, module: &str, test: &str) -> String {
+    let (call, duration) = match log {
+        runner::CallLog::Http(log) => (
+            format!(
+                "{} {} {}",
+                style_http_method(log.request.method.as_ref()),
+                style_status_code(log.response.status),
+                log.request.url,
+            ),
+            log.response.duration_req,
+        ),
+        #[cfg(feature = "grpc")]
+        runner::CallLog::Grpc(log) => (
+            format!(
+                "{} {} {}",
+                style("gRPC").magenta(),
+                style_grpc_status(log.response.status_code),
+                log.request.method,
+            ),
+            log.response.duration,
+        ),
+    };
+    format!(
+        "{call} {}  {}",
+        style(format!("{duration:.2?}")).dim(),
+        style(format!("· {module}::{test}")).dim(),
+    )
 }
 
 /// Draws a progress bar of `width` cells: green for passed tests, red for
@@ -1499,6 +1722,89 @@ mod test {
         }
     }
 
+    fn layout(max_running: usize, window_height: usize, width: usize) -> Layout {
+        Layout {
+            max_running,
+            window_height,
+            width,
+        }
+    }
+
+    fn window<'a>(title: &'a str, lines: &[&'a str]) -> WindowView<'a> {
+        WindowView {
+            title,
+            lines: lines.to_vec(),
+        }
+    }
+
+    #[test]
+    fn live_region_shows_a_fixed_height_log_window() {
+        let lines = plain(live_region(
+            &[],
+            &progress(),
+            &[window("logs", &["one", "two", "three"])],
+            0,
+            layout(10, 2, 30),
+        ));
+        assert_eq!(lines[0], format!("── logs {}", "─".repeat(22)));
+        assert_eq!(lines[1..3], ["  two", "  three"]);
+        assert_eq!(lines[3], "─".repeat(30));
+
+        // Fewer logs than the window: blank rows keep the height.
+        let lines = plain(live_region(
+            &[],
+            &progress(),
+            &[window("logs", &["one"])],
+            0,
+            layout(10, 3, 30),
+        ));
+        assert_eq!(lines[1..4], ["", "", "  one"]);
+    }
+
+    #[test]
+    fn live_region_stacks_windows() {
+        let lines = plain(live_region(
+            &[],
+            &progress(),
+            &[window("http", &["GET"]), window("logs", &["INFO"])],
+            0,
+            layout(10, 1, 30),
+        ));
+        assert_eq!(
+            lines[..5],
+            [
+                format!("── http {}", "─".repeat(22)),
+                "  GET".to_string(),
+                format!("── logs {}", "─".repeat(22)),
+                "  INFO".to_string(),
+                "─".repeat(30),
+            ]
+        );
+    }
+
+    #[test]
+    fn call_line_summarizes_an_http_call() {
+        let log = runner::CallLog::Http(Box::new(http::Log {
+            request: http::LogRequest {
+                url: "http://localhost/users?id=1".parse().unwrap(),
+                method: http::Method::POST,
+                headers: Default::default(),
+                body: None,
+            },
+            response: http::LogResponse {
+                status: http::StatusCode::CREATED,
+                duration_req: Duration::from_millis(12),
+                ..Default::default()
+            },
+            started_at: std::time::SystemTime::now(),
+            ended_at: std::time::SystemTime::now(),
+        }));
+        assert_eq!(
+            console::strip_ansi_codes(&call_line(&log, "api", "create")),
+            "POST 201 Created http://localhost/users?id=1 12.00ms  · api::create"
+        );
+    }
+
     fn plain(lines: Vec<String>) -> Vec<String> {
         lines
             .iter()
@@ -1514,9 +1820,9 @@ mod test {
         let lines = plain(live_region(
             &[running("a"), retried],
             &progress(),
+            &[],
             0,
-            10,
-            60,
+            layout(10, 0, 60),
         ));
         assert_eq!(
             lines,
@@ -1532,7 +1838,7 @@ mod test {
     #[test]
     fn live_region_collapses_overflow() {
         let tests = ["a", "b", "c", "d"].map(running);
-        let lines = plain(live_region(&tests, &progress(), 0, 3, 60));
+        let lines = plain(live_region(&tests, &progress(), &[], 0, layout(3, 0, 60)));
         assert_eq!(
             lines[1..4],
             [
@@ -1547,7 +1853,7 @@ mod test {
     fn live_region_omits_failed_when_none() {
         let mut p = progress();
         p.failed = 0;
-        let lines = plain(live_region(&[], &p, 0, 10, 60));
+        let lines = plain(live_region(&[], &p, &[], 0, layout(10, 0, 60)));
         assert_eq!(
             lines[1],
             " ━━━━━━──────────────  3/10  ✓ 2  ● 0 running  2.3s"
@@ -1556,7 +1862,13 @@ mod test {
 
     #[test]
     fn live_region_fits_the_terminal_width() {
-        let lines = live_region(&[running("some_long_test_name")], &progress(), 0, 10, 16);
+        let lines = live_region(
+            &[running("some_long_test_name")],
+            &progress(),
+            &[],
+            0,
+            layout(10, 0, 16),
+        );
         for line in &lines {
             assert!(console::measure_text_width(line) <= 16, "{line}");
         }
@@ -1582,6 +1894,32 @@ mod test {
     fn format_elapsed_switches_to_minutes() {
         assert_eq!(format_elapsed(Duration::from_millis(1234)), "1.2s");
         assert_eq!(format_elapsed(Duration::from_secs(125)), "2m05s");
+    }
+
+    #[test]
+    fn log_writer_sends_whole_lines_to_the_sink() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        set_log_sink(LogSink::Live(tx));
+        {
+            let mut w = LogWriter::default();
+            write!(w, "INFO ").unwrap();
+            writeln!(w, "hello").unwrap();
+            assert!(
+                rx.try_recv().is_err(),
+                "nothing is sent before the event ends"
+            );
+        }
+        assert_eq!(rx.try_recv().unwrap(), b"INFO hello\n");
+
+        // After the live reporter is done, logs are dropped.
+        set_log_sink(LogSink::Discard);
+        writeln!(LogWriter::default(), "dropped").unwrap();
+        assert!(rx.try_recv().is_err());
+
+        // Without a live reporter, the log goes to stdout instead.
+        set_log_sink(LogSink::Stdout);
+        writeln!(LogWriter::default(), "to stdout").unwrap();
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

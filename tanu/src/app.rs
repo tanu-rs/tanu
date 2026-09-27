@@ -18,19 +18,17 @@ use crate::{get_tanu_config, LineReporter, ListReporter, ReporterType};
 
 /// Picks the reporter used when `--reporters` is not given: the live `line`
 /// reporter on an interactive terminal, and `list` everywhere else (CI, pipes,
-/// files). `--capture-rust` also forces `list`, since Rust logs written to
-/// stdout would break the in-place status line.
-fn default_reporter(capture_rust: bool) -> ReporterType {
+/// files).
+fn default_reporter() -> ReporterType {
     pick_default_reporter(
         Term::stdout().is_term(),
         std::env::var_os("CI").is_some(),
         std::env::var("TERM").is_ok_and(|t| t == "dumb"),
-        capture_rust,
     )
 }
 
-fn pick_default_reporter(is_term: bool, ci: bool, dumb: bool, capture_rust: bool) -> ReporterType {
-    if is_term && !ci && !dumb && !capture_rust {
+fn pick_default_reporter(is_term: bool, ci: bool, dumb: bool) -> ReporterType {
+    if is_term && !ci && !dumb {
         ReporterType::Line
     } else {
         ReporterType::List
@@ -349,7 +347,7 @@ impl App {
                     .flat_map(|vals| vals.cloned())
                     .collect::<Vec<_>>();
                 if reporters_arg.is_empty() {
-                    reporters_arg.push(default_reporter(capture_rust).to_string());
+                    reporters_arg.push(default_reporter().to_string());
                 }
                 // Merge config value with CLI flag (CLI takes precedence)
                 let concurrency = test_matches
@@ -696,11 +694,10 @@ mod test {
     fn default_reporter_is_line_only_on_an_interactive_terminal() {
         use super::pick_default_reporter as pick;
         use crate::ReporterType::{Line, List};
-        assert_eq!(pick(true, false, false, false), Line);
-        assert_eq!(pick(false, false, false, false), List);
-        assert_eq!(pick(true, true, false, false), List);
-        assert_eq!(pick(true, false, true, false), List);
-        assert_eq!(pick(true, false, false, true), List);
+        assert_eq!(pick(true, false, false), Line);
+        assert_eq!(pick(false, false, false), List);
+        assert_eq!(pick(true, true, false), List);
+        assert_eq!(pick(true, false, true), List);
     }
 
     use super::*;
