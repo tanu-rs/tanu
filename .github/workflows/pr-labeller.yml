@@ -1,0 +1,65 @@
+name: PR Labeller
+
+on:
+  # pull_request_target so that PRs from forks get a token with write access.
+  # Safe because this workflow never checks out or runs code from the PR.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply labels from emoji commit prefixes
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            const commits = await github.paginate(
+              github.rest.pulls.listCommits,
+              { owner, repo, pull_number, per_page: 100 }
+            );
+
+            // Keep in sync with the emoji table in CLAUDE.md and the
+            // categories in .github/release.yml.
+            const emojiToLabel = {
+              '🐶': 'enhancement',
+              '🐛': 'bug',
+              '🧪': 'test',
+              '✨': 'refactoring',
+              '📚': 'documentation',
+              '🔧': 'build',
+              '🧹': 'refactoring',
+            };
+
+            const labels = new Set();
+            for (const commit of commits) {
+              const subject = commit.commit.message.split('\n')[0].trimStart();
+              for (const [emoji, label] of Object.entries(emojiToLabel)) {
+                if (subject.startsWith(emoji)) {
+                  labels.add(label);
+                  break;
+                }
+              }
+            }
+
+            if (labels.size === 0) {
+              core.info('No known emoji prefixes found in PR commits');
+              return;
+            }
+
+            const labelList = Array.from(labels);
+            core.info(`Adding labels: ${labelList.join(', ')}`);
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: labelList,
+            });
