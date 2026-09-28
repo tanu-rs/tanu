@@ -10,10 +10,10 @@ cargo run -- test --reporters list,allure
 
 | Name | Description |
 |---|---|
-| `line` | Default on an interactive terminal. Keeps a live view at the bottom of the terminal: one line per running test (with elapsed time and retry count) and a progress bar with passed/failed counts. Failures are printed in full above it as they happen, with captured HTTP logs (depending on `--capture-http`), followed by a summary. Passing tests, including ones that passed after a retry, leave nothing behind. With `--capture-http all`, every HTTP/gRPC call appears as one line (method, status, URL, duration, test) in a fixed-height `http` window, and with `--capture-rust`, the latest Rust logs appear in a `logs` window; both disappear when the run ends. Use `--reporters list` to keep full output. |
+| `live` | Default on an interactive terminal. Keeps a live view at the bottom of the terminal: one line per running test (with elapsed time and retry count) and a progress bar with passed/failed counts. Failures are printed in full above it as they happen, with captured HTTP logs (depending on `--capture-http`), followed by a summary. Passing tests, including ones that passed after a retry, leave nothing behind. With `--capture-http all`, every HTTP/gRPC call appears as one line (method, status, URL, duration, test) in a fixed-height `http` window, and with `--capture-rust`, the latest Rust logs appear in a `logs` window; both disappear when the run ends. Use `--reporters list` to keep full output. |
 | `list` | Default when stdout is not a terminal (CI, pipes, files). Prints one line per test as it finishes, followed by captured HTTP logs (depending on `--capture-http`) and a summary. |
 
-When `--reporters` is not given, tanu picks `line` if stdout is a terminal, and `list` if it isn't, if the `CI` environment variable is set, or if `TERM=dumb`. With `--capture-rust`, Rust logs are printed above the live view. Pass `--reporters list` to get per-test output in a terminal.
+When `--reporters` is not given, tanu picks `live` if stdout is a terminal, and `list` if it isn't, if the `CI` environment variable is set, or if `TERM=dumb`. Pass `--reporters list` to get per-test output in a terminal.
 
 ## Allure
 

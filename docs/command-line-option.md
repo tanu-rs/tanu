@@ -58,7 +58,7 @@ The `test_ignore` and `test_only` lists in `tanu.toml` are applied in addition t
 
 | Option | Description |
 |---|---|
-| `--reporters <REPORTERS>` | Comma-separated reporters to use. Default `line` on an interactive terminal, `list` otherwise (CI, pipes, files). Reporters registered with `App::install_reporter` are also available here; see [Reporters](report.md). |
+| `--reporters <REPORTERS>` | Comma-separated reporters to use. Default `live` on an interactive terminal, `list` otherwise (CI, pipes, files). Reporters registered with `App::install_reporter` are also available here; see [Reporters](report.md). |
 | `--color <WHEN>` | `auto` (default), `always`, or `never`. The `CARGO_TERM_COLOR` environment variable is also respected. |
 | `--capture-rust` | Print logs emitted through the Rust [`log`](https://crates.io/crates/log) crate, both from tanu internals and from your tests. |
 

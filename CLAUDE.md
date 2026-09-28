@@ -59,7 +59,7 @@ After every code change, always run these commands in order:
   - `--capture-http` - Log HTTP requests/responses
   - `--max-body-size` - Cap printed HTTP body size (e.g. `64KB`, `2MB`; `0` disables)
   - `--fail-fast` - Abort after first failure, skipping remaining tests
-  - `--reporters` - Comma-separated reporters (`list`, `line`, installed ones); default is `line` on a TTY, `list` otherwise (CI, pipes, `TERM=dumb`)
+  - `--reporters` - Comma-separated reporters (`list`, `live`, installed ones); default is `live` on a TTY, `list` otherwise (CI, pipes, `TERM=dumb`)
 - **tui**: Interactive TUI mode for test execution.
   - `-c, --concurrency` - Max parallel tests (default: CPU cores)
 - **ls**: List test cases; accepts the same filters as `test`.

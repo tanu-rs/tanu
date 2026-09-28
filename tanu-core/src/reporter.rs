@@ -9,7 +9,7 @@
 //!
 //! - **`NullReporter`**: No output (useful for testing)
 //! - **`ListReporter`**: Real-time streaming output with detailed logs
-//! - **`LineReporter`**: A single live status line, with failures printed above it
+//! - **`LiveReporter`**: A live view of the running tests, with failures printed above it
 //!
 //! ## Custom Reporters
 //!
@@ -61,14 +61,14 @@ use crate::{
 ///
 /// - `Null`: No output, useful for testing or when output is not needed
 /// - `List`: Real-time streaming output with detailed information
-/// - `Line`: A single live status line, with failures printed above it
+/// - `Live`: A live view of the running tests, with failures printed above it
 #[derive(Debug, Clone, Default, PartialEq, Eq, strum::EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ReporterType {
     Null,
     #[default]
     List,
-    Line,
+    Live,
 }
 
 async fn run<R: Reporter + Send + ?Sized>(reporter: &mut R) -> eyre::Result<()> {
@@ -624,7 +624,7 @@ fn write_summary(
 /// Where Rust logs (`--capture-rust`) go while a live reporter owns the terminal.
 ///
 /// Logs printed straight to stdout would land in the middle of the live region
-/// and break its redraw, so while a [`LineReporter`] is running, [`LogWriter`]
+/// and break its redraw, so while a [`LiveReporter`] is running, [`LogWriter`]
 /// sends each log line here and the reporter shows it in the live region.
 static LOG_SINK: Mutex<LogSink> = Mutex::new(LogSink::Stdout);
 
@@ -683,7 +683,7 @@ impl Drop for LogWriter {
     }
 }
 
-/// A reporter with a live view of the running tests, like Playwright's `line` reporter.
+/// A reporter with a live view of the running tests.
 ///
 /// At the bottom of the terminal it keeps a live region, redrawn every
 /// [`LIVE_REFRESH`], with one line per running test (spinner, elapsed time and
@@ -706,7 +706,7 @@ impl Drop for LogWriter {
 ///   ⠋ [staging] api::orders::list   6.4s  ↻ retry 1
 ///  ━━━━━━━━━──────────────────── 12/40  ✓ 11  ✘ 1  ● 2 running  2.3s
 /// ```
-pub struct LineReporter {
+pub struct LiveReporter {
     terminal: Term,
     is_term: bool,
     /// Tests that have started but not ended, in start order.
@@ -770,14 +770,14 @@ const WINDOW_LINES: usize = 8;
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-impl LineReporter {
-    /// Creates a new line reporter.
+impl LiveReporter {
+    /// Creates a new live reporter.
     ///
     /// Takes the same parameters as [`ListReporter::new`]. With
     /// `CaptureHttpMode::All`, HTTP logs of passing tests are printed too.
-    pub fn new(capture_http: CaptureHttpMode, max_body_size: MaxBodySize) -> LineReporter {
+    pub fn new(capture_http: CaptureHttpMode, max_body_size: MaxBodySize) -> LiveReporter {
         let terminal = Term::stdout();
-        LineReporter {
+        LiveReporter {
             is_term: terminal.is_term(),
             terminal,
             running: IndexMap::new(),
@@ -904,7 +904,7 @@ impl LineReporter {
 }
 
 #[async_trait::async_trait]
-impl Reporter for LineReporter {
+impl Reporter for LiveReporter {
     /// Like the default event loop, but also redraws the live region on a timer,
     /// so the spinners and elapsed times move while tests are running.
     async fn run(&mut self) -> eyre::Result<()> {
