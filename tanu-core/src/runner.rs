@@ -444,6 +444,13 @@ pub struct Test {
     pub result: Result<(), Error>,
 }
 
+/// Number of tests a spawned task ran and how many of them failed.
+#[derive(Debug, Default, Clone, Copy)]
+struct TestCounts {
+    ran: usize,
+    failed: usize,
+}
+
 /// Overall test execution summary.
 ///
 /// Contains aggregate information about the entire test run including
@@ -578,6 +585,9 @@ pub struct Options {
     pub extra_sensitive_keys: Vec<String>,
     /// Extra header names (exact, case-insensitive) to treat as sensitive (see `tanu.toml`).
     pub extra_sensitive_headers: Vec<String>,
+    /// Substring patterns matched against `module::name`; a test runs if it
+    /// matches any of them. Empty means all tests.
+    pub name_patterns: Vec<String>,
 }
 
 impl Default for Options {
@@ -592,6 +602,7 @@ impl Default for Options {
             fail_fast: false,
             extra_sensitive_keys: Vec::new(),
             extra_sensitive_headers: Vec::new(),
+            name_patterns: Vec::new(),
         }
     }
 }
@@ -653,7 +664,9 @@ impl Filter for ProjectFilter<'_> {
 ///
 /// When module names are provided, only tests from those modules
 /// will be executed. If the list is empty, all modules are included.
-/// Module names correspond to Rust module paths.
+/// Module names correspond to Rust module paths. A name matches any run of whole
+/// path segments and also selects submodules, so `api` matches `crate::api` and
+/// `crate::api::users`, and `api::users` matches `crate::api::users`.
 ///
 /// # Examples
 ///
@@ -675,14 +688,21 @@ impl Filter for ModuleFilter<'_> {
 
         self.module_names
             .iter()
-            .any(|module_name| &info.module == module_name)
+            .any(|module_name| module_matches(&info.module, module_name))
     }
+}
+
+/// Returns true if `name` appears in `module` as a run of whole `::` segments,
+/// i.e. `module` is that module or one of its submodules.
+pub fn module_matches(module: &str, name: &str) -> bool {
+    !name.is_empty() && format!("::{module}::").contains(&format!("::{name}::"))
 }
 
 /// Filters tests to only run specific named tests.
 ///
-/// When test names are provided, only those exact tests will be executed.
-/// Test names should include the module (e.g., "api::health_check").
+/// When test names are provided, only those tests will be executed.
+/// A name matches the full name (e.g., "api::health_check") or any trailing part of
+/// it made of whole `::` segments ("health_check", "api::health_check").
 /// If the list is empty, all tests are included.
 ///
 /// # Examples
@@ -707,7 +727,43 @@ impl Filter for TestNameFilter<'_> {
 
         self.test_names
             .iter()
-            .any(|test_name| &info.full_name() == test_name)
+            .any(|test_name| test_name_matches(info, test_name))
+    }
+}
+
+/// Returns true if `name` is the test's full name (`module::name`) or a trailing part
+/// of it made of whole `::` segments, such as the bare test name.
+pub fn test_name_matches(info: &TestInfo, name: &str) -> bool {
+    !name.is_empty() && format!("::{}", info.full_name()).ends_with(&format!("::{name}"))
+}
+
+/// Filters tests by substring patterns matched against the full test name.
+///
+/// A test is included if its `module::name` contains any of the patterns,
+/// like `cargo test <PATTERN>`. If the list is empty, all tests are included.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tanu_core::runner::NamePatternFilter;
+///
+/// let filter = NamePatternFilter { patterns: &["users".to_string()] };
+/// // Runs e.g. "api::users::create" and "users::list"
+/// ```
+pub struct NamePatternFilter<'a> {
+    patterns: &'a [String],
+}
+
+impl Filter for NamePatternFilter<'_> {
+    fn filter(&self, _project: &ProjectConfig, info: &TestInfo) -> bool {
+        if self.patterns.is_empty() {
+            return true;
+        }
+
+        let full_name = info.full_name();
+        self.patterns
+            .iter()
+            .any(|pattern| full_name.contains(pattern.as_str()))
     }
 }
 
@@ -1064,6 +1120,11 @@ impl Runner {
         self.options.fail_fast = fail_fast;
     }
 
+    /// Only run tests whose `module::name` contains one of these substrings.
+    pub fn set_name_patterns(&mut self, patterns: Vec<String>) {
+        self.options.name_patterns = patterns;
+    }
+
     /// Executes all registered tests with optional filtering.
     ///
     /// Runs tests concurrently according to the configured options and filters.
@@ -1128,15 +1189,23 @@ impl Runner {
         // Wait for all reporters to subscribe before starting tests
         wait_reporter_barrier().await;
 
+        let has_filters = !project_names.is_empty()
+            || !module_names.is_empty()
+            || !test_names.is_empty()
+            || !self.options.name_patterns.is_empty();
         let project_filter = ProjectFilter { project_names };
         let module_filter = ModuleFilter { module_names };
         let test_name_filter = TestNameFilter { test_names };
+        let name_pattern_filter = NamePatternFilter {
+            patterns: &self.options.name_patterns,
+        };
         let test_ignore_filter = TestIgnoreFilter::default();
         let test_only_filter = TestOnlyFilter::default();
 
         let start = std::time::Instant::now();
         let fail_fast = self.options.fail_fast;
         let cancelled = Arc::new(AtomicBool::new(false));
+        let total_tests;
         let handles: FuturesUnordered<_> = {
             // Create a semaphore to limit concurrency
             let concurrency = self.options.concurrency;
@@ -1170,11 +1239,13 @@ impl Runner {
                 .cartesian_product(projects)
                 .map(|((info, factory), project)| (project, Arc::clone(info), factory.clone()))
                 .filter(move |(project, info, _)| test_name_filter.filter(project, info))
+                .filter(move |(project, info, _)| name_pattern_filter.filter(project, info))
                 .filter(move |(project, info, _)| module_filter.filter(project, info))
                 .filter(move |(project, info, _)| project_filter.filter(project, info))
                 .filter(move |(project, info, _)| test_ignore_filter.filter(project, info))
                 .filter(move |(project, info, _)| test_only_filter.filter(project, info))
                 .collect();
+            total_tests = all_tests.len();
 
             // Separate ordered and non-ordered tests
             let (mut ordered_tests, non_ordered_tests): (Vec<_>, Vec<_>) =
@@ -1217,8 +1288,8 @@ impl Runner {
                     };
 
                     // Run all tests in this group sequentially (await each before starting next)
-                    let mut group_failed = false;
-                    let mut group_error: Option<eyre::Report> = None;
+                    let mut ran = 0;
+                    let mut failed = 0;
                     for (project, info, factory) in tests {
                         if cancelled.load(Ordering::Relaxed) {
                             break;
@@ -1247,27 +1318,17 @@ impl Runner {
                         .await;
                         worker_ids.release(worker_id);
 
+                        ran += 1;
                         match result {
-                            Ok(test) => {
-                                if test.result.is_err() {
-                                    group_failed = true;
-                                }
-                            }
+                            Ok(test) if test.result.is_ok() => {}
+                            Ok(_) => failed += 1,
                             Err(e) => {
-                                group_failed = true;
-                                if group_error.is_none() {
-                                    group_error = Some(e);
-                                }
+                                debug!("test case failed: {e:#}");
+                                failed += 1;
                             }
                         }
                     }
-                    if group_failed {
-                        if let Some(e) = group_error {
-                            return Err(e);
-                        }
-                        eyre::bail!("one or more tests failed");
-                    }
-                    eyre::Ok(())
+                    eyre::Ok(TestCounts { ran, failed })
                 })
             });
 
@@ -1282,7 +1343,7 @@ impl Runner {
                         let cancelled = cancelled.clone();
                         tokio::spawn(async move {
                             if cancelled.load(Ordering::Relaxed) {
-                                return Ok(());
+                                return Ok(TestCounts::default());
                             }
 
                             // Step 1: Acquire serial group mutex FIRST (if needed) - project-scoped
@@ -1329,17 +1390,22 @@ impl Runner {
                                 serial_mutex.clone(),
                                 worker_id,
                             )
-                            .await
-                            .and_then(|test| {
-                                let is_err = test.result.is_err();
-                                eyre::ensure!(!is_err);
-                                eyre::Ok(())
-                            });
+                            .await;
 
                             // Return worker ID to pool
                             worker_ids.release(worker_id);
 
-                            result
+                            let failed = match result {
+                                Ok(test) => test.result.is_err(),
+                                Err(e) => {
+                                    debug!("test case failed: {e:#}");
+                                    true
+                                }
+                            };
+                            eyre::Ok(TestCounts {
+                                ran: 1,
+                                failed: usize::from(failed),
+                            })
                         })
                     });
 
@@ -1359,8 +1425,6 @@ impl Runner {
             test_prep_time.as_secs_f32()
         );
 
-        let mut has_any_error = false;
-        let total_tests = handles.len();
         let options = self.options.clone();
         let runner = async move {
             let mut handles = handles;
@@ -1368,40 +1432,38 @@ impl Runner {
             let mut processed_tests = 0;
 
             while let Some(result) = handles.next().await {
-                processed_tests += 1;
-                match result {
-                    Ok(res) => {
-                        if let Err(e) = res {
-                            debug!("test case failed: {e:#}");
-                            has_any_error = true;
-                            failed_tests += 1;
-                            if fail_fast {
-                                cancelled.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                        }
+                let counts = match result {
+                    Ok(Ok(counts)) => counts,
+                    Ok(Err(e)) => {
+                        debug!("test case failed: {e:#}");
+                        TestCounts { ran: 1, failed: 1 }
                     }
-                    Err(e) => {
-                        if e.is_panic() {
-                            // Resume the panic on the main task
-                            error!("{e}");
-                            has_any_error = true;
-                            failed_tests += 1;
-                            if fail_fast {
-                                cancelled.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                        }
+                    Err(e) if e.is_panic() => {
+                        error!("{e}");
+                        TestCounts { ran: 1, failed: 1 }
                     }
+                    Err(_) => TestCounts::default(),
+                };
+                processed_tests += counts.ran;
+                failed_tests += counts.failed;
+                if fail_fast && counts.failed > 0 {
+                    cancelled.store(true, Ordering::Relaxed);
+                    break;
                 }
             }
+            let has_any_error = failed_tests > 0;
 
             if total_tests == 0 {
-                console::Term::stdout().write_line("no test cases found")?;
+                let message = if has_filters {
+                    "no tests matched the given filters"
+                } else {
+                    "no test cases found"
+                };
+                console::Term::stdout().write_line(message)?;
             }
 
-            // Count remaining skipped tasks (when fail-fast triggered early exit)
-            let skipped_tests = total_tests - processed_tests;
+            // Count tests that never ran (when fail-fast triggered early exit)
+            let skipped_tests = total_tests.saturating_sub(processed_tests);
             let passed_tests = total_tests - failed_tests - skipped_tests;
             let total_time = start.elapsed();
 
@@ -2193,6 +2255,106 @@ mod test {
         assert_eq!(summary.skipped_tests, 0, "should have no skipped tests");
 
         Ok(())
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn runner_summary_counts_each_ordered_test() -> eyre::Result<()> {
+        let mut rx = subscribe()?;
+        let mut runner = Runner::with_config(create_config());
+
+        let group = Some("flow");
+        runner.add_test("ord_1", "module", group, 0, true, passing_factory());
+        runner.add_test("ord_2", "module", group, 1, true, failing_factory());
+        runner.add_test("ord_3", "module", group, 2, true, passing_factory());
+        runner.add_test("unordered", "module", None, 3, false, passing_factory());
+
+        let result = runner.run(&[], &[], &[]).await;
+        assert!(result.is_err());
+
+        let mut summary = None;
+        while let Ok(event) = rx.try_recv() {
+            if let EventBody::Summary(s) = event.body {
+                summary = Some(s);
+            }
+        }
+
+        let summary = summary.expect("should have received Summary event");
+        assert_eq!(summary.total_tests, 4);
+        assert_eq!(summary.passed_tests, 3);
+        assert_eq!(summary.failed_tests, 1);
+        assert_eq!(summary.skipped_tests, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn module_filter_matches_segments_and_submodules() {
+        let project = ProjectConfig::default();
+        let info = TestInfo {
+            module: "api::users".into(),
+            name: "get".into(),
+            ..Default::default()
+        };
+        let names = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let matches = |m: &[&str]| {
+            ModuleFilter {
+                module_names: &names(m),
+            }
+            .filter(&project, &info)
+        };
+        assert!(matches(&[]));
+        assert!(matches(&["api"]));
+        assert!(matches(&["api::users"]));
+        assert!(!matches(&["ap"]));
+        assert!(!matches(&["api::user"]));
+        assert!(matches(&["users"]));
+        assert!(!matches(&["users::api"]));
+    }
+
+    #[test]
+    fn test_name_filter_matches_trailing_segments() {
+        let project = ProjectConfig::default();
+        let info = TestInfo {
+            module: "api::users".into(),
+            name: "get".into(),
+            ..Default::default()
+        };
+        let names = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let matches = |t: &[&str]| {
+            TestNameFilter {
+                test_names: &names(t),
+            }
+            .filter(&project, &info)
+        };
+        assert!(matches(&[]));
+        assert!(matches(&["api::users::get"]));
+        assert!(matches(&["get"]));
+        assert!(matches(&["users::get"]));
+        assert!(!matches(&["api::get"]));
+        assert!(!matches(&["ge"]));
+    }
+
+    #[test]
+    fn name_pattern_filter_matches_substrings() {
+        let project = ProjectConfig::default();
+        let info = TestInfo {
+            module: "api::users".into(),
+            name: "get".into(),
+            ..Default::default()
+        };
+        let names = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let matches = |p: &[&str]| {
+            NamePatternFilter {
+                patterns: &names(p),
+            }
+            .filter(&project, &info)
+        };
+        assert!(matches(&[]));
+        assert!(matches(&["users"]));
+        assert!(matches(&["users::get"]));
+        assert!(matches(&["nope", "api"]));
+        assert!(!matches(&["post"]));
     }
 
     // Verify that HTTP Call events are published to the channel regardless of
