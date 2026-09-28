@@ -19,12 +19,10 @@ use ratatui::{
 };
 use std::{
     collections::HashMap,
+    sync::RwLock,
     time::{Duration, SystemTime},
 };
-use syntect::{
-    highlighting::{Theme, ThemeSet},
-    parsing::SyntaxSet,
-};
+use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tanu_core::get_tanu_config;
 use tracing::{debug, warn};
 
@@ -34,6 +32,7 @@ use crate::{
         list::{Counts, ExecutionState, RowRef, TestListState, TestState},
         tabbed_block::CustomTabs,
         theme::{self, fmt_duration, muted},
+        theme_picker::{self, ThemeKind},
     },
     Call, TestResult,
 };
@@ -83,6 +82,8 @@ pub struct InfoState {
     showing_tabs: bool,
     /// Horizontal ranges `(tab, x_start, x_end, y)` of the tabs, for mouse clicks.
     tab_hits: Vec<(Tab, u16, u16, u16)>,
+    /// Screen area of the payload theme button from the last render, if shown.
+    payload_theme_button: Option<Rect>,
     scrolls: [ScrollState; 5],
 }
 
@@ -95,6 +96,7 @@ impl InfoState {
             selected: None,
             showing_tabs: false,
             tab_hits: vec![],
+            payload_theme_button: None,
             scrolls: Default::default(),
         }
     }
@@ -134,6 +136,11 @@ impl InfoState {
             .iter()
             .find(|(_, start, end, row)| *row == y && (*start..*end).contains(&x))
             .map(|(tab, ..)| *tab)
+    }
+
+    /// Screen area of the payload theme button from the last render, if shown.
+    pub fn payload_theme_button(&self) -> Option<Rect> {
+        self.payload_theme_button
     }
 
     fn view(&self) -> View {
@@ -193,6 +200,7 @@ impl StatefulWidget for InfoWidget<'_> {
         let inner = inner.inner(Margin::new(1, 0));
 
         state.tab_hits.clear();
+        state.payload_theme_button = None;
         let Some((test_result, call)) = single_call else {
             state.showing_tabs = false;
             let lines = self.overview_lines(selected, inner.width as usize);
@@ -257,7 +265,11 @@ impl StatefulWidget for InfoWidget<'_> {
                     state.scroll_mut(),
                 );
             }
-            Tab::Payload => render_payload(call, layout_content, buf, state.scroll_mut()),
+            Tab::Payload => {
+                if render_payload(call, layout_content, buf, state.scroll_mut()) {
+                    state.payload_theme_button = render_payload_theme_button(area, buf);
+                }
+            }
             Tab::Error => {
                 let lines = error_lines(test_result, width);
                 render_scrolled(lines, layout_content, buf, state.scroll_mut());
@@ -838,14 +850,15 @@ fn render_headers(
     );
 }
 
-fn render_payload(call: Call<'_>, area: Rect, buf: &mut Buffer, scroll: &mut ScrollState) {
+/// Renders the payload; returns true if it was syntax-highlighted.
+fn render_payload(call: Call<'_>, area: Rect, buf: &mut Buffer, scroll: &mut ScrollState) -> bool {
     let (theme_bg, highlighted_text) = match call {
         Call::Http(http_call) => match build_http_payload_text(http_call) {
             Some(result) => result,
             None => {
                 scroll.max = 0;
                 Paragraph::new(Line::styled("No payload", muted())).render(area, buf);
-                return;
+                return false;
             }
         },
         #[cfg(feature = "grpc")]
@@ -880,6 +893,23 @@ fn render_payload(call: Call<'_>, area: Rect, buf: &mut Buffer, scroll: &mut Scr
         paragraph
     };
     paragraph.render(area, buf);
+    theme_bg.is_some()
+}
+
+/// Draws a button that opens the payload theme picker on the bottom border of the pane,
+/// right-aligned, and returns its area. Returns `None` if the pane is too narrow.
+fn render_payload_theme_button(pane: Rect, buf: &mut Buffer) -> Option<Rect> {
+    // Fixed width, so that the button stays put when clicked repeatedly.
+    let label = theme_picker::button_label(ThemeKind::Payload);
+    let width = label.width() as u16;
+    // Keep the rounded corner and one border cell on the right.
+    let x = pane.right().checked_sub(width + 2)?;
+    if pane.height < 2 || x <= pane.x + 1 {
+        return None;
+    }
+    let button = Rect::new(x, pane.bottom() - 1, width, 1);
+    label.render(button, buf);
+    Some(button)
 }
 
 impl<'a> InfoWidget<'a> {
@@ -1257,25 +1287,91 @@ static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| {
     ts
 });
 
-static THEME: Lazy<Theme> = Lazy::new(|| {
-    const DEFAULT_THEME: &str = "Solarized (dark)";
-    let color_theme = get_tanu_config().color_theme();
-    let theme_name = color_theme
-        .map(|s| format!("base16-{s}"))
-        .unwrap_or(DEFAULT_THEME.into());
+/// Payload theme used when `payload.color_theme` is not set or unknown.
+const DEFAULT_PAYLOAD_THEME: &str = "Solarized (dark)";
 
-    match THEME_SET.themes.get(&theme_name) {
-        Some(theme) => theme.clone(),
-        None => {
-            warn!("Theme '{theme_name}' not found, falling back to default");
-            THEME_SET
-                .themes
-                .get(DEFAULT_THEME)
-                .expect("Default theme '{DEFAULT_THEME}' not found")
-                .clone()
-        }
+/// Prefix of the Base16 themes; `payload.color_theme` names omit it.
+const BASE16_PREFIX: &str = "base16-";
+
+/// Keys in `THEME_SET` of the selectable payload themes: the default, then the
+/// Base16 themes sorted. `T` and the theme picker go through them.
+static PAYLOAD_THEMES: Lazy<Vec<String>> = Lazy::new(|| {
+    let base16 = THEME_SET
+        .themes
+        .keys()
+        .filter(|name| name.starts_with(BASE16_PREFIX))
+        .cloned()
+        .sorted();
+    std::iter::once(DEFAULT_PAYLOAD_THEME.to_string())
+        .chain(base16)
+        .collect()
+});
+
+/// Key in `THEME_SET` of the active payload theme.
+static PAYLOAD_THEME: Lazy<RwLock<String>> = Lazy::new(|| {
+    let theme_name = get_tanu_config()
+        .color_theme()
+        .map(|s| format!("{BASE16_PREFIX}{s}"))
+        .unwrap_or(DEFAULT_PAYLOAD_THEME.into());
+    if THEME_SET.themes.contains_key(&theme_name) {
+        RwLock::new(theme_name)
+    } else {
+        warn!("Theme '{theme_name}' not found, falling back to default");
+        RwLock::new(DEFAULT_PAYLOAD_THEME.into())
     }
 });
+
+fn payload_theme_key() -> String {
+    PAYLOAD_THEME
+        .read()
+        .expect("payload theme lock poisoned")
+        .clone()
+}
+
+/// Theme name as written in `payload.color_theme`.
+fn payload_theme_display_name(key: &str) -> &str {
+    key.strip_prefix(BASE16_PREFIX).unwrap_or(key)
+}
+
+/// Name of the active payload theme, as written in `payload.color_theme`.
+pub fn payload_theme() -> String {
+    payload_theme_display_name(&payload_theme_key()).to_string()
+}
+
+/// Names of the selectable payload themes, in order.
+pub fn payload_themes() -> impl Iterator<Item = &'static str> {
+    PAYLOAD_THEMES
+        .iter()
+        .map(|key| payload_theme_display_name(key))
+}
+
+/// Index in `payload_themes` of the active payload theme.
+pub fn payload_theme_index() -> Option<usize> {
+    let current = payload_theme_key();
+    PAYLOAD_THEMES.iter().position(|key| *key == current)
+}
+
+/// Activates the payload theme at `index` of `payload_themes`.
+pub fn set_payload_theme(index: usize) {
+    if let Some(key) = PAYLOAD_THEMES.get(index) {
+        *PAYLOAD_THEME.write().expect("payload theme lock poisoned") = key.clone();
+    }
+}
+
+/// Activates the next payload theme, wrapping around, and returns its name.
+pub fn cycle_payload_theme() -> String {
+    {
+        let mut current = PAYLOAD_THEME.write().expect("payload theme lock poisoned");
+        let next = PAYLOAD_THEMES
+            .iter()
+            .position(|name| *name == *current)
+            .map_or(0, |i| (i + 1) % PAYLOAD_THEMES.len());
+        if let Some(name) = PAYLOAD_THEMES.get(next) {
+            *current = name.clone();
+        }
+    }
+    payload_theme()
+}
 
 // Include the generated themes module
 include!(concat!(env!("OUT_DIR"), "/themes.rs"));
@@ -1331,7 +1427,7 @@ fn build_http_payload_text(
         if content_type.starts_with("application/json") {
             let json: serde_json::Value = serde_json::from_str(res_body).ok()?;
             let json_str = serde_json::to_string_pretty(&json).unwrap();
-            let (theme_bg, highlighted_json) = highlight_source_code(json_str);
+            let (theme_bg, highlighted_json) = highlight_source_code(payload_theme_key(), json_str);
             return Some((Some(theme_bg), highlighted_json));
         }
         return Some((None, res_body.to_string()));
@@ -1368,8 +1464,12 @@ fn build_http_payload_text(
     Some((None, text))
 }
 
-#[memoize::memoize]
-fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, String) {
+/// Memoized per theme, so that switching themes re-highlights the payload.
+#[memoize::memoize(Capacity: 256)]
+fn highlight_source_code(
+    theme_key: String,
+    source_code: String,
+) -> (syntect::highlighting::Color, String) {
     use syntect::{
         easy::HighlightLines,
         highlighting::{Color, Style},
@@ -1380,8 +1480,13 @@ fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, 
         .find_syntax_by_extension("json")
         .expect("JSON syntax not found");
 
-    let theme_bg = THEME.settings.background.unwrap_or(Color::BLACK);
-    let mut highlighter = HighlightLines::new(syntax, &THEME);
+    let theme = THEME_SET
+        .themes
+        .get(&theme_key)
+        .or_else(|| THEME_SET.themes.get(DEFAULT_PAYLOAD_THEME))
+        .expect("default payload theme not found");
+    let theme_bg = theme.settings.background.unwrap_or(Color::BLACK);
+    let mut highlighter = HighlightLines::new(syntax, theme);
 
     let highlighted_with_line_numbers = source_code
         .lines()
@@ -1397,9 +1502,45 @@ fn highlight_source_code(source_code: String) -> (syntect::highlighting::Color, 
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    /// Serializes tests that change the global payload theme.
+    pub(crate) static PAYLOAD_THEME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn cycle_payload_theme_wraps_and_rehighlights() {
+        let _guard = PAYLOAD_THEME_LOCK.lock().unwrap();
+        let json = r#"{"a": 1}"#.to_string();
+        let first = cycle_payload_theme();
+        let (first_bg, first_text) = highlight_source_code(payload_theme_key(), json.clone());
+        let second = cycle_payload_theme();
+        assert_ne!(first, second);
+        assert!(!second.starts_with(BASE16_PREFIX));
+        // The memoized highlight is per theme, so the new theme takes effect.
+        let (second_bg, second_text) = highlight_source_code(payload_theme_key(), json);
+        assert!(first_bg != second_bg || first_text != second_text);
+
+        // Wraps around to the same theme after a full cycle.
+        for _ in 0..PAYLOAD_THEMES.len() {
+            cycle_payload_theme();
+        }
+        assert_eq!(second, payload_theme());
+    }
+
+    #[test]
+    fn payload_theme_button_sits_on_the_bottom_right_border() {
+        let pane = Rect::new(10, 5, 80, 20);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 30));
+        let button = render_payload_theme_button(pane, &mut buf).unwrap();
+        assert_eq!(pane.bottom() - 1, button.y);
+        assert_eq!(pane.right() - 2, button.right());
+
+        // No room in a narrow pane.
+        let narrow = Rect::new(0, 0, 20, 10);
+        assert_eq!(None, render_payload_theme_button(narrow, &mut buf));
+    }
 
     #[test]
     fn next_tab() -> eyre::Result<()> {

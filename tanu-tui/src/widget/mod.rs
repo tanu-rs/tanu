@@ -5,4 +5,5 @@ pub mod list;
 pub mod logger;
 pub mod tabbed_block;
 pub mod theme;
+pub mod theme_picker;
 pub mod timeline;
