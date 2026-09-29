@@ -14,7 +14,26 @@ use tanu_core::runner::{module_matches, test_name_matches, TestInfo};
 use tanu_core::Filter;
 use tanu_core::{config::parse_byte_size, CaptureHttpMode, MaxBodySize, ProjectConfig};
 
-use crate::{get_tanu_config, ListReporter, ReporterType};
+use crate::{get_tanu_config, ListReporter, LiveReporter, ReporterType};
+
+/// Picks the reporter used when `--reporters` is not given: the `live`
+/// reporter on an interactive terminal, and `list` everywhere else (CI, pipes,
+/// files).
+fn default_reporter() -> ReporterType {
+    pick_default_reporter(
+        Term::stdout().is_term(),
+        std::env::var_os("CI").is_some(),
+        std::env::var("TERM").is_ok_and(|t| t == "dumb"),
+    )
+}
+
+fn pick_default_reporter(is_term: bool, ci: bool, dumb: bool) -> ReporterType {
+    if is_term && !ci && !dumb {
+        ReporterType::Live
+    } else {
+        ReporterType::List
+    }
+}
 
 /// Define CLI color styles
 fn cli_styles() -> Styles {
@@ -75,6 +94,7 @@ fn filter_args(verb: &str) -> [Arg; 4] {
 /// Build the CLI with clap's builder pattern
 fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> ClapCommand {
     let mut reporter_choices: VecDeque<_> = third_party_reporters.map(|s| s.to_string()).collect();
+    reporter_choices.push_front(ReporterType::Live.to_string());
     reporter_choices.push_front(ReporterType::List.to_string());
     ClapCommand::new("tanu")
         .styles(cli_styles())
@@ -120,7 +140,7 @@ fn build_cli<'a>(third_party_reporters: impl Iterator<Item = &'a String>) -> Cla
                 .arg(Arg::new("reporters")
                     .long("reporters")
                     .value_name("REPORTERS")
-                    .help(format!("Reporters to use, comma-separated [default: list] [possible values: {}]", reporter_choices.into_iter().join(", ")))
+                    .help(format!("Reporters to use, comma-separated [default: live on a terminal, list otherwise] [possible values: {}]", reporter_choices.into_iter().join(", ")))
                     .value_delimiter(',')
                     .action(ArgAction::Append)
                     .help_heading("Output"))
@@ -327,7 +347,7 @@ impl App {
                     .flat_map(|vals| vals.cloned())
                     .collect::<Vec<_>>();
                 if reporters_arg.is_empty() {
-                    reporters_arg.push(ReporterType::List.to_string());
+                    reporters_arg.push(default_reporter().to_string());
                 }
                 // Merge config value with CLI flag (CLI takes precedence)
                 let concurrency = test_matches
@@ -362,14 +382,20 @@ impl App {
                 runner.terminate_channel();
 
                 let mut reporters = std::mem::take(&mut self.third_party_reporters);
-                reporters.extend([(
-                    ReporterType::List.to_string(),
-                    Box::new(ListReporter::new(capture_http, max_body_size)),
-                )]
+                reporters.extend([
+                    (
+                        ReporterType::List.to_string(),
+                        Box::new(ListReporter::new(capture_http.clone(), max_body_size)),
+                    ),
+                    (
+                        ReporterType::Live.to_string(),
+                        Box::new(LiveReporter::new(capture_http, max_body_size)),
+                    ),
+                ]
                     as [(
                         String,
                         Box<dyn tanu_core::reporter::Reporter + 'static + Send>,
-                    ); 1]);
+                    ); 2]);
 
                 for reporter in reporters_arg {
                     let available = reporters.keys().sorted().join(", ");
@@ -664,6 +690,16 @@ pub enum Color {
 
 #[cfg(test)]
 mod test {
+    #[test]
+    fn default_reporter_is_line_only_on_an_interactive_terminal() {
+        use super::pick_default_reporter as pick;
+        use crate::ReporterType::{List, Live};
+        assert_eq!(pick(true, false, false), Live);
+        assert_eq!(pick(false, false, false), List);
+        assert_eq!(pick(true, true, false), List);
+        assert_eq!(pick(true, false, true), List);
+    }
+
     use super::*;
 
     fn parse(args: &[&str]) -> Result<clap::ArgMatches, clap::Error> {
