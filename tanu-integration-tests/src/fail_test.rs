@@ -1,6 +1,9 @@
 use serde_json::Value;
 use tanu::{check_eq, eyre, http::Client};
 
+/// Always fails, to preview how the CLI and TUI show a failed test.
+///
+/// Only built with `--features fail-test`.
 #[tanu::test]
 async fn always_fails() -> eyre::Result<()> {
     let http = Client::new();

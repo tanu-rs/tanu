@@ -1,5 +1,6 @@
 use tanu::{check, eyre};
 
+/// `tanu::get_config()` panics in a spawned task that lacks tanu's task-local context.
 #[tanu::test]
 async fn spawned_task_without_scope_current_panics() -> eyre::Result<()> {
     let _ = tanu::get_config();
@@ -16,6 +17,7 @@ async fn spawned_task_without_scope_current_panics() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `tanu::scope_current` carries the test context into a spawned task, so `tanu::get_config()` works there.
 #[tanu::test]
 async fn spawned_task_with_scope_current_does_not_panic() -> eyre::Result<()> {
     let handle = tokio::spawn(tanu::scope_current(async move {

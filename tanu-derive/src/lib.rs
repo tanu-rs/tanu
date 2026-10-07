@@ -19,8 +19,9 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    parse::Parse, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Expr, ExprCall,
-    ExprLit, ExprPath, Item, ItemFn, ItemMod, Lit, LitStr, ReturnType, Signature, Token, Type,
+    parse::Parse, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Attribute, Expr,
+    ExprCall, ExprLit, ExprPath, Item, ItemFn, ItemMod, Lit, LitStr, Meta, ReturnType, Signature,
+    Token, Type,
 };
 
 /// Represents arguments in the test attribute #[test(a, b; c)].
@@ -319,6 +320,37 @@ fn extract_and_stringify_option(expr: &Expr) -> Option<String> {
     None
 }
 
+/// Collects the doc comment (`///` lines or `#[doc = "..."]`) on a test function.
+///
+/// Plain `//` comments never reach a proc macro, so only doc comments can be captured.
+fn extract_doc(attrs: &[Attribute]) -> Option<String> {
+    let lines: Vec<String> = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("doc"))
+        .filter_map(|attr| match &attr.meta {
+            Meta::NameValue(nv) => match &nv.value {
+                Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) => Some(s.value()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .flat_map(|doc| {
+            doc.split('\n')
+                .map(|line| {
+                    line.strip_prefix(' ')
+                        .unwrap_or(line)
+                        .trim_end()
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let doc = lines.join("\n").trim().to_string();
+    (!doc.is_empty()).then_some(doc)
+}
+
 /// Handles #[tanu::test(ordered)] when applied to a module.
 /// Injects 'ordered' parameter into all #[tanu::test] attributes within the module.
 fn handle_ordered_module(mut module: ItemMod) -> TokenStream {
@@ -449,6 +481,11 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let ordered = input_args.ordered;
 
+    let doc_tokens = match extract_doc(&input_fn.attrs) {
+        Some(doc) => quote! { Some(#doc) },
+        None => quote! { None },
+    };
+
     // tanu internally relies on the `eyre` and `color-eyre` crates for error handling.
     // since `tanu::Runner` expects test functions to return an `eyre::Result`, the macro
     // generates two types of code.
@@ -471,6 +508,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                     serial_group: #serial_group_tokens,
                     line: line!(),
                     ordered: #ordered,
+                    doc: #doc_tokens,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await
@@ -491,6 +529,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
                     serial_group: #serial_group_tokens,
                     line: line!(),
                     ordered: #ordered,
+                    doc: #doc_tokens,
                     test_fn: || {
                         Box::pin(async move {
                             #func_name_inner(#args).await.map_err(|e| ::tanu::eyre::eyre!(Box::new(e)))
@@ -557,6 +596,7 @@ pub fn main(_args: TokenStream, input: TokenStream) -> TokenStream {
                     test.serial_group,
                     test.line,
                     test.ordered,
+                    test.doc,
                     std::sync::Arc::new(test.test_fn)
                 );
             }
@@ -596,6 +636,16 @@ mod test {
     fn extract_and_stringify_option(s: &str) -> Option<String> {
         let expr: Expr = syn::parse_str(s).expect("failed to parse expression");
         super::extract_and_stringify_option(&expr)
+    }
+
+    #[test_case("/// Checks login\nfn f() {}" => Some("Checks login".into()); "single line")]
+    #[test_case("/// First\n///\n///   indented\nfn f() {}" => Some("First\n\n  indented".into()); "multi line keeps inner indent")]
+    #[test_case("#[doc = \"attr form\"]\nfn f() {}" => Some("attr form".into()); "doc attribute")]
+    #[test_case("// plain comment\nfn f() {}" => None; "plain comment is not captured")]
+    #[test_case("///\nfn f() {}" => None; "empty doc")]
+    fn extract_doc(s: &str) -> Option<String> {
+        let func: syn::ItemFn = syn::parse_str(s).expect("failed to parse function");
+        super::extract_doc(&func.attrs)
     }
 
     #[allow(clippy::erasing_op)]

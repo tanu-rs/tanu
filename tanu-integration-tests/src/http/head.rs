@@ -4,6 +4,7 @@ use tanu::{
     http::{Client, StatusCode},
 };
 
+/// HEAD returns 200 with headers and an empty body.
 #[tanu::test]
 async fn head_request() -> eyre::Result<()> {
     let http = Client::new();
@@ -24,6 +25,7 @@ async fn head_request() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Query parameters on a HEAD request end up in the request URL.
 #[tanu::test]
 async fn head_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
@@ -45,6 +47,7 @@ async fn head_with_query_params() -> eyre::Result<()> {
     Ok(())
 }
 
+/// HEAD reports error statuses: 404 and 500.
 #[tanu::test]
 async fn head_status_codes() -> eyre::Result<()> {
     let http = Client::new();

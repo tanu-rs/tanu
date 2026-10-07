@@ -1,18 +1,21 @@
 #![allow(clippy::eq_op, clippy::approx_constant)]
 use tanu::{check, check_eq, check_ne, check_str_eq, eyre};
 
+/// `check!` passes on a true condition.
 #[tanu::test]
 async fn check_basic_true() -> eyre::Result<()> {
     check!(true);
     Ok(())
 }
 
+/// `check!` accepts a custom failure message.
 #[tanu::test]
 async fn check_with_message() -> eyre::Result<()> {
     check!(1 == 1, "Numbers should be equal");
     Ok(())
 }
 
+/// `check!` accepts comparison and arithmetic expressions.
 #[tanu::test]
 async fn check_expression() -> eyre::Result<()> {
     let x = 5;
@@ -23,6 +26,7 @@ async fn check_expression() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_eq!` passes on equal integers.
 #[tanu::test]
 async fn check_eq_integers() -> eyre::Result<()> {
     check_eq!(42, 42);
@@ -31,6 +35,7 @@ async fn check_eq_integers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_eq!` passes on equal strings, including `String` against `&str`.
 #[tanu::test]
 async fn check_eq_strings() -> eyre::Result<()> {
     check_eq!("hello", "hello");
@@ -39,12 +44,14 @@ async fn check_eq_strings() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_eq!` accepts a custom failure message.
 #[tanu::test]
 async fn check_eq_with_message() -> eyre::Result<()> {
     check_eq!(100, 100, "Values should be equal");
     Ok(())
 }
 
+/// `check_eq!` passes on equal vectors, including empty ones.
 #[tanu::test]
 async fn check_eq_vectors() -> eyre::Result<()> {
     check_eq!(vec![1, 2, 3], vec![1, 2, 3]);
@@ -52,6 +59,7 @@ async fn check_eq_vectors() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_ne!` passes on different integers.
 #[tanu::test]
 async fn check_ne_integers() -> eyre::Result<()> {
     check_ne!(1, 2);
@@ -60,6 +68,7 @@ async fn check_ne_integers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_ne!` passes on different strings, including `String` against `&str`.
 #[tanu::test]
 async fn check_ne_strings() -> eyre::Result<()> {
     check_ne!("hello", "world");
@@ -68,12 +77,14 @@ async fn check_ne_strings() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_ne!` accepts a custom failure message.
 #[tanu::test]
 async fn check_ne_with_message() -> eyre::Result<()> {
     check_ne!(5, 10, "Values should be different");
     Ok(())
 }
 
+/// `check_str_eq!` passes on equal strings, including `String` against `&str`.
 #[tanu::test]
 async fn check_str_eq_basic() -> eyre::Result<()> {
     check_str_eq!("hello", "hello");
@@ -82,6 +93,7 @@ async fn check_str_eq_basic() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` passes on equal multi-line strings.
 #[tanu::test]
 async fn check_str_eq_multiline() -> eyre::Result<()> {
     let text1 = "line1\nline2\nline3";
@@ -90,12 +102,14 @@ async fn check_str_eq_multiline() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` accepts a custom failure message.
 #[tanu::test]
 async fn check_str_eq_with_message() -> eyre::Result<()> {
     check_str_eq!("expected", "expected", "String comparison failed");
     Ok(())
 }
 
+/// `check_str_eq!` passes on equal strings with surrounding spaces, tabs and newlines.
 #[tanu::test]
 async fn check_str_eq_whitespace() -> eyre::Result<()> {
     check_str_eq!("  hello  ", "  hello  ");
@@ -103,6 +117,7 @@ async fn check_str_eq_whitespace() -> eyre::Result<()> {
     Ok(())
 }
 
+/// All four assertion macros can be used together in one test.
 #[tanu::test]
 async fn check_combined_assertions() -> eyre::Result<()> {
     let value = 42;
@@ -116,6 +131,7 @@ async fn check_combined_assertions() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The assertion macros work with `Option` values.
 #[tanu::test]
 async fn check_option_values() -> eyre::Result<()> {
     let some_value = Some(42);
@@ -129,6 +145,7 @@ async fn check_option_values() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The assertion macros work with `Result` values.
 #[tanu::test]
 async fn check_result_values() -> eyre::Result<()> {
     let ok_result: Result<i32, &str> = Ok(42);
@@ -142,6 +159,7 @@ async fn check_result_values() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The assertion macros work with boolean expressions.
 #[tanu::test]
 async fn check_boolean_operations() -> eyre::Result<()> {
     let a = true;
@@ -156,6 +174,7 @@ async fn check_boolean_operations() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The assertion macros work with floating point numbers.
 #[tanu::test]
 async fn check_floating_point() -> eyre::Result<()> {
     let pi = 3.14159;
@@ -169,6 +188,7 @@ async fn check_floating_point() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_eq!` and `check_ne!` compare `serde_json` values.
 #[tanu::test]
 async fn check_json_like_structure() -> eyre::Result<()> {
     use serde_json::json;
@@ -183,6 +203,7 @@ async fn check_json_like_structure() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` passes on equal non-ASCII strings.
 #[tanu::test]
 async fn check_str_eq_unicode() -> eyre::Result<()> {
     check_str_eq!("日本語", "日本語");
@@ -191,6 +212,7 @@ async fn check_str_eq_unicode() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` passes on equal empty and whitespace-only strings.
 #[tanu::test]
 async fn check_str_eq_empty_and_whitespace_only() -> eyre::Result<()> {
     check_str_eq!("", "");
@@ -200,6 +222,7 @@ async fn check_str_eq_empty_and_whitespace_only() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` passes on an equal multi-line JSON document.
 #[tanu::test]
 async fn check_str_eq_long_multiline() -> eyre::Result<()> {
     let text = r#"
@@ -215,6 +238,7 @@ async fn check_str_eq_long_multiline() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The `StrEq` assertion error includes its message when displayed.
 #[tanu::test]
 async fn check_str_eq_failure_returns_error() -> eyre::Result<()> {
     // Test that check_str_eq! properly fails when strings don't match
@@ -238,6 +262,7 @@ async fn check_str_eq_failure_returns_error() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `check_str_eq!` compares `String`, `&str` and `Cow<str>` in any combination.
 #[tanu::test]
 async fn check_str_eq_with_string_types() -> eyre::Result<()> {
     let owned = String::from("test");

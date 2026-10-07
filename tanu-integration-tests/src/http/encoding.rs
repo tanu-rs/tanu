@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use tanu::{check, check_eq, eyre, http::Client};
 
+/// `/base64/{encoded}` decodes back to the original text.
 #[tanu::test("Hello, World!")]
 #[tanu::test("Test data")]
 #[tanu::test("Simple test")]
@@ -22,6 +23,7 @@ async fn base64_decode(text: &str) -> eyre::Result<()> {
     Ok(())
 }
 
+/// A UTF-8 encoded page is read as text.
 #[tanu::test]
 async fn utf8_content() -> eyre::Result<()> {
     let http = Client::new();
@@ -37,6 +39,7 @@ async fn utf8_content() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Non-ASCII text and emoji in a JSON payload round-trip unchanged.
 #[tanu::test]
 async fn json_utf8() -> eyre::Result<()> {
     let http = Client::new();
@@ -64,6 +67,7 @@ async fn json_utf8() -> eyre::Result<()> {
     Ok(())
 }
 
+/// An XML body is sent to the server unchanged.
 #[tanu::test]
 async fn xml_content() -> eyre::Result<()> {
     let http = Client::new();

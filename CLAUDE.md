@@ -94,6 +94,10 @@ async fn test_status(code: u16) -> eyre::Result<()> { Ok(()) }
 // Custom name for parameterized test
 #[tanu::test(val1, val2; "custom_name")]
 async fn with_name(a: i32, b: i32) -> eyre::Result<()> { Ok(()) }
+
+/// Doc comments (`///`, not `//`) are printed with the failure when the test fails
+#[tanu::test]
+async fn documented() -> eyre::Result<()> { Ok(()) }
 ```
 
 ### Task-Local Context

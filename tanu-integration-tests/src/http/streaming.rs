@@ -18,6 +18,7 @@ use tanu::{check, check_eq, eyre, http::Client};
 //    Ok(())
 //}
 
+/// `/stream/5` returns five newline-delimited JSON objects.
 #[tanu::test]
 async fn stream_json() -> eyre::Result<()> {
     let http = Client::new();
@@ -40,6 +41,7 @@ async fn stream_json() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A `Range` request for the first 512 bytes returns 206 with exactly 512 bytes.
 #[tanu::test]
 async fn range_request() -> eyre::Result<()> {
     let http = Client::new();
@@ -59,6 +61,7 @@ async fn range_request() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/drip` delivers all 100 bytes of a slowly dripped response.
 #[tanu::test]
 async fn drip_endpoint() -> eyre::Result<()> {
     let http = Client::new();

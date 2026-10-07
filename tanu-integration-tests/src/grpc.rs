@@ -92,6 +92,7 @@ impl Echo for EchoSvc {
     }
 }
 
+/// A unary gRPC call over `grpc::connect` echoes the message back.
 #[tanu::test]
 async fn grpc_unary_echo() -> eyre::Result<()> {
     let addr = grpc_addr().await;
@@ -115,6 +116,7 @@ async fn grpc_unary_echo() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Request metadata reaches the gRPC server and is echoed back.
 #[tanu::test]
 async fn grpc_unary_metadata_roundtrip() -> eyre::Result<()> {
     let addr = grpc_addr().await;
@@ -143,6 +145,7 @@ async fn grpc_unary_metadata_roundtrip() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A unary call without the required metadata fails with `InvalidArgument`.
 #[tanu::test]
 async fn grpc_unary_missing_required_metadata_is_invalid_argument() -> eyre::Result<()> {
     let addr = grpc_addr().await;
@@ -165,6 +168,7 @@ async fn grpc_unary_missing_required_metadata_is_invalid_argument() -> eyre::Res
     Ok(())
 }
 
+/// A server-streaming call yields the three requested messages in order.
 #[tanu::test]
 async fn grpc_server_streaming() -> eyre::Result<()> {
     let addr = grpc_addr().await;

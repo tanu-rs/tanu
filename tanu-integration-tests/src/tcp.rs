@@ -88,6 +88,7 @@ async fn send_line_and_read(addr: SocketAddr, request: &str) -> eyre::Result<Str
     Ok(line.trim_end_matches(['\n', '\r']).to_string())
 }
 
+/// The TCP test server answers `PING` with `PONG`.
 #[tanu::test]
 async fn tcp_ping() -> eyre::Result<()> {
     let addr = tcp_addr().await;
@@ -96,6 +97,7 @@ async fn tcp_ping() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The TCP test server echoes back the text after `ECHO`.
 #[tanu::test]
 async fn tcp_echo_roundtrip() -> eyre::Result<()> {
     let addr = tcp_addr().await;
@@ -104,6 +106,7 @@ async fn tcp_echo_roundtrip() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The TCP test server answers an unknown command with `ERR`.
 #[tanu::test]
 async fn tcp_unknown_command_returns_error() -> eyre::Result<()> {
     let addr = tcp_addr().await;
@@ -112,6 +115,7 @@ async fn tcp_unknown_command_returns_error() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Ten concurrent clients, spawned with `tanu::scope_current`, each get their `PONG`.
 #[tanu::test]
 async fn tcp_multiple_clients_concurrent() -> eyre::Result<()> {
     let addr = tcp_addr().await;
@@ -132,6 +136,7 @@ async fn tcp_multiple_clients_concurrent() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Reading times out when the server sends no reply (`NOOP`).
 #[tanu::test]
 async fn tcp_timeout_waiting_for_response() -> eyre::Result<()> {
     let addr = tcp_addr().await;
@@ -149,6 +154,7 @@ async fn tcp_timeout_waiting_for_response() -> eyre::Result<()> {
     Ok(())
 }
 
+/// After `CLOSE` the server closes the connection and the read returns EOF.
 #[tanu::test]
 async fn tcp_server_closes_connection() -> eyre::Result<()> {
     let addr = tcp_addr().await;

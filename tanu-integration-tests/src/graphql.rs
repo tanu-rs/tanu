@@ -9,6 +9,8 @@ use tanu::{check, check_eq, eyre, graphql, http::Client};
 )]
 struct GetUser;
 
+/// A GraphQL query is posted as the `query` field of a JSON body.
+///
 /// httpbin /post echoes back: { "json": <posted body>, "headers": {...}, ... }
 #[tanu::test]
 async fn graphql_basic_query() -> eyre::Result<()> {
@@ -27,6 +29,7 @@ async fn graphql_basic_query() -> eyre::Result<()> {
     Ok(())
 }
 
+/// The query, variables and operation name are posted as the GraphQL JSON body.
 #[tanu::test]
 async fn graphql_query_with_variables() -> eyre::Result<()> {
     let http = Client::new();
@@ -51,6 +54,7 @@ async fn graphql_query_with_variables() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A bearer token on a GraphQL request is sent as the `Authorization` header.
 #[tanu::test]
 async fn graphql_with_bearer_auth() -> eyre::Result<()> {
     let http = Client::new();
@@ -75,6 +79,7 @@ async fn graphql_with_bearer_auth() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `graphql::Response<T>` deserializes a body with no `data` or `errors`.
 #[tanu::test]
 async fn graphql_response_type() -> eyre::Result<()> {
     let http = Client::new();
@@ -98,6 +103,7 @@ async fn graphql_response_type() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A typed `graphql_client` query posts its operation name, variables and query text.
 #[tanu::test]
 async fn graphql_typed_query() -> eyre::Result<()> {
     let http = Client::new();

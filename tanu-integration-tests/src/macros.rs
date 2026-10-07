@@ -5,214 +5,257 @@
 #![allow(clippy::identity_op)]
 use tanu::{eyre, http::StatusCode};
 
+/// `#[tanu::test]` works without arguments.
 #[tanu::test]
 async fn without_parameters() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts an integer literal as a test argument.
 #[tanu::test(1)]
 async fn with_integer(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a float literal as a test argument.
 #[tanu::test(1.0)]
 async fn with_float(_: f64) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a string literal as a test argument.
 #[tanu::test("foo")]
 async fn with_str(_: &str) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a boolean literal as a test argument.
 #[tanu::test(true)]
 async fn with_boolean(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a `String` expression as a test argument.
 #[tanu::test("foo".to_string())]
 async fn with_string(_: String) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a string literal for an `impl Into<String>` parameter.
 #[tanu::test("foo")]
 async fn with_into_string(_: impl Into<String>) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `&str` and `String` arguments for an `impl AsRef<str>` parameter.
 #[tanu::test("str")]
 #[tanu::test("owned string".to_string())]
 async fn with_as_ref(_: impl AsRef<str>) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `Some(..)` and `None` for an `Option` parameter.
 #[tanu::test(Some(StatusCode::OK))]
 #[tanu::test(None)]
 async fn with_optional_parameters(_: Option<StatusCode>) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts a custom test name after `;`.
 #[tanu::test(1; "with_test_name_specified")]
 async fn with_test_name(_n: u8) -> eyre::Result<()> {
     Ok(())
 }
 
 // Additional test cases for supported expressions and operators
+
+/// `#[tanu::test]` accepts `1+1` as a test argument.
 #[tanu::test(1+1)]
 async fn with_add_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1-1` as a test argument.
 #[tanu::test(1-1)]
 async fn with_sub_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1/1` as a test argument.
 #[tanu::test(1/1)]
 async fn with_div_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1*1` as a test argument.
 #[tanu::test(1*1)]
 async fn with_mul_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1%1` as a test argument.
 #[tanu::test(1%1)]
 async fn with_mod_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1==1` as a test argument.
 #[tanu::test(1==1)]
 async fn with_eq_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1!=1` as a test argument.
 #[tanu::test(1!=1)]
 async fn with_neq_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1<1` as a test argument.
 #[tanu::test(1<1)]
 async fn with_lt_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1>1` as a test argument.
 #[tanu::test(1>1)]
 async fn with_gt_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `true&&false` as a test argument.
 #[tanu::test(true&&false)]
 async fn with_and_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `true||false` as a test argument.
 #[tanu::test(true||false)]
 async fn with_or_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `!true` as a test argument.
 #[tanu::test(!true)]
 async fn with_not_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1&1` as a test argument.
 #[tanu::test(1&1)]
 async fn with_bitwise_and_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1|1` as a test argument.
 #[tanu::test(1|1)]
 async fn with_bitwise_or_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1^1` as a test argument.
 #[tanu::test(1^1)]
 async fn with_xor_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1<<1` as a test argument.
 #[tanu::test(1<<1)]
 async fn with_left_shift_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1>>1` as a test argument.
 #[tanu::test(1>>1)]
 async fn with_right_shift_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `"foo".to_string()` as a test argument.
 #[tanu::test("foo".to_string())]
 async fn with_to_string(_: String) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1+1*2` as a test argument.
 #[tanu::test(1+1*2)]
 async fn with_add_and_mul_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1*(2+3)` as a test argument.
 #[tanu::test(1*(2+3))]
 async fn with_mul_and_add_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1+2-3` as a test argument.
 #[tanu::test(1+2-3)]
 async fn with_add_and_sub_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1/2*3` as a test argument.
 #[tanu::test(1/2*3)]
 async fn with_div_and_mul_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1%2+3` as a test argument.
 #[tanu::test(1%2+3)]
 async fn with_mod_and_add_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1==2&&3!=4` as a test argument.
 #[tanu::test(1==2&&3!=4)]
 async fn with_eq_and_and_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `true||false&&true` as a test argument.
 #[tanu::test(true||false&&true)]
 async fn with_or_and_and_expression(_: bool) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `!(1+2)` as a test argument.
 #[tanu::test(!(1+2))]
 async fn with_not_and_add_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1&2|3^4` as a test argument.
 #[tanu::test(1&2|3^4)]
 async fn with_bitwise_and_or_xor_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `1<<2>>3` as a test argument.
 #[tanu::test(1<<2>>3)]
 async fn with_left_shift_and_right_shift_expression(_: u8) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `Some(1+2)` as a test argument.
 #[tanu::test(Some(1+2))]
 async fn with_some_and_add_expression(_: Option<u8>) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `None` as a test argument.
 #[tanu::test(None)]
 async fn with_none(_: Option<u8>) -> eyre::Result<()> {
     Ok(())
 }
 
+/// `#[tanu::test]` accepts `"foo".to_string().len()` as a test argument.
 #[tanu::test("foo".to_string().len())]
 async fn with_function_call_chain(_: usize) -> eyre::Result<()> {
     Ok(())
 }
 
+/// Tests with the same function name can coexist in different modules.
 #[tanu::test]
 async fn same_test_name_in_different_modules() -> eyre::Result<()> {
     Ok(())

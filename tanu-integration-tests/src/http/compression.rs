@@ -13,6 +13,7 @@ struct CompressionResponse {
     origin: String,
 }
 
+/// A gzip-compressed response is decoded and parsed as JSON.
 #[tanu::test]
 async fn gzip_compression() -> eyre::Result<()> {
     let http = Client::new();
@@ -33,6 +34,7 @@ async fn gzip_compression() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A deflate-compressed response is decoded and parsed as JSON.
 #[tanu::test]
 async fn deflate_compression() -> eyre::Result<()> {
     let http = Client::new();
@@ -53,6 +55,7 @@ async fn deflate_compression() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A brotli-compressed response is decoded and parsed as JSON.
 #[tanu::test]
 async fn brotli_compression() -> eyre::Result<()> {
     let http = Client::new();
@@ -73,6 +76,7 @@ async fn brotli_compression() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A gzip response is decoded when the client accepts gzip, deflate and brotli.
 #[tanu::test]
 async fn multiple_compression_formats() -> eyre::Result<()> {
     let http = Client::new();

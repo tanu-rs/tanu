@@ -17,6 +17,7 @@ pub mod utility;
 
 use tanu::eyre;
 
+/// A test defined in a `mod.rs` file is discovered and run.
 #[tanu::test]
 async fn test_in_mod_rs() -> eyre::Result<()> {
     Ok(())

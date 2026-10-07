@@ -25,6 +25,7 @@ struct BearerAuthPayload {
     token: String,
 }
 
+/// GET `/get` returns a JSON body echoing the request's args, headers, origin and URL.
 #[tanu::test]
 async fn json() -> eyre::Result<()> {
     let http = Client::new();
@@ -41,6 +42,7 @@ async fn json() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Basic auth with the correct credentials is accepted.
 #[tanu::test]
 async fn basic_auth() -> eyre::Result<()> {
     let http = Client::new();
@@ -59,6 +61,7 @@ async fn basic_auth() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Basic auth with a wrong password returns 401 Unauthorized.
 #[tanu::test]
 async fn basic_auth_error() -> eyre::Result<()> {
     let http = Client::new();
@@ -73,6 +76,7 @@ async fn basic_auth_error() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A bearer token is sent and reported back as authenticated.
 #[tanu::test]
 async fn bearer_auth() -> eyre::Result<()> {
     let http = Client::new();
@@ -91,6 +95,7 @@ async fn bearer_auth() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Tests with the same function name can coexist in different modules.
 #[tanu::test]
 async fn same_test_name_in_different_modules() -> eyre::Result<()> {
     Ok(())

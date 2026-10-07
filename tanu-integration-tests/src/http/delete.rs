@@ -19,6 +19,7 @@ struct DeleteResponse {
     url: String,
 }
 
+/// DELETE `/delete` returns 200 and echoes the request URL.
 #[tanu::test]
 async fn delete_resource() -> eyre::Result<()> {
     let http = Client::new();
@@ -35,6 +36,7 @@ async fn delete_resource() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A DELETE request body is sent to the server unchanged.
 #[tanu::test]
 async fn delete_with_body() -> eyre::Result<()> {
     let http = Client::new();
@@ -59,6 +61,7 @@ async fn delete_with_body() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Query parameters on a DELETE request reach the server.
 #[tanu::test]
 async fn delete_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
