@@ -747,6 +747,12 @@ pub fn test_name_matches(info: &TestInfo, name: &str) -> bool {
     !name.is_empty() && format!("::{}", info.full_name()).ends_with(&format!("::{name}"))
 }
 
+/// Returns true if `entry` is the test's full name or a leading part of it made of
+/// whole `::` segments, i.e. a module containing the test or the test function of a case.
+pub fn test_path_matches(info: &TestInfo, entry: &str) -> bool {
+    !entry.is_empty() && format!("{}::", info.full_name()).starts_with(&format!("{entry}::"))
+}
+
 /// Filters tests by substring patterns matched against the full test name.
 ///
 /// A test is included if its `module::name` contains any of the patterns,
@@ -780,8 +786,10 @@ impl Filter for NamePatternFilter<'_> {
 /// Filters out tests that are configured to be ignored.
 ///
 /// This filter reads the `test_ignore` configuration from each project
-/// and excludes those tests from execution. Tests are matched by their
-/// full name (module::test_name).
+/// and excludes those tests from execution. An entry is a full test name
+/// (`crate::module::test_name`) or a leading part of one made of whole `::`
+/// segments: a module ignores every test in it and its submodules, and a
+/// parameterized test function ignores all of its cases.
 ///
 /// # Configuration
 ///
@@ -789,7 +797,7 @@ impl Filter for NamePatternFilter<'_> {
 /// ```toml
 /// [[projects]]
 /// name = "staging"
-/// test_ignore = ["flaky_test", "slow_integration_test"]
+/// test_ignore = ["my_api::admin", "my_api::users::delete_account"]
 /// ```
 ///
 /// # Examples
@@ -824,17 +832,20 @@ impl Filter for TestIgnoreFilter {
 
         test_ignore
             .iter()
-            .all(|test_name| &info.full_name() != test_name)
+            .all(|entry| !test_path_matches(info, entry))
     }
 }
 
 /// Filters tests to only run those configured in `test_only`.
 ///
 /// This filter reads the `test_only` configuration from each project
-/// and restricts execution to those tests. Tests are matched by their
-/// full name (module::test_name). If the list is empty or absent,
-/// all tests are included. When combined with `test_ignore`, a test
-/// must be listed in `test_only` and not listed in `test_ignore`.
+/// and restricts execution to those tests. An entry is a full test name
+/// (`crate::module::test_name`) or a leading part of one made of whole `::`
+/// segments: a module selects every test in it and its submodules, and a
+/// parameterized test function selects all of its cases. If the list is
+/// empty or absent, all tests are included. When combined with
+/// `test_ignore`, a test must be matched by `test_only` and not matched by
+/// `test_ignore`.
 ///
 /// # Configuration
 ///
@@ -842,7 +853,7 @@ impl Filter for TestIgnoreFilter {
 /// ```toml
 /// [[projects]]
 /// name = "production"
-/// test_only = ["api::health_check", "auth::login"]
+/// test_only = ["my_api::smoke", "my_api::auth::login"]
 /// ```
 ///
 /// # Examples
@@ -879,9 +890,7 @@ impl Filter for TestOnlyFilter {
             return true;
         }
 
-        test_only
-            .iter()
-            .any(|test_name| &info.full_name() == test_name)
+        test_only.iter().any(|entry| test_path_matches(info, entry))
     }
 }
 
@@ -1624,6 +1633,46 @@ mod test {
     }
 
     #[test]
+    fn test_ignore_filter_matches_modules_and_functions() {
+        let filter = TestIgnoreFilter {
+            test_ignores: HashMap::from([(
+                "staging".to_string(),
+                vec![
+                    "krate::api".to_string(),
+                    "krate::status::status_codes".to_string(),
+                    "krate::status::other::4".to_string(),
+                    "".to_string(),
+                ],
+            )]),
+        };
+        let project = ProjectConfig {
+            name: "staging".into(),
+            ..Default::default()
+        };
+        let ignored = |module: &str, name: &str| !filter.filter(&project, &test_info(module, name));
+
+        // A module entry ignores the module and its submodules
+        assert!(ignored("krate::api", "login"));
+        assert!(ignored("krate::api::users", "create"));
+
+        // A function entry ignores all of its parameterized cases
+        assert!(ignored("krate::status", "status_codes::200"));
+        assert!(ignored("krate::status", "status_codes::404"));
+
+        // Only whole segments match
+        assert!(!ignored("krate::api_v2", "login"));
+        assert!(!ignored("krate::status", "status_codes_v2"));
+        assert!(ignored("krate::status", "other::4"));
+        assert!(!ignored("krate::status", "other::404"));
+
+        // Entries are anchored at the start of the full name
+        assert!(!ignored("other::krate::api", "login"));
+
+        // An empty entry matches nothing
+        assert!(!ignored("krate::auth", "login"));
+    }
+
+    #[test]
     fn test_only_filter() {
         let filter = TestOnlyFilter {
             test_onlys: HashMap::from([
@@ -1646,6 +1695,36 @@ mod test {
 
         // Unknown project allows all tests
         assert!(filter.filter(&project("unknown"), &test_info("api", "login")));
+    }
+
+    #[test]
+    fn test_only_filter_matches_modules_and_functions() {
+        let filter = TestOnlyFilter {
+            test_onlys: HashMap::from([(
+                "staging".to_string(),
+                vec![
+                    "krate::smoke".to_string(),
+                    "krate::status::status_codes".to_string(),
+                ],
+            )]),
+        };
+        let project = ProjectConfig {
+            name: "staging".into(),
+            ..Default::default()
+        };
+        let runs = |module: &str, name: &str| filter.filter(&project, &test_info(module, name));
+
+        // A module entry selects the module and its submodules
+        assert!(runs("krate::smoke", "health_check"));
+        assert!(runs("krate::smoke::auth", "login"));
+
+        // A function entry selects all of its parameterized cases
+        assert!(runs("krate::status", "status_codes::200"));
+
+        // Only whole segments match
+        assert!(!runs("krate::smoke_extra", "health_check"));
+        assert!(!runs("krate::status", "status_codes_v2"));
+        assert!(!runs("krate::api", "login"));
     }
 
     fn create_config_with_retry() -> Config {

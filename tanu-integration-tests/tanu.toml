@@ -5,6 +5,8 @@ test_ignore = [
   "tanu_integration_tests::task_local::spawned_task_without_scope_current_panics",
   "tanu_integration_tests::test_ignore::ignored_test",
   "tanu_integration_tests::test_ignore::ignored_case::2",
+  "tanu_integration_tests::test_ignore::ignored_all_cases",
+  "tanu_integration_tests::test_ignore::ignored_module",
 ]
 retry.count = 3
 retry.min_delay = "100ms"
@@ -15,5 +17,6 @@ name = "allowlist"
 test_only = [
   "tanu_integration_tests::test_only::listed_test_runs",
   "tanu_integration_tests::test_only::listed_but_ignored_test_is_skipped",
+  "tanu_integration_tests::test_only::listed_module",
 ]
 test_ignore = ["tanu_integration_tests::test_only::listed_but_ignored_test_is_skipped"]

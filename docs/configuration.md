@@ -25,8 +25,8 @@ concurrency = 4
 name = "staging"
 base_url = "https://staging.api.example.com"
 test_ignore = [
-  "example::feature_flag::feature_flag_enabled",
-  "example::feature_flag::feature_flag_disabled",
+  "example::feature_flag",
+  "example::users::delete_account",
 ]
 retry.count = 3
 retry.factor = 2.0
@@ -38,7 +38,7 @@ retry.max_delay = "60s"
 name = "production"
 base_url = "https://api.example.com"
 test_only = [
-  "example::health::health_check",
+  "example::smoke",
 ]
 ```
 
@@ -51,11 +51,19 @@ Each project supports the following keys. Any other key is a [user-defined setti
 | Key | Description |
 |---|---|
 | `name` | **Required.** Project name shown in test output and used by `--projects`. |
-| `test_ignore` | Tests to skip in this project. |
-| `test_only` | If non-empty, run only these tests in this project. An empty or omitted list runs all tests. |
+| `test_ignore` | Tests or modules to skip in this project. |
+| `test_only` | If non-empty, run only these tests or modules in this project. An empty or omitted list runs all tests. |
 | `retry.*` | Retry policy for failed tests. See [Retry](#retry). |
 
-`test_ignore` and `test_only` take full test names: `<crate>::<module path>::<function>`, for example `example::health::health_check`. Parameterized cases include the case name, such as `example::status::status_codes::404`. Run `cargo run -- ls` to list the exact names. When both lists are set, a test runs only if it is listed in `test_only` and not listed in `test_ignore`.
+Each `test_ignore` and `test_only` entry is a full test name, `<crate>::<module path>::<function>`, or a leading part of one:
+
+| Entry | Matches |
+|---|---|
+| `example::admin` | Every test in the `admin` module and its submodules, including tests added later. |
+| `example::status::status_codes` | The test `status_codes`, with all of its parameterized cases. |
+| `example::status::status_codes::404` | Only the `404` case. |
+
+Entries start with the crate name and match whole `::` segments, so `example::api` does not match `example::api_v2`. Run `cargo run -- ls` to list the exact names. When both lists are set, a test runs only if it is matched by `test_only` and not matched by `test_ignore`.
 
 ## Runner
 
