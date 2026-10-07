@@ -1,6 +1,6 @@
 # Configuration
 
-tanu reads its configuration from `tanu.toml` in the current directory, or from the path in the `TANU_CONFIG` environment variable. The file is optional: without it, tanu runs every test in a single project named `default`.
+tanu reads its configuration from `tanu.toml` in the current directory (falling back to the package directory when run via `cargo run`), or from the path in the `TANU_CONFIG` environment variable. The file is optional: without it, tanu runs every test in a single project named `default`.
 
 A `tanu.toml` has three kinds of sections:
 
@@ -177,7 +177,7 @@ Other accessors:
 
 ### Config file location
 
-By default, tanu reads `tanu.toml` from the current directory. Set `TANU_CONFIG` to use a different file:
+By default, tanu reads `tanu.toml` from the current directory. If there is none and tanu is launched through cargo (e.g. `cargo run -p my-tests -- test` from a workspace root), it looks for `tanu.toml` in the package directory, next to the package's `Cargo.toml`. Set `TANU_CONFIG` to use a different file:
 
 ```bash
 TANU_CONFIG=./config/tanu.staging.toml cargo run -- test
