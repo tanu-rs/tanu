@@ -356,7 +356,7 @@ test_ignore = [
 ]
 ```
 
-Entries are full test names including the crate name; run `cargo run -- ls` to list them. Use `test_only` to do the opposite and run just a small allowlist, such as smoke tests in production.
+Entries are full test names including the crate name; run `cargo run -- ls` to list them. An entry can also name a module, such as `my_api_tests::load`, to cover every test in it without listing each one. Use `test_only` to do the opposite and run just a small allowlist, such as smoke tests in production.
 
 ## Performance Considerations
 

@@ -199,6 +199,16 @@ name = "production"
 test_ignore = ["my_api_tests::users::delete_account"]
 ```
 
+### Can I skip or run a whole module in a project?
+
+Yes. A `test_ignore` or `test_only` entry that names a module applies to every test in it and its submodules, so the list stays correct when tests are added:
+
+```toml
+[[projects]]
+name = "production"
+test_ignore = ["my_api_tests::admin"]
+```
+
 ### Can I run only specific tests in a project?
 
 Yes, with `test_only`. An empty list runs all tests:
@@ -276,7 +286,7 @@ The typed accessors parse string values. Quote the value (`timeout = "5000"`) or
 
 ### My test is listed but doesn't run with `-t` or `test_ignore`
 
-Test names include the crate name, e.g. `my_api_tests::users::login` rather than `users::login`. Run `cargo run -- ls` and copy the name from there.
+Test and module names include the crate name, e.g. `my_api_tests::users::login` rather than `users::login`. Run `cargo run -- ls` and copy the name from there.
 
 ### Tests pass individually but fail together
 

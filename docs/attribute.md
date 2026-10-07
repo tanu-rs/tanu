@@ -30,7 +30,7 @@ A test's full name is `<module path>::<function name>`, where the module path st
 | `async fn get()` in `src/main.rs` | `example::get` |
 | `async fn get()` in `src/http.rs` | `example::http::get` |
 
-Use the full name with `--tests`, `test_ignore`, and `test_only`. Run `cargo run -- ls` to see the names tanu generated.
+Use the full name with `--tests`, `test_ignore`, and `test_only`. `test_ignore` and `test_only` also accept a module path such as `example::http` to cover every test in it. Run `cargo run -- ls` to see the names tanu generated.
 
 ## Parameterized Tests
 
