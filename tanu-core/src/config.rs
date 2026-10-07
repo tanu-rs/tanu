@@ -38,12 +38,14 @@
 //!
 //! 1. If `TANU_CONFIG` environment variable is set, load from that path
 //! 2. Otherwise, load from `tanu.toml` in the current directory
+//! 3. Otherwise, when run via cargo (`cargo run`), load from `tanu.toml` in the
+//!    package directory (`CARGO_MANIFEST_DIR`)
 //!
 //! ```bash
 //! # Use custom config file location
 //! TANU_CONFIG=/path/to/my-config.toml cargo run
 //!
-//! # Or use default ./tanu.toml
+//! # Or use default ./tanu.toml (or <package>/tanu.toml)
 //! cargo run
 //! ```
 //!
@@ -93,7 +95,13 @@
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Deserialize};
-use std::{collections::HashMap, io::Read, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use toml::Value as TomlValue;
 use tracing::*;
 
@@ -280,6 +288,28 @@ impl<'de> serde::Deserialize<'de> for MaxBodySize {
 /// Environment variable name for specifying the config file path.
 const TANU_CONFIG_ENV: &str = "TANU_CONFIG";
 
+/// Default config file name.
+const TANU_CONFIG_FILE: &str = "tanu.toml";
+
+/// Resolve the config file path when `TANU_CONFIG` is not set.
+///
+/// Prefers `tanu.toml` in the current directory, then `tanu.toml` in `manifest_dir`
+/// (the package directory set by cargo at runtime). Falls back to `tanu.toml`.
+fn default_config_path(manifest_dir: Option<&Path>) -> PathBuf {
+    let cwd_path = PathBuf::from(TANU_CONFIG_FILE);
+    if cwd_path.exists() {
+        return cwd_path;
+    }
+    if let Some(dir) = manifest_dir {
+        let manifest_path = dir.join(TANU_CONFIG_FILE);
+        if manifest_path.exists() {
+            debug!("Loading config from package directory: {manifest_path:?}");
+            return manifest_path;
+        }
+    }
+    cwd_path
+}
+
 static CONFIG: Lazy<Config> = Lazy::new(|| {
     let _ = dotenvy::dotenv();
     Config::load().unwrap_or_default()
@@ -417,6 +447,7 @@ impl Config {
     /// Loading order:
     /// 1. If `TANU_CONFIG` env var is set, load from that path
     /// 2. Otherwise, load from `tanu.toml` in the current directory
+    /// 3. Otherwise, load from `tanu.toml` in `CARGO_MANIFEST_DIR` (set by `cargo run`)
     fn load() -> Result<Config> {
         match std::env::var(TANU_CONFIG_ENV) {
             Ok(path) => {
@@ -444,7 +475,10 @@ impl Config {
                 debug!("Loading config from {TANU_CONFIG_ENV}={:?}", path);
                 Config::load_from(path)
             }
-            Err(_) => Config::load_from(Path::new("tanu.toml")),
+            Err(_) => {
+                let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
+                Config::load_from(&default_config_path(manifest_dir.as_deref()))
+            }
         }
     }
 
@@ -977,7 +1011,7 @@ mod test {
     }
 
     mod tanu_config_env {
-        use super::{Config, Path, TANU_CONFIG_ENV};
+        use super::{default_config_path, Config, Path, PathBuf, TANU_CONFIG_ENV};
         use pretty_assertions::assert_eq;
         use test_case::test_case;
 
@@ -1022,6 +1056,24 @@ mod test {
                 err.contains("should be a path"),
                 "error should guide user: {err}"
             );
+        }
+
+        #[test]
+        fn default_path_falls_back_to_manifest_dir() {
+            // tanu-core has no tanu.toml, but tanu-integration-tests does.
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let dir = Path::new(manifest_dir).join("../tanu-integration-tests");
+            assert_eq!(default_config_path(Some(&dir)), dir.join("tanu.toml"));
+        }
+
+        #[test]
+        fn default_path_when_manifest_dir_has_no_config() {
+            let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+            assert_eq!(
+                default_config_path(Some(manifest_dir)),
+                PathBuf::from("tanu.toml")
+            );
+            assert_eq!(default_config_path(None), PathBuf::from("tanu.toml"));
         }
 
         #[test_case("config.toml"; "toml extension")]
