@@ -55,6 +55,8 @@ pub const KEY_BINDINGS: &[(&str, &[(&str, &str)])] = &[
                 "Scroll to top / bottom (bottom follows new logs)",
             ),
             ("h l / ← →", "Show fewer / more log levels"),
+            ("/", "Search logs, highlighting the matches"),
+            ("n / N", "Jump to the next / previous match"),
             ("L", "Show / hide the module path of logs"),
         ],
     ),

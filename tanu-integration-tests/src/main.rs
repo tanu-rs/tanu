@@ -4,6 +4,7 @@ mod fail_test;
 mod graphql;
 mod grpc;
 mod http;
+mod logging;
 mod macros;
 mod misc;
 mod nested;

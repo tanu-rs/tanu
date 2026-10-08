@@ -32,9 +32,9 @@ Press `?` in the TUI to see all key bindings.
 | `R` (or `1`) | Run all tests |
 | `Tab` / `Shift+Tab` | Focus the next / previous pane |
 | `[` / `]` | Previous / next Details tab |
-| `/` | Search tests and modules by name |
+| `/` | Search tests and modules by name (in the Logs pane: search logs) |
 | `f` | Cycle the status filter: all, failed, passed, not run, filtered |
-| `n` / `N` | Jump to the next / previous failed test |
+| `n` / `N` | Jump to the next / previous failed test (in the Logs pane with a search: next / previous match) |
 | `z` | Maximize or restore the focused pane |
 | `t` | Cycle the TUI color theme |
 | `T` | Cycle the payload color theme |
@@ -74,6 +74,10 @@ While searching, type to filter the list. `Enter` keeps the query and `Esc` canc
 | `g` / `Home`, `G` / `End` | Scroll to the top / bottom; at the bottom, new logs are followed |
 | `h` / `←`, `l` / `→` | Show fewer / more log levels |
 | `L` | Show or hide the module path of each log (shown by default) |
+| `/` | Search the logs |
+| `n` / `N` | Jump to the next match below / above, wrapping around |
+
+Searching logs works like in `less`: the logs stay in place and the matches are highlighted, ignoring case. The view jumps to the nearest match while you type, starting from the newest logs. `Enter` keeps the search and `Esc` cancels it; once kept, `Esc` clears it.
 
 ### Charts
 
