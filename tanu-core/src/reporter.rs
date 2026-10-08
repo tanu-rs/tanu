@@ -344,6 +344,7 @@ struct Failure {
     project: ProjectName,
     module: ModuleName,
     test: TestName,
+    doc: Option<String>,
     error: String,
 }
 
@@ -513,13 +514,15 @@ impl Reporter for ListReporter {
             Err(e) => {
                 let error = format!("{e:#}");
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} {project} {path} {request_time}{retries}:\n{error}",
+                    "{status} {test_number} {project} {path} {request_time}{retries}:\n{doc}{error}",
+                    doc = doc_block(info.doc.as_deref()),
                     error = style(indent(&error, ERROR_INDENT)).red()
                 ))?;
                 self.failures.push(Failure {
                     project: project_name,
                     module: info.module.clone(),
                     test: info.name.clone(),
+                    doc: info.doc.clone(),
                     error,
                 });
             }
@@ -569,11 +572,11 @@ fn write_summary(
                 style_project(&failure.project),
                 style_module_path(&failure.module, &failure.test),
             ))?;
-            terminal.write_line(
-                &style(indent(&failure.error, ERROR_INDENT))
-                    .red()
-                    .to_string(),
-            )?;
+            terminal.write_line(&format!(
+                "{}{}",
+                doc_block(failure.doc.as_deref()),
+                style(indent(&failure.error, ERROR_INDENT)).red(),
+            ))?;
         }
     }
 
@@ -1064,10 +1067,11 @@ impl Reporter for LiveReporter {
             let error = format!("{e:#}");
             self.clear_live()?;
             self.terminal.write_line(&format!(
-                "{badge} {project} {path}  {details}\n{error_text}",
+                "{badge} {project} {path}  {details}\n{doc}{error_text}",
                 badge = badge("FAIL"),
                 project = style_project(&project_name),
                 path = style_module_path(&info.module, &info.name),
+                doc = doc_block(info.doc.as_deref()),
                 error_text = style(indent(&error, ERROR_INDENT)).red(),
             ))?;
             if print_logs {
@@ -1078,6 +1082,7 @@ impl Reporter for LiveReporter {
                 project: project_name,
                 module: info.module.clone(),
                 test: info.name.clone(),
+                doc: info.doc.clone(),
                 error,
             });
         } else if print_logs
@@ -1365,6 +1370,15 @@ fn indent(text: &str, width: usize) -> String {
         .map(|line| format!("{pad}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A test's doc comment as dimmed, indented lines ending in a newline, to print
+/// above its error. Empty when the test has no doc comment.
+fn doc_block(doc: Option<&str>) -> String {
+    match doc {
+        Some(doc) => format!("{}\n", style(indent(doc, ERROR_INDENT)).dim()),
+        None => String::new(),
+    }
 }
 
 fn symbol_test_result(test: &Test) -> StyledObject<&'static str> {
@@ -1926,6 +1940,16 @@ mod test {
     fn indent_prefixes_every_line() {
         assert_eq!(indent("a\nb", 4), "    a\n    b");
         assert_eq!(indent("", 4), "");
+    }
+
+    #[test]
+    fn doc_block_indents_doc_above_the_error() {
+        let block = doc_block(Some("Wrong password must return 401\nsecond line"));
+        assert_eq!(
+            console::strip_ansi_codes(&block),
+            "    Wrong password must return 401\n    second line\n"
+        );
+        assert_eq!(doc_block(None), "");
     }
 
     #[test]

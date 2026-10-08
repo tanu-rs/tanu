@@ -32,6 +32,26 @@ A test's full name is `<module path>::<function name>`, where the module path st
 
 Use the full name with `--tests`, `test_ignore`, and `test_only`. `test_ignore` and `test_only` also accept a module path such as `example::http` to cover every test in it. Run `cargo run -- ls` to see the names tanu generated.
 
+### Doc comments
+
+A `///` doc comment on a test is printed with the failure when the test fails, and shown in the TUI's info pane:
+
+```rust
+/// Logging in with a wrong password must return 401
+#[tanu::test]
+async fn wrong_password() -> eyre::Result<()> {
+    Ok(())
+}
+```
+
+```
+✘ 1 [default] example::wrong_password (12.34ms):
+    Logging in with a wrong password must return 401
+    check failed: ...
+```
+
+Only doc comments (`///`) are captured. Plain `//` comments are not visible to the macro.
+
 ## Parameterized Tests
 
 Inspired by the [test-case](https://crates.io/crates/test-case) crate, you can parameterize a test by passing arguments to the attribute. Each attribute generates a separate test case:

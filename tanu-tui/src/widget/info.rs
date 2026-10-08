@@ -1201,6 +1201,9 @@ fn empty_lines() -> Vec<Line<'static>> {
 fn test_overview_lines(test: &TestState, width: usize) -> Vec<Line<'static>> {
     let mut lines = vec![section(format!("Test {}", test.info.name))];
     lines.extend(kv("Module", &test.info.module, muted(), width));
+    if let Some(doc) = &test.info.doc {
+        lines.extend(kv("Description", doc, muted(), width));
+    }
     if let Some(group) = &test.info.serial_group {
         lines.extend(kv("Serial group", group, Style::new(), width));
     }

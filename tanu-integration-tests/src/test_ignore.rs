@@ -10,6 +10,7 @@ use tanu::{check, eyre};
 
 const DOCKER_PROJECT: &str = "docker";
 
+/// Listed in `test_ignore`, so it must not run in the `docker` project.
 #[tanu::test]
 async fn ignored_test() -> eyre::Result<()> {
     let project = tanu::get_config();
@@ -53,6 +54,7 @@ mod ignored_module {
 
     use super::DOCKER_PROJECT;
 
+    /// Its module is listed in `test_ignore`, so it must not run in the `docker` project.
     #[tanu::test]
     async fn ignored_test_in_module() -> eyre::Result<()> {
         let project = tanu::get_config();
@@ -69,6 +71,7 @@ mod ignored_module {
 
         use super::DOCKER_PROJECT;
 
+        /// Its parent module is listed in `test_ignore`, so it must not run in the `docker` project.
         #[tanu::test]
         async fn ignored_test_in_submodule() -> eyre::Result<()> {
             let project = tanu::get_config();

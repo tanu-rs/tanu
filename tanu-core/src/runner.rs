@@ -49,7 +49,7 @@
 //! use tanu_core::Runner;
 //!
 //! let mut runner = Runner::new();
-//! runner.add_test("my_test", "my_module", None, test_factory);
+//! runner.add_test("my_test", "my_module", None, 0, false, None, test_factory);
 //! runner.run(&[], &[], &[]).await?;
 //! ```
 use backon::Retryable;
@@ -488,6 +488,8 @@ pub struct TestInfo {
     pub serial_group: Option<String>,
     pub line: u32,
     pub ordered: bool,
+    /// Doc comment written on the test function, if any.
+    pub doc: Option<String>,
 }
 
 impl TestInfo {
@@ -921,7 +923,7 @@ impl Filter for TestOnlyFilter {
 /// runner.add_reporter(ListReporter::new(false));
 ///
 /// // Add tests (typically done by procedural macros)
-/// runner.add_test("health_check", "api", None, test_factory);
+/// runner.add_test("health_check", "api", None, 0, false, None, test_factory);
 ///
 /// // Run all tests
 /// runner.run(&[], &[], &[]).await?;
@@ -1072,6 +1074,7 @@ impl Runner {
     }
 
     /// Add a test case to the runner.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_test(
         &mut self,
         name: &str,
@@ -1079,6 +1082,7 @@ impl Runner {
         serial_group: Option<&str>,
         line: u32,
         ordered: bool,
+        doc: Option<&str>,
         factory: TestCaseFactory,
     ) {
         self.test_cases.push((
@@ -1088,6 +1092,7 @@ impl Runner {
                 serial_group: serial_group.map(|s| s.to_string()),
                 line,
                 ordered,
+                doc: doc.map(|s| s.to_string()),
             }),
             factory,
         ));
@@ -1608,6 +1613,7 @@ mod test {
             serial_group: None,
             line: 0,
             ordered: false,
+            doc: None,
         }
     }
 
@@ -1772,7 +1778,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config());
-        runner.add_test("retry_test", "module", None, 0, false, factory);
+        runner.add_test("retry_test", "module", None, 0, false, None, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1813,7 +1819,7 @@ mod test {
 
         let _runner_rx = subscribe()?;
         let mut runner = Runner::with_config(create_config_with_retry());
-        runner.add_test("retry_test", "module", None, 0, false, factory);
+        runner.add_test("retry_test", "module", None, 0, false, None, factory);
 
         let result = runner.run(&[], &[], &[]).await;
         m1.assert_async().await;
@@ -1836,6 +1842,7 @@ mod test {
             serial_group: None,
             line: 0,
             ordered: false,
+            doc: None,
         });
 
         crate::config::PROJECT
@@ -1865,6 +1872,7 @@ mod test {
             serial_group: None,
             line: 0,
             ordered: false,
+            doc: None,
         });
 
         crate::config::PROJECT
@@ -1918,6 +1926,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -1990,6 +1999,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -2072,6 +2082,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -2137,6 +2148,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -2200,6 +2212,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -2260,6 +2273,7 @@ mod test {
             None,
             0,
             false,
+            None,
             factory,
         );
 
@@ -2306,9 +2320,25 @@ mod test {
 
         // Failing test added first so it is spawned first and runs first
         // under the single-threaded #[tokio::test] runtime.
-        runner.add_test("ff_fail", "module", None, 0, false, failing_factory());
-        runner.add_test("ff_pass1", "module", None, 1, false, passing_factory());
-        runner.add_test("ff_pass2", "module", None, 2, false, passing_factory());
+        runner.add_test("ff_fail", "module", None, 0, false, None, failing_factory());
+        runner.add_test(
+            "ff_pass1",
+            "module",
+            None,
+            1,
+            false,
+            None,
+            passing_factory(),
+        );
+        runner.add_test(
+            "ff_pass2",
+            "module",
+            None,
+            2,
+            false,
+            None,
+            passing_factory(),
+        );
 
         let result = runner.run(&[], &[], &[]).await;
         assert!(result.is_err());
@@ -2347,9 +2377,33 @@ mod test {
         runner.set_concurrency(1);
         // fail_fast is false by default
 
-        runner.add_test("noff_fail", "module", None, 0, false, failing_factory());
-        runner.add_test("noff_pass1", "module", None, 1, false, passing_factory());
-        runner.add_test("noff_pass2", "module", None, 2, false, passing_factory());
+        runner.add_test(
+            "noff_fail",
+            "module",
+            None,
+            0,
+            false,
+            None,
+            failing_factory(),
+        );
+        runner.add_test(
+            "noff_pass1",
+            "module",
+            None,
+            1,
+            false,
+            None,
+            passing_factory(),
+        );
+        runner.add_test(
+            "noff_pass2",
+            "module",
+            None,
+            2,
+            false,
+            None,
+            passing_factory(),
+        );
 
         let result = runner.run(&[], &[], &[]).await;
         assert!(result.is_err());
@@ -2376,10 +2430,18 @@ mod test {
         let mut runner = Runner::with_config(create_config());
 
         let group = Some("flow");
-        runner.add_test("ord_1", "module", group, 0, true, passing_factory());
-        runner.add_test("ord_2", "module", group, 1, true, failing_factory());
-        runner.add_test("ord_3", "module", group, 2, true, passing_factory());
-        runner.add_test("unordered", "module", None, 3, false, passing_factory());
+        runner.add_test("ord_1", "module", group, 0, true, None, passing_factory());
+        runner.add_test("ord_2", "module", group, 1, true, None, failing_factory());
+        runner.add_test("ord_3", "module", group, 2, true, None, passing_factory());
+        runner.add_test(
+            "unordered",
+            "module",
+            None,
+            3,
+            false,
+            None,
+            passing_factory(),
+        );
 
         let result = runner.run(&[], &[], &[]).await;
         assert!(result.is_err());
@@ -2516,6 +2578,7 @@ mod test {
             None,
             0,
             false,
+            None,
             make_http_factory(url.clone()),
         );
         runner.add_test(
@@ -2524,6 +2587,7 @@ mod test {
             None,
             1,
             false,
+            None,
             failing_http_factory(url.clone()),
         );
 

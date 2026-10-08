@@ -26,6 +26,7 @@ async fn serial_test_1() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Default serial group: no other test of the group runs while this one sleeps.
 #[tanu::test(serial)]
 async fn serial_test_2() -> eyre::Result<()> {
     let val = SERIAL_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -36,6 +37,7 @@ async fn serial_test_2() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Default serial group: no other test of the group runs while this one sleeps.
 #[tanu::test(serial)]
 async fn serial_test_3() -> eyre::Result<()> {
     let val = SERIAL_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -58,6 +60,7 @@ async fn db_test_1() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `database` serial group: no other test of the group runs while this one sleeps.
 #[tanu::test(serial = "database")]
 async fn db_test_2() -> eyre::Result<()> {
     let val = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -68,6 +71,7 @@ async fn db_test_2() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `cache` serial group: no other test of the group runs while this one sleeps.
 #[tanu::test(serial = "cache")]
 async fn cache_test_1() -> eyre::Result<()> {
     let val = CACHE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -78,6 +82,7 @@ async fn cache_test_1() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `cache` serial group: no other test of the group runs while this one sleeps.
 #[tanu::test(serial = "cache")]
 async fn cache_test_2() -> eyre::Result<()> {
     let val = CACHE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -95,6 +100,7 @@ async fn parallel_test_1() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Non-serial baseline, free to run in parallel with any other test.
 #[tanu::test]
 async fn parallel_test_2() -> eyre::Result<()> {
     sleep(Duration::from_millis(50)).await;
@@ -170,6 +176,7 @@ async fn parallel_group_a_test() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Counterpart of `parallel_group_a_test`, in the `parallel_group_b` serial group.
 #[tanu::test(serial = "parallel_group_b")]
 async fn parallel_group_b_test() -> eyre::Result<()> {
     PARALLEL_GROUP_B_START.fetch_add(1, Ordering::SeqCst);

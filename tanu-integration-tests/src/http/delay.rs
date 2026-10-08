@@ -12,6 +12,7 @@ struct DelayResponse {
     url: String,
 }
 
+/// A delayed response takes at least the requested number of seconds.
 #[tanu::test(1)]
 #[tanu::test(2)]
 async fn delay_seconds(seconds: u64) -> eyre::Result<()> {
@@ -37,6 +38,7 @@ async fn delay_seconds(seconds: u64) -> eyre::Result<()> {
     Ok(())
 }
 
+/// Query parameters reach the server on a delayed request.
 #[tanu::test]
 async fn delay_with_query_params() -> eyre::Result<()> {
     let http = Client::new();
@@ -63,6 +65,7 @@ async fn delay_with_query_params() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A custom header reaches the server on a delayed request.
 #[tanu::test]
 async fn delay_with_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -88,6 +91,7 @@ async fn delay_with_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A POST to a delayed endpoint takes at least one second.
 #[tanu::test]
 async fn delay_post_request() -> eyre::Result<()> {
     let http = Client::new();

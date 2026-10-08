@@ -22,6 +22,7 @@ struct PatchPayload {
     updated_field: String,
 }
 
+/// A JSON payload sent with PATCH reaches the server intact.
 #[tanu::test]
 async fn patch_json() -> eyre::Result<()> {
     let http = Client::new();
@@ -53,6 +54,7 @@ async fn patch_json() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A custom header on a PATCH request reaches the server.
 #[tanu::test]
 async fn patch_with_headers() -> eyre::Result<()> {
     let http = Client::new();

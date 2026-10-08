@@ -11,6 +11,7 @@ struct UuidResponse {
     uuid: String,
 }
 
+/// `/ip` returns the caller's origin address.
 #[tanu::test]
 async fn ip_address() -> eyre::Result<()> {
     let http = Client::new();
@@ -26,6 +27,7 @@ async fn ip_address() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/uuid` returns a hyphenated UUID.
 #[tanu::test]
 async fn uuid_generation() -> eyre::Result<()> {
     let http = Client::new();
@@ -42,6 +44,7 @@ async fn uuid_generation() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/html` returns an HTML document with a `text/html` content type.
 #[tanu::test]
 async fn html_response() -> eyre::Result<()> {
     let http = Client::new();
@@ -66,6 +69,7 @@ async fn html_response() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/robots.txt` returns robots rules.
 #[tanu::test]
 async fn robots_txt() -> eyre::Result<()> {
     let http = Client::new();
@@ -81,6 +85,7 @@ async fn robots_txt() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/anything` echoes the request method and JSON payload.
 #[tanu::test]
 async fn anything_endpoint() -> eyre::Result<()> {
     let http = Client::new();

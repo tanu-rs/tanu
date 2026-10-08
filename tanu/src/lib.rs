@@ -147,6 +147,7 @@ pub struct TestRegistration {
     pub serial_group: Option<&'static str>,
     pub line: u32,
     pub ordered: bool,
+    pub doc: Option<&'static str>,
     pub test_fn: AsyncTestFn,
 }
 

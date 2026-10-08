@@ -1,11 +1,12 @@
 use tanu::{check, check_eq, eyre, http::Client};
 
+/// Tests with the same function name can coexist in different modules.
 #[tanu::test]
 async fn same_test_name_in_different_modules() -> eyre::Result<()> {
     Ok(())
 }
 
-// Test with eyre::Result (already shown above)
+/// A test can return `eyre::Result`.
 #[tanu::test]
 async fn test_with_eyre_result() -> eyre::Result<()> {
     let client = Client::new();
@@ -28,7 +29,7 @@ async fn test_with_eyre_result() -> eyre::Result<()> {
     Ok(())
 }
 
-// Test with anyhow::Result
+/// A test can return `anyhow::Result`.
 #[tanu::test]
 async fn test_with_anyhow_result() -> anyhow::Result<()> {
     let client = Client::new();
@@ -87,6 +88,7 @@ impl std::fmt::Display for CustomError {
 
 impl std::error::Error for CustomError {}
 
+/// A test can return a `Result` with a custom error enum.
 #[tanu::test]
 async fn test_with_custom_result() -> Result<(), CustomError> {
     let client = Client::new();
@@ -126,7 +128,7 @@ async fn test_with_custom_result() -> Result<(), CustomError> {
     Ok(())
 }
 
-// Test with simple std::result::Result<(), String>
+/// A test can return `Result<(), String>`.
 #[tanu::test]
 async fn test_with_string_error() -> Result<(), String> {
     let client = Client::new();
@@ -147,7 +149,7 @@ async fn test_with_string_error() -> Result<(), String> {
     Ok(())
 }
 
-// Test with different parameterized result types
+/// A parameterized test sends each of its arguments as a query parameter.
 #[tanu::test("eyre")]
 #[tanu::test("anyhow")]
 #[tanu::test("custom")]
@@ -181,6 +183,7 @@ impl std::fmt::Display for SimpleError {
 
 impl std::error::Error for SimpleError {}
 
+/// A test can return a `Result` with a unit-struct error type.
 #[tanu::test]
 async fn test_with_simple_result() -> Result<(), SimpleError> {
     let client = Client::new();

@@ -22,6 +22,7 @@ struct PutPayload {
     value: String,
 }
 
+/// A JSON payload sent with PUT reaches the server intact.
 #[tanu::test]
 async fn put_json() -> eyre::Result<()> {
     let http = Client::new();
@@ -54,6 +55,7 @@ async fn put_json() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Form fields sent with PUT reach the server as form data.
 #[tanu::test]
 async fn put_form_data() -> eyre::Result<()> {
     let http = Client::new();
@@ -76,6 +78,7 @@ async fn put_form_data() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A plain text PUT body is sent to the server unchanged.
 #[tanu::test]
 async fn put_text_data() -> eyre::Result<()> {
     let http = Client::new();
@@ -99,6 +102,7 @@ async fn put_text_data() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A PUT request carries both query parameters and a JSON payload.
 #[tanu::test]
 async fn put_with_query_params() -> eyre::Result<()> {
     let http = Client::new();

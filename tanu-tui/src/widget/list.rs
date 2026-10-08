@@ -1285,6 +1285,7 @@ mod test {
             serial_group: None,
             line,
             ordered: false,
+            doc: None,
         }
     }
 

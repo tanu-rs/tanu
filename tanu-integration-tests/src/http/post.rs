@@ -21,6 +21,7 @@ struct JsonPayload {
     value: i32,
 }
 
+/// A JSON payload sent with POST reaches the server intact.
 #[tanu::test]
 async fn post_json() -> eyre::Result<()> {
     let http = Client::new();
@@ -52,6 +53,7 @@ async fn post_json() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Form fields sent with POST reach the server as form data.
 #[tanu::test]
 async fn post_form() -> eyre::Result<()> {
     let http = Client::new();
@@ -75,6 +77,7 @@ async fn post_form() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A plain text POST body is sent to the server unchanged.
 #[tanu::test]
 async fn post_text() -> eyre::Result<()> {
     let http = Client::new();

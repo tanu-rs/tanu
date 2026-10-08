@@ -7,6 +7,7 @@ struct CookieResponse {
     cookies: HashMap<String, String>,
 }
 
+/// A cookie set by the server is kept and sent back on the redirect that follows.
 #[tanu::test]
 async fn set_cookie() -> eyre::Result<()> {
     let http = Client::new();
@@ -25,6 +26,7 @@ async fn set_cookie() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Several cookies set in one response are all kept and sent back.
 #[tanu::test]
 async fn set_multiple_cookies() -> eyre::Result<()> {
     let http = Client::new();
@@ -45,6 +47,7 @@ async fn set_multiple_cookies() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A cookie deleted by the server is no longer sent.
 #[tanu::test]
 async fn delete_cookie() -> eyre::Result<()> {
     let http = Client::new();
@@ -77,6 +80,7 @@ async fn delete_cookie() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Cookies passed in a `cookie` header reach the server.
 #[tanu::test]
 async fn get_cookies() -> eyre::Result<()> {
     let http = Client::new();

@@ -3,6 +3,7 @@ use tanu::{
     http::{Client, StatusCode},
 };
 
+/// `/status/200` returns 200 OK.
 #[tanu::test]
 async fn status_200_ok() -> eyre::Result<()> {
     let http = Client::new();
@@ -15,6 +16,7 @@ async fn status_200_ok() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/201` returns 201 Created.
 #[tanu::test]
 async fn status_201_created() -> eyre::Result<()> {
     let http = Client::new();
@@ -27,6 +29,7 @@ async fn status_201_created() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/204` returns 204 No Content with an empty body.
 #[tanu::test]
 async fn status_204_no_content() -> eyre::Result<()> {
     let http = Client::new();
@@ -42,6 +45,7 @@ async fn status_204_no_content() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/400` returns 400 Bad Request.
 #[tanu::test]
 async fn status_400_bad_request() -> eyre::Result<()> {
     let http = Client::new();
@@ -54,6 +58,7 @@ async fn status_400_bad_request() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/401` returns 401 Unauthorized.
 #[tanu::test]
 async fn status_401_unauthorized() -> eyre::Result<()> {
     let http = Client::new();
@@ -66,6 +71,7 @@ async fn status_401_unauthorized() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/403` returns 403 Forbidden.
 #[tanu::test]
 async fn status_403_forbidden() -> eyre::Result<()> {
     let http = Client::new();
@@ -78,6 +84,7 @@ async fn status_403_forbidden() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/404` returns 404 Not Found.
 #[tanu::test]
 async fn status_404_not_found() -> eyre::Result<()> {
     let http = Client::new();
@@ -90,6 +97,7 @@ async fn status_404_not_found() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/500` returns 500 Internal Server Error.
 #[tanu::test]
 async fn status_500_internal_server_error() -> eyre::Result<()> {
     let http = Client::new();
@@ -102,6 +110,7 @@ async fn status_500_internal_server_error() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/502` returns 502 Bad Gateway.
 #[tanu::test]
 async fn status_502_bad_gateway() -> eyre::Result<()> {
     let http = Client::new();
@@ -114,6 +123,7 @@ async fn status_502_bad_gateway() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/503` returns 503 Service Unavailable.
 #[tanu::test]
 async fn status_503_service_unavailable() -> eyre::Result<()> {
     let http = Client::new();
@@ -126,6 +136,7 @@ async fn status_503_service_unavailable() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/status/{code}` returns each requested code, from 2xx through 5xx.
 #[tanu::test]
 async fn random_status_codes() -> eyre::Result<()> {
     let http = Client::new();

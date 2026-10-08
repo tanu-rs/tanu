@@ -7,6 +7,7 @@ struct HeadersResponse {
     headers: HashMap<String, String>,
 }
 
+/// Headers requested via `/response-headers` are readable on the response.
 #[tanu::test]
 async fn response_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -35,6 +36,7 @@ async fn response_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `user-agent`, `accept` and a custom header set on the request reach the server.
 #[tanu::test]
 async fn request_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -67,6 +69,7 @@ async fn request_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A `cache-control` request header reaches the server.
 #[tanu::test]
 async fn cache_control_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -90,6 +93,7 @@ async fn cache_control_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// `/etag/{etag}` returns the etag in the `etag` response header.
 #[tanu::test]
 async fn etag_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -109,6 +113,7 @@ async fn etag_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// Three custom headers set on one request all reach the server.
 #[tanu::test]
 async fn multiple_headers() -> eyre::Result<()> {
     let http = Client::new();
@@ -133,6 +138,7 @@ async fn multiple_headers() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A custom `user-agent` replaces the default one.
 #[tanu::test]
 async fn user_agent_header() -> eyre::Result<()> {
     let http = Client::new();

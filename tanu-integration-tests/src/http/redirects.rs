@@ -11,6 +11,7 @@ struct RedirectResponse {
     url: String,
 }
 
+/// `/redirect-to` is followed to the target URL.
 #[tanu::test]
 async fn redirect_to_get() -> eyre::Result<()> {
     let http = Client::new();
@@ -30,6 +31,7 @@ async fn redirect_to_get() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A chain of three relative redirects is followed to `/get`.
 #[tanu::test]
 async fn relative_redirect() -> eyre::Result<()> {
     let http = Client::new();
@@ -48,6 +50,7 @@ async fn relative_redirect() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A chain of two absolute redirects is followed to `/get`.
 #[tanu::test]
 async fn absolute_redirect() -> eyre::Result<()> {
     let http = Client::new();
@@ -66,6 +69,7 @@ async fn absolute_redirect() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A chain of five redirects is followed to `/get`.
 #[tanu::test]
 async fn redirect_with_status_codes() -> eyre::Result<()> {
     let http = Client::new();
@@ -81,6 +85,7 @@ async fn redirect_with_status_codes() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A 301 redirect requested via `status_code` is followed to the target URL.
 #[tanu::test]
 async fn redirect_with_query_params() -> eyre::Result<()> {
     let http = Client::new();

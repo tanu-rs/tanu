@@ -6,7 +6,7 @@ mod assertion;
 
 use tanu::{check, eyre};
 
-// Add a simple test directly in this file
+/// A test defined directly in a single-file binary is discovered and run.
 #[tanu::test]
 async fn test_from_third_binary() -> eyre::Result<()> {
     check!(true);
@@ -14,6 +14,7 @@ async fn test_from_third_binary() -> eyre::Result<()> {
     Ok(())
 }
 
+/// A second test in the same single-file binary is discovered and run.
 #[tanu::test]
 async fn another_test_in_third() -> eyre::Result<()> {
     check!(true);
