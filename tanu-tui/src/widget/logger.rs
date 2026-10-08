@@ -3,6 +3,9 @@
 //! Log records from `tracing` (and from `log` through `tracing_log::LogTracer`) are
 //! captured by [`LogLayer`] into a global ring buffer, and [`LoggerWidget`] renders the
 //! tail of the buffer. The pane follows new records until it is scrolled up.
+//!
+//! The shown lines can be searched like in `less`: matches are highlighted, and the
+//! view jumps from one matching line to the next.
 use ansi_to_tui::IntoText;
 use chrono::{DateTime, Local};
 use ratatui::{prelude::*, widgets::Paragraph};
@@ -204,6 +207,18 @@ pub struct LoggerState {
     max_level: usize,
     /// Whether the target (the Rust module path) of each record is shown.
     pub show_target: bool,
+    /// Whether a search query is being typed.
+    pub searching: bool,
+    /// Text searched for in the shown lines, ignoring case; empty without a search.
+    search: String,
+    /// Number of lines from the bottom of the matching line last jumped to.
+    current: Option<usize>,
+    /// `offset` when the search started, restored when it is cancelled.
+    origin: usize,
+    /// Whether the search matches no line.
+    no_match: bool,
+    /// Number of lines shown at once, as of the last render.
+    page: usize,
 }
 
 impl Default for LoggerState {
@@ -214,6 +229,12 @@ impl Default for LoggerState {
             level: MAX_LEVEL.load(Ordering::Relaxed),
             max_level: MAX_LEVEL.load(Ordering::Relaxed),
             show_target: true,
+            searching: false,
+            search: String::new(),
+            current: None,
+            origin: 0,
+            no_match: false,
+            page: 0,
         }
     }
 }
@@ -243,11 +264,13 @@ impl LoggerState {
     /// Shows more verbose levels.
     pub fn more_verbose(&mut self) {
         self.level = (self.level + 1).min(self.max_level);
+        self.current = None;
     }
 
     /// Shows less verbose levels.
     pub fn less_verbose(&mut self) {
         self.level = self.level.saturating_sub(1);
+        self.current = None;
     }
 
     pub fn level(&self) -> Level {
@@ -261,6 +284,178 @@ impl LoggerState {
     fn shows(&self, level: Level) -> bool {
         level <= self.level()
     }
+
+    /// Accounts for the lines added since the last call, keeping the view still.
+    fn sync(&mut self, total_lines: usize) {
+        let added = total_lines.saturating_sub(self.seen_lines);
+        if self.offset > 0 {
+            self.offset = self.offset.saturating_add(added);
+        }
+        if let Some(current) = &mut self.current {
+            *current += added;
+        }
+        self.seen_lines = total_lines;
+    }
+
+    /// Starts typing a search query.
+    pub fn start_search(&mut self) {
+        self.clear_search();
+        self.searching = true;
+        self.origin = self.offset;
+    }
+
+    pub fn search_input(&mut self, c: char) {
+        self.search.push(c);
+        self.search_changed();
+    }
+
+    pub fn search_backspace(&mut self) {
+        self.search.pop();
+        self.search_changed();
+    }
+
+    /// Searches again from where the search started.
+    fn search_changed(&mut self) {
+        self.offset = self.origin;
+        self.current = None;
+        self.no_match = false;
+        self.jump_to_match(true);
+    }
+
+    /// Stops typing the query; `keep` leaves the search active, otherwise the view
+    /// goes back to where the search started.
+    pub fn end_search(&mut self, keep: bool) {
+        self.searching = false;
+        if !keep {
+            self.offset = self.origin;
+            self.clear_search();
+        }
+    }
+
+    pub fn clear_search(&mut self) {
+        self.search.clear();
+        self.current = None;
+        self.no_match = false;
+    }
+
+    /// true if matches of a search query are highlighted.
+    pub fn has_search(&self) -> bool {
+        !self.search.is_empty()
+    }
+
+    /// Jumps to the next matching line below (`forward`) or above, wrapping around.
+    /// A new search starts at the last match on the page or above it, as the newest
+    /// logs are at the bottom.
+    pub fn jump_to_match(&mut self, forward: bool) {
+        if !self.has_search() {
+            return;
+        }
+        let query = folded(&self.search);
+        // Lines from the bottom of the matching lines, newest first.
+        let mut matches = vec![];
+        let mut total_lines = 0;
+        for record in records().iter().rev().filter(|r| self.shows(r.level)) {
+            let lines = record_lines(record, self.show_target);
+            for (n, line) in lines.iter().rev().enumerate() {
+                if !match_ranges(&line_chars(line), &query).is_empty() {
+                    matches.push(total_lines + n);
+                }
+            }
+            total_lines += lines.len();
+        }
+        self.sync(total_lines);
+
+        let page = self.page.max(1);
+        self.offset = self.offset.min(total_lines.saturating_sub(page));
+        let offset = self.offset;
+        let target = match self.current {
+            Some(current) if forward => matches
+                .iter()
+                .rfind(|line| **line < current)
+                .or(matches.last()),
+            Some(current) => matches
+                .iter()
+                .find(|line| **line > current)
+                .or(matches.first()),
+            None => matches
+                .iter()
+                .find(|line| **line >= offset)
+                .or(matches.last()),
+        };
+        self.current = target.copied();
+        self.no_match = target.is_none();
+        if let Some(line) = self.current {
+            if !(offset..offset + page).contains(&line) {
+                self.offset = line.saturating_sub(page / 2);
+            }
+        }
+    }
+}
+
+/// The characters of `text` with the case folded, to search ignoring case.
+fn folded(text: &str) -> Vec<char> {
+    text.chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect()
+}
+
+/// The case-folded characters of a rendered line.
+fn line_chars(line: &Line) -> Vec<char> {
+    line.spans
+        .iter()
+        .flat_map(|span| folded(&span.content))
+        .collect()
+}
+
+/// Ranges of the characters of `text` matching `query`; both are case-folded.
+fn match_ranges(text: &[char], query: &[char]) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = vec![];
+    let mut start = 0;
+    while !query.is_empty() && start + query.len() <= text.len() {
+        if text[start..].starts_with(query) {
+            ranges.push(start..start + query.len());
+            start += query.len();
+        } else {
+            start += 1;
+        }
+    }
+    ranges
+}
+
+/// Patches `style` onto the parts of a line matching `query`.
+fn highlight(line: Line<'static>, query: &[char], style: Style) -> Line<'static> {
+    let ranges = match_ranges(&line_chars(&line), query);
+    if ranges.is_empty() {
+        return line;
+    }
+    let mut spans = vec![];
+    let mut position = 0;
+    for span in &line.spans {
+        // Split the span where a match starts or ends.
+        let mut run = String::new();
+        let mut run_matches = false;
+        let mut flush = |run: &mut String, matches: bool| {
+            if !run.is_empty() {
+                let run_style = if matches {
+                    span.style.patch(style)
+                } else {
+                    span.style
+                };
+                spans.push(Span::styled(std::mem::take(run), run_style));
+            }
+        };
+        for c in span.content.chars() {
+            let matches = ranges.iter().any(|range| range.contains(&position));
+            if matches != run_matches {
+                flush(&mut run, run_matches);
+                run_matches = matches;
+            }
+            run.push(c);
+            position += 1;
+        }
+        flush(&mut run, run_matches);
+    }
+    Line::from(spans)
 }
 
 pub struct LoggerWidget {
@@ -283,6 +478,18 @@ fn level_style(level: Level) -> Style {
     }
 }
 
+/// Style of the level cell: a badge for the levels worth noticing.
+fn level_badge_style(level: Level) -> Style {
+    let badge = |bg| Style::new().fg(theme::on_accent()).bg(bg).bold();
+    match level {
+        Level::ERROR => badge(theme::fail()),
+        Level::WARN => badge(theme::accent()),
+        Level::INFO => badge(theme::ok()),
+        Level::DEBUG => badge(theme::current().muted),
+        _ => muted(),
+    }
+}
+
 fn level_label(level: Level) -> &'static str {
     match level {
         Level::ERROR => "E",
@@ -300,7 +507,10 @@ fn record_lines(record: &Record, show_target: bool) -> Vec<Line<'static>> {
     let mut prefix = vec![
         Span::styled(record.time.format("%H:%M:%S").to_string(), muted()),
         sep(),
-        Span::styled(level_label(record.level), style),
+        Span::styled(
+            format!(" {} ", level_label(record.level)),
+            level_badge_style(record.level),
+        ),
         sep(),
     ];
     if show_target {
@@ -348,14 +558,9 @@ impl StatefulWidget for LoggerWidget {
                 .filter(|r| state.shows(r.level))
                 .map(Record::line_count)
                 .sum();
-            if state.offset > 0 {
-                // Keep the view still while new records arrive.
-                state.offset = state
-                    .offset
-                    .saturating_add(total_lines.saturating_sub(state.seen_lines));
-            }
+            state.sync(total_lines);
             state.offset = state.offset.min(total_lines.saturating_sub(height));
-            state.seen_lines = total_lines;
+            state.page = height;
 
             // Walk back from the newest record until the page is filled.
             let mut skip = state.offset;
@@ -390,7 +595,25 @@ impl StatefulWidget for LoggerWidget {
             .flat_map(|record| record_lines(record, state.show_target))
             .collect();
         lines.truncate(lines.len() - bottom_cut);
-        let lines = lines.split_off(lines.len().saturating_sub(height));
+        let mut lines = lines.split_off(lines.len().saturating_sub(height));
+
+        if state.has_search() {
+            let query = folded(&state.search);
+            let matched = Style::new().add_modifier(Modifier::REVERSED);
+            let current = Style::new()
+                .fg(theme::on_accent())
+                .bg(theme::accent())
+                .bold();
+            let bottom = state.offset + lines.len().saturating_sub(1);
+            lines = lines
+                .into_iter()
+                .enumerate()
+                .map(|(n, line)| {
+                    let is_current = state.current == Some(bottom - n);
+                    highlight(line, &query, if is_current { current } else { matched })
+                })
+                .collect();
+        }
 
         let mut title = vec![
             Span::raw("Logs"),
@@ -398,6 +621,15 @@ impl StatefulWidget for LoggerWidget {
         ];
         if !state.is_following() {
             title.push(Span::styled(format!(" ↑{}", state.offset), muted()));
+        }
+        if state.has_search() || state.searching {
+            title.push(Span::styled(
+                format!(" /{}", state.search),
+                Style::new().fg(theme::running()),
+            ));
+        }
+        if state.no_match {
+            title.push(Span::styled(" no match", Style::new().fg(theme::fail())));
         }
         if self.maximized {
             title.push(Span::styled(" [maximized]", muted()));
@@ -442,6 +674,47 @@ mod test {
         let red = line.spans.iter().find(|s| s.content == "red").unwrap();
         assert_eq!(red.style.fg, Some(Color::Red));
         assert!(!line.to_string().contains('\x1b'));
+    }
+
+    #[test]
+    fn badges_levels_worth_noticing() {
+        let level_cell = |level| {
+            let record = Record::new(level, "test".into(), "message");
+            record_lines(&record, false)[0].spans[2].clone()
+        };
+        let info = level_cell(Level::INFO);
+        assert_eq!(info.content, " I ");
+        assert_eq!(info.style.bg, Some(theme::ok()));
+        assert_eq!(info.style.fg, Some(theme::on_accent()));
+        assert_eq!(level_cell(Level::ERROR).style.bg, Some(theme::fail()));
+        assert_eq!(level_cell(Level::WARN).style.bg, Some(theme::accent()));
+        assert_eq!(
+            level_cell(Level::DEBUG).style.bg,
+            Some(theme::current().muted)
+        );
+        assert_eq!(level_cell(Level::TRACE).style.bg, None);
+    }
+
+    #[test]
+    fn highlights_matches_ignoring_case() {
+        let record = Record::new(Level::INFO, "test".into(), "\x1b[31mfoo\x1b[0mBAR foobar");
+        let line = record_lines(&record, false).remove(0);
+        let style = Style::new().add_modifier(Modifier::REVERSED);
+        let text = line.to_string();
+
+        let highlighted = highlight(line.clone(), &folded("OBa"), style);
+        assert_eq!(highlighted.to_string(), text);
+        let matched = highlighted
+            .spans
+            .iter()
+            .filter(|span| span.style.add_modifier.contains(Modifier::REVERSED))
+            .collect::<Vec<_>>();
+        // The first match spans two differently colored parts.
+        let contents = matched.iter().map(|s| &*s.content).collect::<Vec<_>>();
+        assert_eq!(contents, ["o", "BA", "oba"]);
+        assert_eq!(matched[0].style.fg, Some(Color::Red));
+
+        assert_eq!(highlight(line.clone(), &folded("zzz"), style), line);
     }
 
     #[test]
@@ -503,5 +776,52 @@ mod test {
             messages(rendered(&mut state, 7)),
             ["m0", "m2", "continued", "m3", "m4"]
         );
+
+        // Shown lines are m0, m2, continued, m3, m4; a page shows three of them.
+        let mut state = LoggerState::new();
+        state.less_verbose();
+        state.less_verbose();
+        rendered(&mut state, 5);
+        state.start_search();
+        state.search_input('M');
+        // The newest match is already on the page.
+        assert_eq!(state.current, Some(0));
+        assert!(state.is_following());
+
+        state.search_input('0');
+        assert_eq!(messages(rendered(&mut state, 5)), ["m0", "m2", "continued"]);
+        state.search_backspace();
+        state.end_search(true);
+        assert_eq!(state.current, Some(0));
+        assert_eq!(messages(rendered(&mut state, 5)), ["continued", "m3", "m4"]);
+
+        // Backward goes up, skipping the line that does not match.
+        state.jump_to_match(false);
+        assert_eq!(state.current, Some(1));
+        state.jump_to_match(false);
+        assert_eq!(state.current, Some(3));
+        assert_eq!(messages(rendered(&mut state, 5)), ["m0", "m2", "continued"]);
+        state.jump_to_match(true);
+        assert_eq!(state.current, Some(1));
+        // Forward from the newest match wraps around to the oldest.
+        state.jump_to_match(true);
+        state.jump_to_match(true);
+        assert_eq!(state.current, Some(4));
+
+        // Cancelling a search restores the view.
+        state.scroll_end();
+        state.start_search();
+        for c in "m0".chars() {
+            state.search_input(c);
+        }
+        assert!(!state.is_following());
+        state.end_search(false);
+        assert!(state.is_following());
+        assert!(!state.has_search());
+
+        state.start_search();
+        state.search_input('?');
+        assert!(state.no_match);
+        assert!(state.is_following());
     }
 }

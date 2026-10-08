@@ -463,6 +463,14 @@ enum Message {
     /// Show more (true) or fewer (false) log levels.
     LoggerLevel(bool),
     ToggleLogTarget,
+    LogSearchStart,
+    LogSearchInput(char),
+    LogSearchBackspace,
+    /// Leave the log search mode; `true` keeps the matches highlighted.
+    LogSearchEnd(bool),
+    /// Jump to the next log line matching the search below (true) or above (false).
+    LogSearchJump(bool),
+    ClearLogSearch,
     ExecuteOne,
     ExecuteAll,
     SearchStart,
@@ -554,6 +562,12 @@ fn update(model: &mut Model, msg: Message) -> Option<Command> {
                 CursorMovement::End => logger.scroll_end(),
             }
         }
+        Message::LogSearchStart => model.logger_state.start_search(),
+        Message::LogSearchInput(c) => model.logger_state.search_input(c),
+        Message::LogSearchBackspace => model.logger_state.search_backspace(),
+        Message::LogSearchEnd(keep) => model.logger_state.end_search(keep),
+        Message::LogSearchJump(forward) => model.logger_state.jump_to_match(forward),
+        Message::ClearLogSearch => model.logger_state.clear_search(),
         Message::LoggerLevel(true) => model.logger_state.more_verbose(),
         Message::LoggerLevel(false) => model.logger_state.less_verbose(),
         Message::ToggleLogTarget => {
@@ -801,10 +815,24 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
         };
     }
 
+    let logger = &model.logger_state;
+    if logger.searching {
+        return match key.code {
+            KeyCode::Esc => Some(Message::LogSearchEnd(false)),
+            KeyCode::Enter => Some(Message::LogSearchEnd(true)),
+            KeyCode::Backspace => Some(Message::LogSearchBackspace),
+            KeyCode::Char(c) if !ctrl => Some(Message::LogSearchInput(c)),
+            _ => None,
+        };
+    }
+    let in_logs = model.current_pane == Pane::Logger;
+
     // Keys available in every pane.
     let global = match key.code {
         KeyCode::Char('q') => Some(Message::Quit),
+        KeyCode::Esc if in_logs && logger.has_search() => Some(Message::ClearLogSearch),
         KeyCode::Esc if list.is_filtering() => Some(Message::ClearFilters),
+        KeyCode::Esc if logger.has_search() => Some(Message::ClearLogSearch),
         KeyCode::Esc => Some(Message::Quit),
         KeyCode::Char('c') if ctrl => Some(Message::Quit),
         KeyCode::Char('?') => Some(Message::ToggleHelp),
@@ -817,8 +845,11 @@ fn handle_key(model: &Model, key: KeyEvent) -> Option<Message> {
         KeyCode::Char('R') | KeyCode::Char('1') => Some(Message::ExecuteAll),
         KeyCode::Char('[') => Some(Message::InfoTabSelect(TabMovement::Prev)),
         KeyCode::Char(']') => Some(Message::InfoTabSelect(TabMovement::Next)),
+        KeyCode::Char('/') if in_logs => Some(Message::LogSearchStart),
         KeyCode::Char('/') => Some(Message::SearchStart),
         KeyCode::Char('f') => Some(Message::CycleStatusFilter),
+        KeyCode::Char('n') if in_logs && logger.has_search() => Some(Message::LogSearchJump(true)),
+        KeyCode::Char('N') if in_logs && logger.has_search() => Some(Message::LogSearchJump(false)),
         KeyCode::Char('n') => Some(Message::JumpToFailure { forward: true }),
         KeyCode::Char('N') => Some(Message::JumpToFailure { forward: false }),
         KeyCode::Char('L') => Some(Message::ToggleLogTarget),
@@ -1064,6 +1095,14 @@ fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
             ("↑↓", "Move".into()),
         ];
     }
+    let logger = &model.logger_state;
+    if logger.searching {
+        return vec![
+            ("type", "to search logs".into()),
+            ("Enter", "Apply".into()),
+            ("Esc", "Cancel".into()),
+        ];
+    }
     let mut hints: Vec<(&'static str, String)> = vec![("r", "Run".into()), ("R", "Run all".into())];
     match model.current_pane {
         Pane::List => {
@@ -1084,6 +1123,11 @@ fn key_hints(model: &Model) -> Vec<(&'static str, String)> {
             }
         }
         Pane::Logger => {
+            hints.push(("/", "Search".into()));
+            if logger.has_search() {
+                hints.push(("n/N", "Next match".into()));
+                hints.push(("Esc", "Clear search".into()));
+            }
             hints.push(("j/k", "Scroll".into()));
             hints.push(("G", "Follow".into()));
             hints.push(("←→", format!("Level:{}", model.logger_state.level())));
