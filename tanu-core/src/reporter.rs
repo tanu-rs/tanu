@@ -38,7 +38,7 @@
 use console::{style, StyledObject, Term};
 use indexmap::IndexMap;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     io::Write,
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
@@ -338,6 +338,8 @@ pub struct ListReporter {
     failures: Vec<Failure>,
     /// Number of tests that were retried at least once.
     retried_tests: usize,
+    /// Positions of the tests that run in order, from the plan.
+    ordered_steps: HashMap<(ProjectName, ModuleName, TestName), runner::OrderedStep>,
 }
 
 struct Failure {
@@ -378,12 +380,18 @@ impl ListReporter {
             max_body_size,
             failures: Vec::new(),
             retried_tests: 0,
+            ordered_steps: HashMap::new(),
         }
     }
 }
 
 #[async_trait::async_trait]
 impl Reporter for ListReporter {
+    async fn on_plan(&mut self, plan: runner::TestPlan) -> eyre::Result<()> {
+        self.ordered_steps = plan.ordered_steps;
+        Ok(())
+    }
+
     async fn on_start(
         &mut self,
         project_name: String,
@@ -476,10 +484,15 @@ impl Reporter for ListReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
+        let key = (project_name.clone(), module_name, test_name.clone());
         let mut buffer = self
             .buffer
-            .swap_remove(&(project_name.clone(), module_name, test_name.clone()))
+            .swap_remove(&key)
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
+        let step = match self.ordered_steps.get(&key) {
+            Some(step) => format!(" {}", style(step_label(*step)).dim()),
+            None => String::new(),
+        };
 
         let should_print = match self.capture_http {
             CaptureHttpMode::All => true,
@@ -508,13 +521,13 @@ impl Reporter for ListReporter {
         match result {
             Ok(_res) => {
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} {project} {path} {request_time}{retries}"
+                    "{status} {test_number} {project} {path}{step} {request_time}{retries}"
                 ))?;
             }
             Err(e) => {
                 let error = format!("{e:#}");
                 self.terminal.write_line(&format!(
-                    "{status} {test_number} {project} {path} {request_time}{retries}:\n{doc}{error}",
+                    "{status} {test_number} {project} {path}{step} {request_time}{retries}:\n{doc}{error}",
                     doc = doc_block(info.doc.as_deref()),
                     error = style(indent(&error, ERROR_INDENT)).red()
                 ))?;
@@ -731,6 +744,8 @@ pub struct LiveReporter {
     logs: Window,
     /// One line per recent HTTP/gRPC call (`--capture-http all`).
     calls: Window,
+    /// Positions of the tests that run in order, from the plan.
+    ordered_steps: HashMap<(ProjectName, ModuleName, TestName), runner::OrderedStep>,
 }
 
 /// The latest lines of a stream (logs, calls), shown in a fixed-height window
@@ -796,6 +811,7 @@ impl LiveReporter {
             retried_tests: 0,
             logs: Window::new("logs"),
             calls: Window::new("http"),
+            ordered_steps: HashMap::new(),
         }
     }
 
@@ -823,12 +839,13 @@ impl LiveReporter {
         let running: Vec<RunningTest> = self
             .running
             .iter()
-            .map(|((project, module, test), r)| RunningTest {
+            .map(|(key @ (project, module, test), r)| RunningTest {
                 project,
                 module,
                 test,
                 elapsed: now.duration_since(r.started_at),
                 retries: r.buffer.retries,
+                step: self.ordered_steps.get(key).copied(),
             })
             .collect();
         let failed = self.failures.len();
@@ -960,6 +977,7 @@ impl Reporter for LiveReporter {
 
     async fn on_plan(&mut self, plan: runner::TestPlan) -> eyre::Result<()> {
         self.total = plan.total_tests;
+        self.ordered_steps = plan.ordered_steps;
         self.started_at = Some(Instant::now());
         Ok(())
     }
@@ -1039,9 +1057,10 @@ impl Reporter for LiveReporter {
         test_name: String,
         test: Test,
     ) -> eyre::Result<()> {
+        let key = (project_name.clone(), module_name, test_name.clone());
         let Running { buffer, .. } = self
             .running
-            .shift_remove(&(project_name.clone(), module_name, test_name.clone()))
+            .shift_remove(&key)
             .ok_or_else(|| eyre::eyre!("test case \"{test_name}\" not found in the buffer"))?;
         self.done += 1;
 
@@ -1052,6 +1071,9 @@ impl Reporter for LiveReporter {
             ..
         } = test;
         let mut details = format!("{request_time:.2?}");
+        if let Some(step) = self.ordered_steps.get(&key) {
+            details.push_str(&format!(" · {}", step_label(*step)));
+        }
         match buffer.retries {
             0 => {}
             1 => details.push_str(" · after 1 retry"),
@@ -1127,6 +1149,8 @@ struct RunningTest<'a> {
     test: &'a str,
     elapsed: Duration,
     retries: usize,
+    /// Position in its ordered module, if the test runs in order.
+    step: Option<runner::OrderedStep>,
 }
 
 /// Overall progress as shown on the last line of the live region.
@@ -1200,6 +1224,9 @@ fn live_region(
             console::pad_str(name, name_width, console::Alignment::Left, None),
             style_elapsed(r.elapsed),
         );
+        if let Some(step) = r.step {
+            line.push_str(&format!("  {}", style(step_label(step)).dim()));
+        }
         if r.retries > 0 {
             line.push_str(&format!(
                 "  {}",
@@ -1272,6 +1299,11 @@ fn live_region(
             .map(|line| console::truncate_str(&line, width, "…").into_owned()),
     );
     region
+}
+
+/// `step 2/4` label of a test that runs in order.
+fn step_label(step: runner::OrderedStep) -> String {
+    format!("step {}/{}", step.step, step.total)
 }
 
 /// One line for the http window, e.g. `GET 200 OK http://host/path 12.00ms · api::create`.
@@ -1723,6 +1755,7 @@ mod test {
             test,
             elapsed: Duration::from_millis(1200),
             retries: 0,
+            step: None,
         }
     }
 
@@ -1846,6 +1879,24 @@ mod test {
                 "  ⠋ [dev] users::bb 6.0s  ↻ retry 1".to_string(),
                 " ━━━━━━──────────────  3/10  ✓ 2  ✘ 1  ● 2 running  2.3s".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn live_region_shows_the_step_of_an_ordered_test() {
+        let mut ordered = running("update");
+        ordered.step = Some(runner::OrderedStep { step: 2, total: 4 });
+        ordered.retries = 1;
+        let lines = plain(live_region(
+            &[ordered],
+            &progress(),
+            &[],
+            0,
+            layout(10, 0, 60),
+        ));
+        assert_eq!(
+            lines[1],
+            "  ⠋ [dev] users::update 1.2s  step 2/4  ↻ retry 1"
         );
     }
 

@@ -16,7 +16,7 @@ Enable the `graphql` feature flag in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tanu = { version = "1.3.0", features = ["graphql"] }
+tanu = { version = "1.3.1", features = ["graphql"] }
 ```
 
 ## Quick Start

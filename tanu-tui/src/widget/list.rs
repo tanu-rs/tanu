@@ -581,6 +581,22 @@ impl ModuleState {
         }
         counts
     }
+
+    /// Rail symbol in front of test `t`, or of its call rows if `call` is set, connecting
+    /// the tests of an ordered module that run one after another.
+    fn rail(&self, t: usize, call: bool) -> &'static str {
+        let linked = |test: &TestState| test.info.ordered && test.filtered.is_none();
+        let on = linked(&self.tests[t]);
+        let before = self.tests[..t].iter().any(linked) || (call && on);
+        let after = self.tests[t + 1..].iter().any(linked);
+        match (on && !call, before, after) {
+            (true, false, true) => "┌",
+            (true, true, true) => "├",
+            (true, true, false) => "└",
+            (false, true, true) => "│",
+            _ => " ",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -932,7 +948,9 @@ impl TestListState {
                 )
             }
             RowRef::Test(p, m, t) => {
-                let test = &self.projects[p].modules[m].tests[t];
+                let module = &self.projects[p].modules[m];
+                let test = &module.tests[t];
+                let rail = module.rail(t, false);
                 let expander = if test.call_count() == 0 {
                     " "
                 } else {
@@ -940,7 +958,10 @@ impl TestListState {
                 };
                 if let Some(reason) = test.filtered {
                     return fit_line(
-                        vec![Span::styled("      ", muted()), symbol_filtered()],
+                        vec![
+                            Span::styled(format!("  {rail}   "), muted()),
+                            symbol_filtered(),
+                        ],
                         test.info.name.clone(),
                         muted(),
                         vec![Span::styled(reason.label(), muted().italic())],
@@ -969,7 +990,7 @@ impl TestListState {
                 }
                 fit_line(
                     vec![
-                        Span::styled(format!("    {expander} "), muted()),
+                        Span::styled(format!("  {rail} {expander} "), muted()),
                         symbol_test_result(&test.execution_state),
                     ],
                     test.info.name.clone(),
@@ -979,14 +1000,16 @@ impl TestListState {
                 )
             }
             RowRef::Call(p, m, t, c) => {
-                let test = &self.projects[p].modules[m].tests[t];
+                let module = &self.projects[p].modules[m];
+                let test = &module.tests[t];
                 let Some(call) = test.execution_state.result().and_then(|r| r.call(c)) else {
                     return Line::default();
                 };
+                let rail = module.rail(t, true);
                 let status_style = Style::new().fg(call.status_color()).bold();
                 fit_line(
                     vec![
-                        Span::styled("        ", muted()),
+                        Span::styled(format!("  {rail}     "), muted()),
                         Span::styled(format!("{:<6} ", call.method()), muted().bold()),
                         Span::styled(format!("{} ", call.status_label()), status_style),
                     ],
@@ -1727,6 +1750,43 @@ mod test {
             super::symbol_test_result(&ExecutionState::Executed(result(false, 0))),
             Span::styled("✘ ", Style::default().fg(theme::fail()).bold())
         );
+    }
+
+    #[test]
+    fn ordered_tests_are_connected_by_a_rail() {
+        let ordered = |name: &str, line: u32| TestInfo {
+            ordered: true,
+            ..test_info("flow", name, line)
+        };
+        let mut state = TestListState::new(
+            &projects(&["dev"]),
+            &[
+                ordered("create", 1),
+                ordered("update", 2),
+                ordered("verify", 3),
+                ordered("delete", 4),
+                test_info("plain", "a", 1),
+                test_info("plain", "b", 2),
+            ],
+        );
+        let flow = &mut state.projects[0].modules[0];
+        flow.tests[0].execution_state = ExecutionState::Executed(result(true, 1));
+        flow.tests[0].expanded = true;
+        // A test excluded from runs is not a step, but the rail passes by it.
+        flow.tests[1].filtered = Some(FilterReason::Ignored);
+
+        let rail = |row| {
+            let line = state.row_line(row, 80).to_string();
+            line.chars().nth(2).unwrap()
+        };
+        assert_eq!('┌', rail(RowRef::Test(0, 0, 0)));
+        assert_eq!('│', rail(RowRef::Call(0, 0, 0, 0)));
+        assert_eq!('│', rail(RowRef::Test(0, 0, 1)));
+        assert_eq!('├', rail(RowRef::Test(0, 0, 2)));
+        assert_eq!('└', rail(RowRef::Test(0, 0, 3)));
+        // Tests that are not ordered keep the plain indentation.
+        assert_eq!(' ', rail(RowRef::Test(0, 1, 0)));
+        assert_eq!(' ', rail(RowRef::Test(0, 1, 1)));
     }
 
     #[test]

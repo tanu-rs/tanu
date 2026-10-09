@@ -74,7 +74,7 @@ use crate::{
     config::{self, get_tanu_config, CaptureHttpMode, ProjectConfig},
     http,
     reporter::Reporter,
-    Config, ModuleName, ProjectName,
+    Config, ModuleName, ProjectName, TestName,
 };
 
 tokio::task_local! {
@@ -437,6 +437,18 @@ impl From<EventBody> for Event {
 #[derive(Debug, Clone)]
 pub struct TestPlan {
     pub total_tests: usize,
+    /// Tests that run one after another in an ordered module, keyed by
+    /// (project, module, test). A module with a single test to run has no entry.
+    pub ordered_steps: HashMap<(ProjectName, ModuleName, TestName), OrderedStep>,
+}
+
+/// Position of a test among the tests of an ordered module that are about to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrderedStep {
+    /// 1-based position, in execution order.
+    pub step: usize,
+    /// Number of tests that run in this order.
+    pub total: usize,
 }
 
 /// Final test execution result.
@@ -1276,18 +1288,6 @@ impl Runner {
                 .collect();
             total_tests = all_tests.len();
 
-            // Tell reporters how many tests will run before the first one starts
-            if let Ok(guard) = CHANNEL.lock() {
-                if let Some((tx, _)) = guard.as_ref() {
-                    let _ = tx.send(Event {
-                        project: "".to_string(),
-                        module: "".to_string(),
-                        test: "".to_string(),
-                        body: EventBody::Plan(TestPlan { total_tests }),
-                    });
-                }
-            }
-
             // Separate ordered and non-ordered tests
             let (mut ordered_tests, non_ordered_tests): (Vec<_>, Vec<_>) =
                 all_tests.drain(..).partition(|(_, info, _)| info.ordered);
@@ -1309,6 +1309,32 @@ impl Runner {
                     .entry(key)
                     .or_default()
                     .push((project, info, factory));
+            }
+
+            let mut ordered_steps = HashMap::new();
+            for tests in ordered_groups.values().filter(|tests| tests.len() > 1) {
+                let total = tests.len();
+                for (i, (project, info, _factory)) in tests.iter().enumerate() {
+                    ordered_steps.insert(
+                        (project.name.clone(), info.module.clone(), info.name.clone()),
+                        OrderedStep { step: i + 1, total },
+                    );
+                }
+            }
+
+            // Tell reporters what will run before the first test starts
+            if let Ok(guard) = CHANNEL.lock() {
+                if let Some((tx, _)) = guard.as_ref() {
+                    let _ = tx.send(Event {
+                        project: "".to_string(),
+                        module: "".to_string(),
+                        test: "".to_string(),
+                        body: EventBody::Plan(TestPlan {
+                            total_tests,
+                            ordered_steps,
+                        }),
+                    });
+                }
             }
 
             // Create futures for ordered test groups (each group runs sequentially)
