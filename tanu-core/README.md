@@ -78,7 +78,7 @@ Add `tanu-core` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tanu-core = "1.3.1"
+tanu-core = "1.3.2"
 ```
 
 ### Basic HTTP Test Example
