@@ -41,4 +41,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 test-case = "3"
 url = "2"
 tower = { version = "0.5", features = ["util"] }
-tonic = { version = "0.14", features = ["transport"] }
+tonic = { version = "0.14.7", features = ["transport"] }
