@@ -1,0 +1,229 @@
+/* ------------------------------------------------------------------
+ * tanu palette – taken from the logo: amber fur, cream belly, dark
+ * brown outline.
+ * ------------------------------------------------------------------ */
+:root,
+[data-md-color-scheme="default"] {
+  --tanu-amber: #d9962b;
+  --tanu-amber-deep: #9a5b06;
+  --tanu-cream: #fbebd0;
+  --tanu-ink: #2b2118;
+
+  --md-primary-fg-color: var(--tanu-ink);
+  --md-primary-fg-color--light: #4a3a2c;
+  --md-primary-fg-color--dark: #1a140e;
+  --md-primary-bg-color: #fdf6e9;
+  --md-primary-bg-color--light: #fdf6e9b3;
+
+  --md-accent-fg-color: #c77a14;
+  --md-accent-fg-color--transparent: #d9962b1a;
+
+  --md-default-bg-color: #fffdf9;
+  --md-typeset-a-color: var(--tanu-amber-deep);
+  --md-code-bg-color: #f7f1e8;
+  --md-typeset-mark-color: #f5c77a66;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 30;
+  --tanu-amber-deep: #f0b35a;
+  --tanu-cream: #3a2e22;
+
+  --md-primary-fg-color: #1c1712;
+  --md-primary-fg-color--light: #2b2219;
+  --md-primary-fg-color--dark: #120e0a;
+  --md-primary-bg-color: #fbebd0;
+
+  --md-accent-fg-color: #f0a73a;
+  --md-accent-fg-color--transparent: #f0a73a1a;
+
+  --md-default-bg-color: #1a1612;
+  --md-typeset-a-color: var(--tanu-amber-deep);
+  --md-code-bg-color: #231e19;
+}
+
+/* Header and tabs share the dark brown bar */
+.md-header,
+.md-tabs {
+  background-color: var(--md-primary-fg-color);
+}
+
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--tanu-amber);
+}
+
+.md-header__button.md-logo img {
+  height: 1.6rem;
+  border-radius: 50%;
+}
+
+/* ------------------------------------------------------------------
+ * Typography
+ * ------------------------------------------------------------------ */
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  padding-bottom: 0.3em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+.md-typeset pre > code {
+  border-radius: 0.4rem;
+}
+
+/* Tables: full width with a subtle header */
+.md-typeset__table {
+  width: 100%;
+}
+
+.md-typeset__table table:not([class]) {
+  display: table;
+  width: 100%;
+  font-size: 0.72rem;
+  border-radius: 0.4rem;
+}
+
+.md-typeset table:not([class]) td:first-child code {
+  white-space: nowrap;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+/* Screenshots */
+.md-typeset img.tanu-shot,
+.md-typeset .tabbed-block > p > img {
+  border-radius: 0.5rem;
+  box-shadow: 0 0.4rem 1.6rem rgb(0 0 0 / 18%);
+}
+
+/* ------------------------------------------------------------------
+ * Landing page
+ * ------------------------------------------------------------------ */
+.tanu-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2rem;
+  margin: 1rem 0 2.5rem;
+}
+
+.tanu-hero__logo {
+  width: 11rem;
+  height: 11rem;
+  border-radius: 50%;
+  background: var(--tanu-cream);
+  box-shadow: 0 0 0 0.35rem var(--md-accent-fg-color--transparent);
+}
+
+.md-typeset .tanu-hero h1 {
+  font-size: 2.6rem;
+  margin: 0 0 0.4rem;
+  line-height: 1.1;
+}
+
+.tanu-hero__tagline {
+  font-size: 1.05rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0 0 1.4rem;
+}
+
+.md-typeset .tanu-hero .md-button {
+  margin: 0.2rem 0.4rem 0.2rem 0;
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--tanu-amber);
+  border-color: var(--tanu-amber);
+  color: #1a140e;
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  background-color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: #1a140e;
+}
+
+/* Secondary buttons must stay visible on both schemes */
+.md-typeset .md-button:not(.md-button--primary) {
+  color: var(--md-default-fg-color);
+  border-color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .md-button:not(.md-button--primary):hover,
+.md-typeset .md-button:not(.md-button--primary):focus {
+  color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  background-color: transparent;
+}
+
+.md-typeset .tanu-hero__install {
+  margin: 1rem 0 0.8rem;
+}
+
+.md-typeset .tanu-hero__install code {
+  font-size: 0.8rem;
+  padding: 0.5em 0.9em;
+  border-radius: 0.4rem;
+}
+
+.md-typeset .tanu-hero__install code::before {
+  content: "$ ";
+  color: var(--md-default-fg-color--lighter);
+}
+
+@media screen and (max-width: 44.9375em) {
+  .tanu-hero {
+    grid-template-columns: minmax(0, 1fr);
+    text-align: center;
+  }
+
+  .tanu-hero > :last-child {
+    order: -1;
+  }
+
+  .tanu-hero__logo {
+    margin: 0 auto;
+    width: 8rem;
+    height: 8rem;
+  }
+
+  .md-typeset .tanu-hero h1 {
+    font-size: 2rem;
+  }
+}
+
+/* Feature cards */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li {
+  border-radius: 0.5rem;
+  transition: border-color 150ms, box-shadow 150ms, transform 150ms;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--md-accent-fg-color);
+  box-shadow: 0 0.2rem 1rem var(--md-accent-fg-color--transparent);
+  transform: translateY(-1px);
+}
+
+.md-typeset .grid.cards .twemoji,
+.md-typeset .grid.cards .lg {
+  color: var(--tanu-amber);
+}
