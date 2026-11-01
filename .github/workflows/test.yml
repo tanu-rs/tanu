@@ -1,10 +1,12 @@
-name: test
+name: Test
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: ["*"]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,27 +18,37 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-    - uses: actions/checkout@v4
-    - name: set up Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-    - name: build crates and examples (native-tls)
-      run: |
-        cargo build --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"
-    - name: build crates and examples (rustls-tls)
-      run: |
-        cargo build --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"
-    - name: run clippy (native-tls)
-      run: |
-        cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls" -- --deny clippy::all
-    - name: run clippy (rustls-tls)
-      run: |
-        cargo clippy --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots" -- --deny clippy::all
-    - name: install nextest
-      uses: taiki-e/install-action@nextest
-    - name: run unit tests
-      run: cargo nextest run --retries 3
-    - name: run integration tests
-      run: cd tanu-integration-tests ; cargo run test ; cargo run --bin second-runner test ; cargo run --bin third-runner test
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Build crates and examples (native-tls)
+        run: |
+          cargo build --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls"
+      - name: Build crates and examples (rustls-tls)
+        run: |
+          cargo build --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots"
+      - name: Run clippy (native-tls)
+        run: |
+          cargo clippy --workspace --all-targets --features "json,multipart,cookies,grpc,graphql,native-tls" -- --deny clippy::all
+      - name: Run clippy (rustls-tls)
+        run: |
+          cargo clippy --workspace --all-targets --no-default-features --features "json,multipart,cookies,grpc,graphql,rustls-tls-webpki-roots" -- --deny clippy::all
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run unit tests
+        run: cargo nextest run --retries 3
+      - name: Run integration tests
+        working-directory: tanu-integration-tests
+        run: |
+          cargo run test
+          cargo run --bin second-runner test
+          cargo run --bin third-runner test

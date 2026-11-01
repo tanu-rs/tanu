@@ -1,4 +1,4 @@
-name: publish-docs
+name: Publish Docs
 
 on:
   push:
@@ -15,19 +15,21 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v5
-    - name: Configure git author
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-    - name: Set up uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        python-version: "3.11"
-    - name: Sync dependencies
-      run: uv sync --frozen
-    - name: Build and deploy documentation
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: uv run mkdocs gh-deploy --force --clean
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.11"
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Build and deploy documentation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run mkdocs gh-deploy --force --clean

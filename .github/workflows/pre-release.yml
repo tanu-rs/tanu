@@ -1,0 +1,30 @@
+name: Pre-release
+
+on:
+  release:
+    types: [prereleased]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  dryrun:
+    name: Pre-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Dry-run publish tanu-derive
+        run: cargo publish --dry-run --no-verify --package tanu-derive
+      - name: Dry-run publish tanu-core
+        run: cargo publish --dry-run --no-verify --package tanu-core
+      - name: Dry-run publish tanu-tui
+        run: cargo publish --dry-run --no-verify --package tanu-tui
+      - name: Dry-run publish tanu
+        run: cargo publish --dry-run --no-verify --package tanu
